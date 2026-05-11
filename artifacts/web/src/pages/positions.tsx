@@ -21,6 +21,7 @@ import {
 } from "@workspace/api-client-react";
 import { AppShell } from "@/components/app-shell";
 import { AddPositionDialog } from "@/components/add-position-dialog";
+import { RollPositionDialog } from "@/components/roll-position-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -454,7 +455,10 @@ export function PositionsPage() {
                       <td className="px-3 py-2">
                         <div className="flex items-center justify-end gap-1">
                           {p.status === "open" ? (
-                            <ClosePositionDialog position={p} onClosed={invalidate} />
+                            <>
+                              <RollPositionDialog position={p} onRolled={invalidate} />
+                              <ClosePositionDialog position={p} onClosed={invalidate} />
+                            </>
                           ) : (
                             <Button
                               variant="outline"
