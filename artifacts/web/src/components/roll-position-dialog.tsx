@@ -161,8 +161,34 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
       Number.isFinite(strikeNum) && Number.isFinite(premiumNum) && Number.isFinite(closeNum)
         ? strikeNum - (premiumNum - closeNum)
         : null;
-    return { netCredit, breakeven };
-  }, [premiumNum, closeNum, contractsNum, strikeNum]);
+    // Annualized yield on collateral for the new leg:
+    //   (newPremium / newStrike) * (365 / DTE)
+    // DTE is measured from today (UTC midnight) to the new expiry, so the
+    // value updates whenever strike, premium, or expiry change.
+    let annualizedYield: number | null = null;
+    if (
+      /^\d{4}-\d{2}-\d{2}$/.test(newExpiry) &&
+      Number.isFinite(strikeNum) &&
+      strikeNum > 0 &&
+      Number.isFinite(premiumNum) &&
+      premiumNum >= 0
+    ) {
+      const expiryDate = new Date(`${newExpiry}T00:00:00Z`);
+      const now = new Date();
+      const today = Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate(),
+      );
+      const dte = Math.round(
+        (expiryDate.getTime() - today) / (1000 * 60 * 60 * 24),
+      );
+      if (dte > 0) {
+        annualizedYield = (premiumNum / strikeNum) * (365 / dte);
+      }
+    }
+    return { netCredit, breakeven, annualizedYield };
+  }, [premiumNum, closeNum, contractsNum, strikeNum, newExpiry]);
 
   const realizedPreview =
     Number.isFinite(closeNum)
@@ -493,6 +519,17 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
                   <span className="font-medium" data-testid="roll-breakeven">
                     {previews.breakeven != null
                       ? fmtMoney(previews.breakeven)
+                      : "—"}
+                  </span>
+                </span>
+                <span>
+                  <span className="text-muted-foreground">Annualized yield </span>
+                  <span
+                    className="font-medium"
+                    data-testid="roll-annualized-yield"
+                  >
+                    {previews.annualizedYield != null
+                      ? `${(previews.annualizedYield * 100).toFixed(1)}%`
                       : "—"}
                   </span>
                 </span>
