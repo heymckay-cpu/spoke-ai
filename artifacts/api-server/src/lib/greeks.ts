@@ -31,7 +31,7 @@ function d1(S: number, K: number, r: number, sigma: number, T: number): number {
 export interface Greeks {
   delta: number;
   gamma: number;
-  theta: number; // per year
+  theta: number; // per day (annual theta divided by 365)
   vega: number;
 }
 
