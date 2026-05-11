@@ -250,7 +250,16 @@ export async function getExpirations(ticker: string): Promise<string[]> {
     const resRaw = await provider.options(ticker);
     const res = resRaw as { expirationDates?: Array<Date | number> };
     const exps = (res.expirationDates ?? [])
-      .map((d: Date | number) => (d instanceof Date ? toIsoDate(d) : null))
+      .map((d: Date | number) => {
+        if (d instanceof Date) return toIsoDate(d);
+        // Defensively handle epoch numbers (seconds or millis) in case the
+        // provider returns raw timestamps in some environments.
+        if (typeof d === "number" && Number.isFinite(d)) {
+          const ms = d > 1e12 ? d : d * 1000;
+          return toIsoDate(new Date(ms));
+        }
+        return null;
+      })
       .filter((d): d is string => d !== null);
     setCached(key, exps);
     return exps;

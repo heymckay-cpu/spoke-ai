@@ -15,7 +15,21 @@ router.put("/settings", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const s = await saveSettings(parsed.data);
+  // Cross-field invariants the per-field zod schema can't express.
+  const v = parsed.data;
+  if (v.minDte > v.maxDte) {
+    res.status(400).json({ error: "minDte must be <= maxDte" });
+    return;
+  }
+  if (v.minDelta > v.maxDelta) {
+    res.status(400).json({ error: "minDelta must be <= maxDelta" });
+    return;
+  }
+  if (v.targetDelta < v.minDelta || v.targetDelta > v.maxDelta) {
+    res.status(400).json({ error: "targetDelta must be within [minDelta, maxDelta]" });
+    return;
+  }
+  const s = await saveSettings(v);
   res.json(UpdateSettingsResponse.parse(s));
 });
 

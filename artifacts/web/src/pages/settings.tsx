@@ -31,20 +31,44 @@ import { useToast } from "@/hooks/use-toast";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const SettingsSchema = z.object({
-  tickers: z.array(z.string().min(1)).min(1, "Add at least one ticker"),
-  minDte: z.number().int().min(1).max(365),
-  maxDte: z.number().int().min(1).max(365),
-  targetDelta: z.number().min(0).max(1),
-  minDelta: z.number().min(0).max(1),
-  maxDelta: z.number().min(0).max(1),
-  minOpenInterest: z.number().int().min(0),
-  minBid: z.number().min(0),
-  minUnderlyingPrice: z.number().min(0),
-  riskFreeRate: z.number().min(0).max(1),
-  topN: z.number().int().min(1).max(200),
-  cacheTtlMinutes: z.number().int().min(1).max(1440),
-});
+const SettingsSchema = z
+  .object({
+    tickers: z.array(z.string().min(1)).min(1, "Add at least one ticker"),
+    minDte: z.number().int().min(1).max(365),
+    maxDte: z.number().int().min(1).max(365),
+    targetDelta: z.number().min(0).max(1),
+    minDelta: z.number().min(0).max(1),
+    maxDelta: z.number().min(0).max(1),
+    minOpenInterest: z.number().int().min(0),
+    minBid: z.number().min(0),
+    minUnderlyingPrice: z.number().min(0),
+    riskFreeRate: z.number().min(0).max(1),
+    topN: z.number().int().min(1).max(200),
+    cacheTtlMinutes: z.number().int().min(1).max(1440),
+  })
+  .superRefine((v, ctx) => {
+    if (v.minDte > v.maxDte) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["maxDte"],
+        message: "Max DTE must be ≥ Min DTE",
+      });
+    }
+    if (v.minDelta > v.maxDelta) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["maxDelta"],
+        message: "Max Δ must be ≥ Min Δ",
+      });
+    }
+    if (v.targetDelta < v.minDelta || v.targetDelta > v.maxDelta) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetDelta"],
+        message: "Target Δ must be within [Min Δ, Max Δ]",
+      });
+    }
+  });
 
 type FormValues = z.infer<typeof SettingsSchema>;
 
