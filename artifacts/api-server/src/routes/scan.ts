@@ -37,13 +37,20 @@ async function loadLatestFromDb(): Promise<ScanResultOut> {
       cached: false,
     };
   }
+  // Mirror the in-memory cache TTL when serving DB-backed snapshots: if the
+  // stored snapshot is older than `cacheTtlMinutes`, treat it as stale (the
+  // scannedAt timestamp still flows through so the UI's freshness indicator
+  // is honest).
+  const settings = await getSettings();
+  const ageMs = Date.now() - row.scannedAt.getTime();
+  const isStale = ageMs > settings.cacheTtlMinutes * 60 * 1000;
   return {
     scannedAt: row.scannedAt.toISOString(),
-    candidates: row.candidates as CandidateOut[],
-    errors: row.errors as ScanError[],
-    tickersScanned: row.tickersScanned,
-    tickersWithCandidate: row.tickersWithCandidate,
-    cached: true,
+    candidates: isStale ? [] : (row.candidates as CandidateOut[]),
+    errors: isStale ? [] : (row.errors as ScanError[]),
+    tickersScanned: isStale ? 0 : row.tickersScanned,
+    tickersWithCandidate: isStale ? 0 : row.tickersWithCandidate,
+    cached: !isStale,
   };
 }
 
