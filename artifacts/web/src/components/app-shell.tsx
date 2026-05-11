@@ -8,7 +8,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import spokeAiLogo from "@/assets/spoke-ai-logo.png";
+import spokeMark from "@/assets/spoke-mark.png";
 import {
   getGetLatestScanQueryKey,
   getHealthCheckQueryKey,
@@ -86,13 +86,22 @@ export function AppShell({ title, breadcrumbs, actions, children }: AppShellProp
         className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex"
         data-testid="nav-sidebar"
       >
-        <div className="flex h-20 items-center border-b border-sidebar-border px-4">
+        <div className="flex h-14 items-center gap-2.5 border-b border-sidebar-border px-4">
           <img
-            src={spokeAiLogo}
-            alt="Spoke AI"
-            className="h-14 w-auto max-w-full object-contain"
+            src={spokeMark}
+            alt=""
+            aria-hidden="true"
+            className="h-7 w-7 object-contain"
             data-testid="img-brand-logo"
           />
+          <div className="flex items-baseline gap-1 leading-none">
+            <span className="text-base font-semibold tracking-tight text-sidebar-foreground">
+              Spoke
+            </span>
+            <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-primary">
+              AI
+            </span>
+          </div>
         </div>
 
         <nav className="flex-1 space-y-1 p-3">
@@ -162,13 +171,20 @@ export function AppShell({ title, breadcrumbs, actions, children }: AppShellProp
               </SheetTrigger>
               <SheetContent side="left" className="w-64 p-0">
                 <SheetHeader className="border-b border-border px-4 py-3">
-                  <SheetTitle className="flex items-center text-sm">
+                  <SheetTitle className="flex items-center gap-2 text-sm">
                     <img
-                      src={spokeAiLogo}
-                      alt="Spoke AI"
-                      className="h-10 w-auto max-w-full object-contain"
+                      src={spokeMark}
+                      alt=""
+                      aria-hidden="true"
+                      className="h-6 w-6 object-contain"
                       data-testid="img-brand-logo-mobile"
                     />
+                    <span className="flex items-baseline gap-1 leading-none">
+                      <span className="font-semibold tracking-tight">Spoke</span>
+                      <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-primary">
+                        AI
+                      </span>
+                    </span>
                   </SheetTitle>
                 </SheetHeader>
                 <nav className="space-y-1 p-3">
