@@ -1,0 +1,451 @@
+import { useMemo } from "react";
+import { Link } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useListPositions,
+  getListPositionsQueryKey,
+} from "@workspace/api-client-react";
+import type { Candidate, Position } from "@workspace/api-client-react";
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  CalendarClock,
+  CheckCircle2,
+  Clock,
+  Layers,
+  Lightbulb,
+  TrendingUp,
+} from "lucide-react";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { IvRankPill } from "@/components/iv-rank-pill";
+import { EarningsFlag } from "@/components/earnings-flag";
+import { AddPositionDialog } from "@/components/add-position-dialog";
+import { RollPositionDialog } from "@/components/roll-position-dialog";
+import {
+  fmtCompactMoney,
+  fmtDate,
+  fmtFractionPct,
+  fmtMoney,
+  fmtNum,
+  fmtPct,
+} from "@/lib/format";
+import { cn } from "@/lib/utils";
+
+type Tone = "success" | "warning" | "default" | "muted" | "danger";
+
+interface Recommendation {
+  title: string;
+  detail: string;
+  tone: Tone;
+  ticket?: string;
+}
+
+function recommend(c: Candidate, openInTicker: Position[]): Recommendation {
+  if (openInTicker.length === 0) {
+    if (c.earningsInWindow) {
+      return {
+        title: "Wait — earnings inside the window",
+        detail:
+          "An earnings report lands before this expiry. Implied vol is rich for a reason; consider waiting until after the print or sizing down by half.",
+        tone: "warning",
+        ticket: `SELL -1 ${c.ticker} ${fmtMoney(c.strike)}P ${fmtDate(c.expiry)} @ ${fmtMoney(c.bid)}`,
+      };
+    }
+    if (c.annualizedPct >= 30) {
+      return {
+        title: "Strong entry — sell to open",
+        detail: `Annualized ${fmtPct(c.annualizedPct, 1)} on ${fmtPct(c.pctOtm, 1)} OTM cushion with ${c.dte}d for theta to work. POP from delta is roughly ${fmtFractionPct(1 - Math.abs(c.delta), 0)}.`,
+        tone: "success",
+        ticket: `SELL -1 ${c.ticker} ${fmtMoney(c.strike)}P ${fmtDate(c.expiry)} @ ${fmtMoney(c.bid)}`,
+      };
+    }
+    if (c.annualizedPct >= 15) {
+      return {
+        title: "Solid wheel entry",
+        detail: `Reasonable yield (${fmtPct(c.annualizedPct, 1)} ann.) with ${fmtPct(c.pctOtm, 1)} cushion. Standard wheel candidate — size to your usual risk.`,
+        tone: "default",
+        ticket: `SELL -1 ${c.ticker} ${fmtMoney(c.strike)}P ${fmtDate(c.expiry)} @ ${fmtMoney(c.bid)}`,
+      };
+    }
+    return {
+      title: "Yield is light",
+      detail: `Annualized ${fmtPct(c.annualizedPct, 1)} is on the low end. Only worth selling if you actually want to own ${c.ticker} at ${fmtMoney(c.strike)}.`,
+      tone: "muted",
+      ticket: `SELL -1 ${c.ticker} ${fmtMoney(c.strike)}P ${fmtDate(c.expiry)} @ ${fmtMoney(c.bid)}`,
+    };
+  }
+
+  const exact = openInTicker.find(
+    (p) => p.strike === c.strike && p.expiry === c.expiry,
+  );
+  const focus =
+    exact ?? [...openInTicker].sort((a, b) => a.dte - b.dte)[0]!;
+
+  const itm = focus.spot != null && focus.spot < focus.strike;
+  const dte = focus.dte;
+  const profitPct =
+    focus.currentBid != null && focus.premium > 0
+      ? (focus.premium - focus.currentBid) / focus.premium
+      : null;
+  const ccTarget = focus.strike * 1.05;
+
+  if (dte < 0) {
+    return {
+      title: "Reconcile expired position",
+      detail: `Your ${focus.strike}P ${focus.expiry} expired ${Math.abs(dte)}d ago. Mark it assigned or closed in the Positions tab so the journal stays accurate.`,
+      tone: "warning",
+    };
+  }
+  if (itm && dte <= 3) {
+    return {
+      title: "Roll out or take assignment",
+      detail: `${c.ticker} is ITM at ${focus.spot != null ? fmtMoney(focus.spot) : "spot"} with only ${dte}d left on your ${fmtMoney(focus.strike)}P. Either roll down/out for net credit or accept ${focus.contracts * 100} shares at ${fmtMoney(focus.strike)} and sell a covered call near ${fmtMoney(ccTarget)}.`,
+      tone: "danger",
+    };
+  }
+  if (itm) {
+    return {
+      title: "Watch closely — consider rolling",
+      detail: `Spot (${focus.spot != null ? fmtMoney(focus.spot) : "n/a"}) is below your strike (${fmtMoney(focus.strike)}). With ${dte}d left, rolling to a later expiry usually collects additional credit and buys time for recovery.`,
+      tone: "warning",
+    };
+  }
+  if (profitPct != null && profitPct >= 0.5) {
+    return {
+      title: "Close early — locked in gains",
+      detail: `You've captured ${fmtPct(profitPct, 0)} of max premium on this ${focus.strike}P. Closing now frees ${fmtCompactMoney(focus.strike * 100 * focus.contracts)} of collateral and removes tail risk for the remaining ${dte}d.`,
+      tone: "success",
+    };
+  }
+  if (dte <= 3) {
+    return {
+      title: "Let theta finish the job",
+      detail: `OTM with ${dte}d left. Let it expire worthless — only buy-to-close if the credit drops under ~10% of original premium and you want to redeploy capital.`,
+      tone: "default",
+    };
+  }
+  if (exact) {
+    return {
+      title: "Hold — position is healthy",
+      detail: `Comfortably OTM with ${dte}d to expiry. Theta is on your side. Re-check if spot drops within 5% of strike.`,
+      tone: "default",
+    };
+  }
+  // Open position exists in this ticker, but the clicked candidate is a different leg
+  return {
+    title: "You already have an open leg here",
+    detail: `${c.ticker} ${fmtMoney(focus.strike)}P ${fmtDate(focus.expiry)} is open (${dte}d, ${focus.contracts} contract${focus.contracts === 1 ? "" : "s"}). Stacking this new ${fmtMoney(c.strike)}P ${fmtDate(c.expiry)} would add ${fmtCompactMoney(c.collateralPerContract)} of collateral — only do it if you're under-allocated to the name.`,
+    tone: "default",
+    ticket: `SELL -1 ${c.ticker} ${fmtMoney(c.strike)}P ${fmtDate(c.expiry)} @ ${fmtMoney(c.bid)}`,
+  };
+}
+
+const TONE_STYLES: Record<Tone, { bg: string; text: string; icon: typeof Lightbulb }> = {
+  success: { bg: "bg-emerald-500/10 border-emerald-500/30", text: "text-emerald-500", icon: CheckCircle2 },
+  warning: { bg: "bg-amber-500/10 border-amber-500/30", text: "text-amber-500", icon: AlertTriangle },
+  danger: { bg: "bg-rose-500/10 border-rose-500/30", text: "text-rose-500", icon: AlertTriangle },
+  default: { bg: "bg-primary/10 border-primary/30", text: "text-primary", icon: Lightbulb },
+  muted: { bg: "bg-muted border-border", text: "text-muted-foreground", icon: Lightbulb },
+};
+
+interface MetricProps {
+  label: string;
+  value: string;
+  hint?: string;
+}
+
+function Metric({ label, value, hint }: MetricProps) {
+  return (
+    <div className="rounded-md border border-border bg-card px-3 py-2">
+      <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-0.5 text-sm font-semibold tabular-nums">{value}</div>
+      {hint && <div className="text-[10px] text-muted-foreground">{hint}</div>}
+    </div>
+  );
+}
+
+export interface CandidateDetailDrawerProps {
+  candidate: Candidate | null;
+  onClose: () => void;
+}
+
+export function CandidateDetailDrawer({
+  candidate,
+  onClose,
+}: CandidateDetailDrawerProps) {
+  const qc = useQueryClient();
+  const positionsQuery = useListPositions({
+    query: {
+      queryKey: getListPositionsQueryKey(),
+      enabled: candidate != null,
+    },
+  });
+
+  const openInTicker = useMemo<Position[]>(() => {
+    if (!candidate) return [];
+    return (positionsQuery.data?.positions ?? []).filter(
+      (p) => p.status === "open" && p.ticker === candidate.ticker,
+    );
+  }, [candidate, positionsQuery.data]);
+
+  const rec = candidate ? recommend(candidate, openInTicker) : null;
+  const ToneIcon = rec ? TONE_STYLES[rec.tone].icon : Lightbulb;
+
+  const invalidatePositions = () => {
+    qc.invalidateQueries({ queryKey: getListPositionsQueryKey() });
+  };
+
+  return (
+    <Sheet open={candidate != null} onOpenChange={(o) => !o && onClose()}>
+      <SheetContent
+        side="right"
+        className="w-full overflow-y-auto sm:max-w-lg lg:max-w-xl"
+        data-testid="drawer-candidate-detail"
+      >
+        {candidate && rec && (
+          <>
+            <SheetHeader className="space-y-1">
+              <div className="flex items-center justify-between gap-3">
+                <SheetTitle className="text-2xl font-semibold tracking-tight">
+                  <Link
+                    href={`/chain/${candidate.ticker}`}
+                    className="hover:text-primary"
+                    onClick={onClose}
+                  >
+                    {candidate.ticker}
+                    <ArrowUpRight className="ml-1 inline h-4 w-4 align-text-top text-muted-foreground" />
+                  </Link>
+                </SheetTitle>
+                <div className="flex items-center gap-2">
+                  <IvRankPill rank={candidate.ivRank ?? null} />
+                  <EarningsFlag
+                    earningsDate={candidate.earningsDate}
+                    inWindow={candidate.earningsInWindow}
+                  />
+                </div>
+              </div>
+              <SheetDescription className="flex items-center gap-3 text-sm">
+                <span className="tabular-nums text-foreground">
+                  Spot {fmtMoney(candidate.spot)}
+                </span>
+                <span className="text-muted-foreground">·</span>
+                <span className="tabular-nums">
+                  {fmtMoney(candidate.strike)}P · {fmtDate(candidate.expiry)} · {candidate.dte}d
+                </span>
+              </SheetDescription>
+            </SheetHeader>
+
+            {/* Recommendation card */}
+            <div
+              className={cn(
+                "mt-5 rounded-lg border p-4",
+                TONE_STYLES[rec.tone].bg,
+              )}
+              data-testid="recommendation-card"
+            >
+              <div className="flex items-start gap-3">
+                <ToneIcon
+                  className={cn("mt-0.5 h-5 w-5 shrink-0", TONE_STYLES[rec.tone].text)}
+                />
+                <div className="flex-1 space-y-1.5">
+                  <div className={cn("text-sm font-semibold", TONE_STYLES[rec.tone].text)}>
+                    {rec.title}
+                  </div>
+                  <p className="text-sm leading-relaxed text-foreground/90">
+                    {rec.detail}
+                  </p>
+                  {rec.ticket && (
+                    <div className="mt-2 rounded border border-border bg-background/60 px-3 py-2 font-mono text-xs tracking-tight">
+                      {rec.ticket}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Your position */}
+            <div className="mt-5 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <Layers className="h-3.5 w-3.5" />
+                Your position in {candidate.ticker}
+              </div>
+              {positionsQuery.isLoading ? (
+                <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
+                  Loading positions…
+                </div>
+              ) : openInTicker.length === 0 ? (
+                <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
+                  No open position in {candidate.ticker}. This would be a fresh entry.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {openInTicker.map((p) => {
+                    const itm = p.spot != null && p.spot < p.strike;
+                    const profitPct =
+                      p.currentBid != null && p.premium > 0
+                        ? (p.premium - p.currentBid) / p.premium
+                        : null;
+                    return (
+                      <div
+                        key={p.id}
+                        className="rounded-md border border-card-border bg-card px-3 py-2.5 text-sm"
+                        data-testid={`open-position-${p.id}`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="font-medium tabular-nums">
+                            {p.contracts}× {fmtMoney(p.strike)}P {fmtDate(p.expiry)}
+                          </div>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 tabular-nums",
+                                itm
+                                  ? "bg-rose-500/15 text-rose-500"
+                                  : "bg-emerald-500/15 text-emerald-500",
+                              )}
+                            >
+                              {itm ? "ITM" : "OTM"} · {p.dte}d
+                            </span>
+                          </div>
+                        </div>
+                        <div className="mt-1.5 grid grid-cols-3 gap-2 text-xs text-muted-foreground tabular-nums">
+                          <span>Premium {fmtMoney(p.premium)}</span>
+                          <span>
+                            Bid {p.currentBid != null ? fmtMoney(p.currentBid) : "—"}
+                          </span>
+                          <span
+                            className={cn(
+                              profitPct != null && profitPct >= 0
+                                ? "text-emerald-500"
+                                : profitPct != null
+                                  ? "text-rose-500"
+                                  : "",
+                            )}
+                          >
+                            {profitPct != null
+                              ? `Captured ${fmtPct(profitPct, 0)}`
+                              : "P/L —"}
+                          </span>
+                        </div>
+                        <div className="mt-2 flex justify-end">
+                          <RollPositionDialog
+                            position={p}
+                            onRolled={invalidatePositions}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <Separator className="my-5" />
+
+            {/* Trade metrics */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <TrendingUp className="h-3.5 w-3.5" />
+                Trade details
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <Metric
+                  label="Premium"
+                  value={fmtMoney(candidate.premiumPerContract)}
+                  hint={`${fmtMoney(candidate.bid)}/sh × 100`}
+                />
+                <Metric
+                  label="Collateral"
+                  value={fmtCompactMoney(candidate.collateralPerContract)}
+                />
+                <Metric
+                  label="Static %"
+                  value={fmtPct(candidate.staticReturnPct, 2)}
+                />
+                <Metric
+                  label="Annualized"
+                  value={fmtPct(candidate.annualizedPct, 1)}
+                  hint={`${candidate.dte}d to expiry`}
+                />
+                <Metric
+                  label="Breakeven"
+                  value={fmtMoney(candidate.breakeven)}
+                  hint={`${fmtPct(candidate.pctOtm, 1)} OTM`}
+                />
+                <Metric
+                  label="Δ / IV"
+                  value={`${fmtNum(candidate.delta, 2)} · ${fmtFractionPct(candidate.iv, 1)}`}
+                  hint={`POP ~${fmtFractionPct(1 - Math.abs(candidate.delta), 0)}`}
+                />
+              </div>
+            </div>
+
+            {/* Risk callouts */}
+            {(candidate.earningsInWindow || (candidate.ivRank != null && candidate.ivRank > 0.7)) && (
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Heads up
+                </div>
+                <ul className="space-y-1.5 text-sm">
+                  {candidate.earningsInWindow && (
+                    <li className="flex items-start gap-2">
+                      <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                      <span>
+                        Earnings {candidate.earningsDate ? `on ${fmtDate(candidate.earningsDate)}` : "expected"} before expiry — IV is elevated for a reason.
+                      </span>
+                    </li>
+                  )}
+                  {candidate.ivRank != null && candidate.ivRank > 0.7 && (
+                    <li className="flex items-start gap-2">
+                      <Clock className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                      <span>
+                        IV Rank {Math.round(candidate.ivRank * 100)} — premium is rich vs. the past year. Good for sellers, but volatility tends to revert.
+                      </span>
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <Button asChild variant="outline" onClick={onClose}>
+                <Link href={`/chain/${candidate.ticker}`}>View chain</Link>
+              </Button>
+              <AddPositionDialog
+                defaultExpiry={candidate.expiry}
+                initialValues={{
+                  ticker: candidate.ticker,
+                  strike: candidate.strike,
+                  expiry: candidate.expiry,
+                  premium: candidate.bid,
+                  contracts: 1,
+                }}
+                onCreated={() => {
+                  invalidatePositions();
+                  onClose();
+                }}
+                trigger={
+                  <Button data-testid="button-log-from-drawer">
+                    Log this trade
+                  </Button>
+                }
+              />
+            </div>
+          </>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}

@@ -24,6 +24,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getListPositionsQueryKey } from "@workspace/api-client-react";
 import { AppShell } from "@/components/app-shell";
 import { AddPositionDialog } from "@/components/add-position-dialog";
+import { CandidateDetailDrawer } from "@/components/candidate-detail-drawer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -182,6 +183,7 @@ export function CandidatesPage() {
   const [sort, setSort] = useState<SortState>({ key: "annualized", dir: "desc" });
   const [filter, setFilter] = useState("");
   const [page, setPage] = useState(0);
+  const [selected, setSelected] = useState<Candidate | null>(null);
   const PAGE_SIZE = 25;
 
   const candidates = latest.data?.candidates ?? [];
@@ -421,8 +423,18 @@ export function CandidatesPage() {
                   {pageRows.map((c, i) => (
                     <tr
                       key={`${c.ticker}-${c.expiry}-${c.strike}-${i}`}
+                      onClick={() => setSelected(c)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setSelected(c);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`View details for ${c.ticker} ${fmtMoney(c.strike)} put expiring ${c.expiry}`}
                       className={cn(
-                        "border-b border-border/60 transition-colors hover:bg-accent/30",
+                        "cursor-pointer border-b border-border/60 transition-colors hover:bg-accent/30 focus:outline-none focus-visible:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                         i % 2 === 1 && "bg-muted/30",
                       )}
                       data-testid={`row-candidate-${c.ticker}-${i}`}
@@ -430,6 +442,7 @@ export function CandidatesPage() {
                       <td className="px-3 py-2">
                         <Link
                           href={`/chain/${c.ticker}`}
+                          onClick={(e) => e.stopPropagation()}
                           className="font-semibold tracking-tight text-foreground hover:text-primary"
                           data-testid={`link-ticker-${c.ticker}`}
                         >
@@ -480,7 +493,10 @@ export function CandidatesPage() {
                           inWindow={c.earningsInWindow}
                         />
                       </td>
-                      <td className="px-2 py-2 text-right">
+                      <td
+                        className="px-2 py-2 text-right"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <AddPositionDialog
                           defaultExpiry={c.expiry}
                           initialValues={{
@@ -516,6 +532,10 @@ export function CandidatesPage() {
           )}
         </Card>
       </motion.div>
+      <CandidateDetailDrawer
+        candidate={selected}
+        onClose={() => setSelected(null)}
+      />
     </AppShell>
   );
 }
