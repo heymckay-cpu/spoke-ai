@@ -8,6 +8,7 @@
 import type { PositionsStatsCumulativePnlItem } from "./positionsStatsCumulativePnlItem";
 import type { PositionsStatsPremiumByMonthItem } from "./positionsStatsPremiumByMonthItem";
 import type { PositionsStatsSummary } from "./positionsStatsSummary";
+import type { RollChain } from "./rollChain";
 
 export interface PositionsStats {
   summary: PositionsStatsSummary;
@@ -15,4 +16,6 @@ export interface PositionsStats {
   cumulativePnl: PositionsStatsCumulativePnlItem[];
   /** Premium collected (premium*100*contracts) grouped by close month. */
   premiumByMonth: PositionsStatsPremiumByMonthItem[];
+  /** Multi-leg roll chains (each chain has 2+ linked legs). */
+  rollChains: RollChain[];
 }

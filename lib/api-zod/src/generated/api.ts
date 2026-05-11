@@ -745,6 +745,58 @@ export const GetPositionsStatsResponse = zod.object({
     .describe(
       "Premium collected (premium\*100\*contracts) grouped by close month.",
     ),
+  rollChains: zod
+    .array(
+      zod.object({
+        rootId: zod
+          .number()
+          .describe(
+            "Id of the original (un-rolled) leg that started the chain.",
+          ),
+        ticker: zod.string(),
+        legCount: zod
+          .number()
+          .describe("Total legs in the chain (includes the original)."),
+        closedLegCount: zod.number(),
+        openedAt: zod.string().describe("Open date of the original leg."),
+        latestStatus: zod.enum(["open", "closed"]),
+        latestExpiry: zod.string(),
+        totalRealizedPnl: zod
+          .number()
+          .describe(
+            "Sum of realized P\/L across closed legs (open legs contribute zero).",
+          ),
+        totalPremiumCollected: zod
+          .number()
+          .describe("Sum of premium\*100\*contracts across every leg."),
+        legs: zod
+          .array(
+            zod.object({
+              id: zod.number(),
+              ticker: zod.string(),
+              strike: zod.number(),
+              expiry: zod.string(),
+              premium: zod.number(),
+              contracts: zod.number(),
+              openedAt: zod.string(),
+              closedAt: zod.string().nullish(),
+              closePrice: zod.number().nullish(),
+              status: zod.enum(["open", "closed"]),
+              realizedPnl: zod
+                .number()
+                .nullish()
+                .describe(
+                  "(premium - closePrice) \* 100 \* contracts; null when leg is still open",
+                ),
+              premiumCollected: zod
+                .number()
+                .describe("premium \* 100 \* contracts"),
+            }),
+          )
+          .describe("Legs in chronological order, oldest first."),
+      }),
+    )
+    .describe("Multi-leg roll chains (each chain has 2+ linked legs)."),
 });
 
 /**

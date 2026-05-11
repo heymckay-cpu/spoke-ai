@@ -320,11 +320,96 @@ router.get("/positions/stats", async (_req, res): Promise<void> => {
     worstTrade,
   };
 
+  // Roll chains — group positions linked via rolledFromId into chronological
+  // chains. We surface only chains with 2+ legs (i.e. at least one roll).
+  const rowsAsc = [...rows].sort(
+    (a, b) => a.openedAt.getTime() - b.openedAt.getTime(),
+  );
+  const childByParent = new Map<number, typeof rowsAsc[number]>();
+  for (const r of rowsAsc) {
+    if (r.rolledFromId != null) childByParent.set(r.rolledFromId, r);
+  }
+  const validIds = new Set(rowsAsc.map((r) => r.id));
+
+  type ChainLeg = {
+    id: number;
+    ticker: string;
+    strike: number;
+    expiry: string;
+    premium: number;
+    contracts: number;
+    openedAt: string;
+    closedAt: string | null;
+    closePrice: number | null;
+    status: "open" | "closed";
+    realizedPnl: number | null;
+    premiumCollected: number;
+  };
+
+  const toLeg = (r: typeof rowsAsc[number]): ChainLeg => {
+    const status: "open" | "closed" = r.closedAt ? "closed" : "open";
+    const realizedPnl =
+      status === "closed" && r.closePrice != null
+        ? (r.premium - r.closePrice) * 100 * r.contracts
+        : null;
+    return {
+      id: r.id,
+      ticker: r.ticker,
+      strike: r.strike,
+      expiry: r.expiry,
+      premium: r.premium,
+      contracts: r.contracts,
+      openedAt: r.openedAt.toISOString(),
+      closedAt: r.closedAt ? r.closedAt.toISOString() : null,
+      closePrice: r.closePrice,
+      status,
+      realizedPnl,
+      premiumCollected: r.premium * 100 * r.contracts,
+    };
+  };
+
+  const rollChains = rowsAsc
+    .filter(
+      // Roots: no parent, or parent missing (e.g. set-null after delete).
+      (r) => r.rolledFromId == null || !validIds.has(r.rolledFromId),
+    )
+    .map((root) => {
+      const legs: ChainLeg[] = [toLeg(root)];
+      let cur = childByParent.get(root.id);
+      const seen = new Set<number>([root.id]);
+      while (cur && !seen.has(cur.id)) {
+        seen.add(cur.id);
+        legs.push(toLeg(cur));
+        cur = childByParent.get(cur.id);
+      }
+      return legs;
+    })
+    .filter((legs) => legs.length >= 2)
+    .map((legs) => {
+      const last = legs[legs.length - 1]!;
+      const closedLegCount = legs.filter((l) => l.status === "closed").length;
+      return {
+        rootId: legs[0]!.id,
+        ticker: legs[0]!.ticker,
+        legCount: legs.length,
+        closedLegCount,
+        openedAt: legs[0]!.openedAt,
+        latestStatus: last.status,
+        latestExpiry: last.expiry,
+        totalRealizedPnl: legs.reduce((s, l) => s + (l.realizedPnl ?? 0), 0),
+        totalPremiumCollected: legs.reduce((s, l) => s + l.premiumCollected, 0),
+        legs,
+      };
+    })
+    // Most recent activity first.
+    .sort((a, b) => b.openedAt.localeCompare(a.openedAt));
+
   res.json(
     GetPositionsStatsResponse.parse({
       summary,
       cumulativePnl,
       premiumByMonth,
+      rollChains,
     }),
   );
 });

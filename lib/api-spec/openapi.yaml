@@ -868,12 +868,85 @@ components:
             openUnrealizedPnl: { type: number }
             closedRealizedPnl: { type: number }
 
+    RollChainLeg:
+      type: object
+      required:
+        - id
+        - ticker
+        - strike
+        - expiry
+        - premium
+        - contracts
+        - openedAt
+        - status
+        - premiumCollected
+      properties:
+        id: { type: integer }
+        ticker: { type: string }
+        strike: { type: number }
+        expiry: { type: string }
+        premium: { type: number }
+        contracts: { type: integer }
+        openedAt: { type: string }
+        closedAt: { type: ["string", "null"] }
+        closePrice: { type: ["number", "null"] }
+        status:
+          type: string
+          enum: [open, closed]
+        realizedPnl:
+          type: ["number", "null"]
+          description: "(premium - closePrice) * 100 * contracts; null when leg is still open"
+        premiumCollected:
+          type: number
+          description: "premium * 100 * contracts"
+
+    RollChain:
+      type: object
+      required:
+        - rootId
+        - ticker
+        - legCount
+        - closedLegCount
+        - openedAt
+        - latestStatus
+        - latestExpiry
+        - totalRealizedPnl
+        - totalPremiumCollected
+        - legs
+      properties:
+        rootId:
+          type: integer
+          description: Id of the original (un-rolled) leg that started the chain.
+        ticker: { type: string }
+        legCount: { type: integer, description: "Total legs in the chain (includes the original)." }
+        closedLegCount: { type: integer }
+        openedAt:
+          type: string
+          description: Open date of the original leg.
+        latestStatus:
+          type: string
+          enum: [open, closed]
+        latestExpiry:
+          type: string
+        totalRealizedPnl:
+          type: number
+          description: Sum of realized P/L across closed legs (open legs contribute zero).
+        totalPremiumCollected:
+          type: number
+          description: Sum of premium*100*contracts across every leg.
+        legs:
+          type: array
+          description: Legs in chronological order, oldest first.
+          items:
+            $ref: "#/components/schemas/RollChainLeg"
+
     PositionsStats:
       type: object
       required:
         - summary
         - cumulativePnl
         - premiumByMonth
+        - rollChains
       properties:
         summary:
           type: object
@@ -937,6 +1010,11 @@ components:
               month: { type: string, description: "YYYY-MM" }
               premium: { type: number }
               count: { type: integer }
+        rollChains:
+          type: array
+          description: Multi-leg roll chains (each chain has 2+ linked legs).
+          items:
+            $ref: "#/components/schemas/RollChain"
 
     RollSuggestionStrike:
       type: object

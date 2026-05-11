@@ -451,6 +451,63 @@ export interface PositionsList {
   totals: PositionsListTotals;
 }
 
+export type RollChainLegStatus =
+  (typeof RollChainLegStatus)[keyof typeof RollChainLegStatus];
+
+export const RollChainLegStatus = {
+  open: "open",
+  closed: "closed",
+} as const;
+
+export interface RollChainLeg {
+  id: number;
+  ticker: string;
+  strike: number;
+  expiry: string;
+  premium: number;
+  contracts: number;
+  openedAt: string;
+  /** @nullable */
+  closedAt?: string | null;
+  /** @nullable */
+  closePrice?: number | null;
+  status: RollChainLegStatus;
+  /**
+   * (premium - closePrice) * 100 * contracts; null when leg is still open
+   * @nullable
+   */
+  realizedPnl?: number | null;
+  /** premium * 100 * contracts */
+  premiumCollected: number;
+}
+
+export type RollChainLatestStatus =
+  (typeof RollChainLatestStatus)[keyof typeof RollChainLatestStatus];
+
+export const RollChainLatestStatus = {
+  open: "open",
+  closed: "closed",
+} as const;
+
+export interface RollChain {
+  /** Id of the original (un-rolled) leg that started the chain. */
+  rootId: number;
+  ticker: string;
+  /** Total legs in the chain (includes the original). */
+  legCount: number;
+  closedLegCount: number;
+  /** Open date of the original leg. */
+  openedAt: string;
+  latestStatus: RollChainLatestStatus;
+  latestExpiry: string;
+  /** Sum of realized P/L across closed legs (open legs contribute zero). */
+  totalRealizedPnl: number;
+  /** Sum of premium*100*contracts across every leg. */
+  totalPremiumCollected: number;
+  /** Legs in chronological order, oldest first. */
+  legs: RollChainLeg[];
+}
+
 /**
  * @nullable
  */
@@ -518,6 +575,8 @@ export interface PositionsStats {
   cumulativePnl: PositionsStatsCumulativePnlItem[];
   /** Premium collected (premium*100*contracts) grouped by close month. */
   premiumByMonth: PositionsStatsPremiumByMonthItem[];
+  /** Multi-leg roll chains (each chain has 2+ linked legs). */
+  rollChains: RollChain[];
 }
 
 /**

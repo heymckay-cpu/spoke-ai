@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -14,7 +14,9 @@ import {
   Activity,
   Award,
   CalendarDays,
+  ChevronRight,
   CircleDollarSign,
+  Layers,
   Skull,
   Target,
   TrendingDown,
@@ -24,6 +26,7 @@ import {
   getGetPositionsStatsQueryKey,
   useGetPositionsStats,
   type PositionsStats,
+  type RollChain,
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -82,6 +85,123 @@ function fmtMonthLabel(month: string): string {
 function fmtTradeLabel(t: PositionsStats["summary"]["bestTrade"]): string {
   if (!t) return "—";
   return `${t.ticker} ${fmtMoney(t.strike, { digits: 0 })}P ${fmtDate(t.expiry)}`;
+}
+
+function PnlText({ value }: { value: number }) {
+  const positive = value >= 0;
+  return (
+    <span
+      className={cn(
+        "tabular-nums",
+        positive ? "text-emerald-500" : "text-rose-500",
+      )}
+    >
+      {positive ? "+" : ""}
+      {fmtMoney(value)}
+    </span>
+  );
+}
+
+function RollChainRow({ chain }: { chain: RollChain }) {
+  const [open, setOpen] = useState(false);
+  const pnlPositive = chain.totalRealizedPnl >= 0;
+  return (
+    <div
+      className="rounded-md border border-border/60 bg-card/40"
+      data-testid={`roll-chain-${chain.rootId}`}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-accent/40"
+        data-testid={`roll-chain-toggle-${chain.rootId}`}
+      >
+        <ChevronRight
+          className={cn(
+            "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-90",
+          )}
+        />
+        <span className="text-sm font-semibold tracking-tight">
+          {chain.ticker}
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary">
+          <Layers className="h-3 w-3" />
+          {chain.legCount} legs
+        </span>
+        <span
+          className={cn(
+            "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider",
+            chain.latestStatus === "open"
+              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+              : "bg-muted text-muted-foreground",
+          )}
+        >
+          {chain.latestStatus === "open"
+            ? `Open · exp ${fmtDate(chain.latestExpiry)}`
+            : "Closed"}
+        </span>
+        <span className="ml-auto flex items-center gap-4 text-xs text-muted-foreground">
+          <span className="hidden md:inline">
+            Opened {fmtDate(chain.openedAt)}
+          </span>
+          <span className="hidden sm:inline tabular-nums">
+            {fmtCompactMoney(chain.totalPremiumCollected)} prem
+          </span>
+          <span
+            className={cn(
+              "text-sm font-semibold tabular-nums",
+              pnlPositive ? "text-emerald-500" : "text-rose-500",
+            )}
+            data-testid={`roll-chain-pnl-${chain.rootId}`}
+          >
+            {pnlPositive ? "+" : ""}
+            {fmtCompactMoney(chain.totalRealizedPnl)}
+          </span>
+        </span>
+      </button>
+      {open && (
+        <div
+          className="border-t border-border/60 px-3 py-2"
+          data-testid={`roll-chain-legs-${chain.rootId}`}
+        >
+          <ol className="space-y-1.5">
+            {chain.legs.map((leg, i) => (
+              <li
+                key={leg.id}
+                className="flex items-center gap-2 text-xs"
+                data-testid={`roll-chain-leg-${leg.id}`}
+              >
+                <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium tabular-nums text-muted-foreground">
+                  {i + 1}
+                </span>
+                <span className="font-medium tracking-tight">
+                  {leg.ticker} {fmtMoney(leg.strike)}P {fmtDate(leg.expiry)}
+                </span>
+                <span className="text-muted-foreground tabular-nums">
+                  · {leg.contracts}c · {fmtMoney(leg.premium)}/sh
+                </span>
+                <span className="ml-auto flex items-center gap-3 text-muted-foreground">
+                  <span className="tabular-nums">
+                    {fmtDate(leg.openedAt)}
+                    {leg.closedAt ? ` → ${fmtDate(leg.closedAt)}` : " → open"}
+                  </span>
+                  <span className="w-20 text-right">
+                    {leg.realizedPnl != null ? (
+                      <PnlText value={leg.realizedPnl} />
+                    ) : (
+                      <span className="text-muted-foreground">open</span>
+                    )}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function PerformancePanel() {
@@ -144,8 +264,9 @@ export function PerformancePanel() {
 
   const s = data.summary;
   const hasTrades = s.closedCount > 0;
+  const rollChains = data.rollChains ?? [];
 
-  if (!hasTrades) {
+  if (!hasTrades && rollChains.length === 0) {
     return (
       <Card className="border-card-border" data-testid="performance-panel-empty">
         <Empty className="py-12">
@@ -170,12 +291,15 @@ export function PerformancePanel() {
           <div>
             <h2 className="text-sm font-semibold tracking-tight">Performance</h2>
             <p className="text-[11px] text-muted-foreground">
-              Realized results across {s.closedCount}{" "}
-              {s.closedCount === 1 ? "closed trade" : "closed trades"}.
+              {hasTrades
+                ? `Realized results across ${s.closedCount} ${s.closedCount === 1 ? "closed trade" : "closed trades"}.`
+                : "No closed trades yet — roll chains shown below."}
             </p>
           </div>
         </div>
 
+        {hasTrades && (
+        <>
         <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
           <MiniKpi
             label="Win rate"
@@ -360,6 +484,26 @@ export function PerformancePanel() {
             </div>
           </div>
         </div>
+        </>
+        )}
+
+        {rollChains.length > 0 && (
+          <div data-testid="roll-chains-section">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                Roll chains
+              </span>
+              <span className="text-[11px] tabular-nums text-muted-foreground">
+                {rollChains.length} {rollChains.length === 1 ? "chain" : "chains"}
+              </span>
+            </div>
+            <div className="space-y-2">
+              {rollChains.map((c) => (
+                <RollChainRow key={c.rootId} chain={c} />
+              ))}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
