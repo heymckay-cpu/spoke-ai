@@ -1,17 +1,24 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
-// Mock the api-client-react hooks before importing the component under test.
-const useGetRollSuggestionMock = vi.fn();
+// Mock the generated react-query hooks before importing the component so the
+// dialog uses our controllable stubs instead of hitting the network.
+const mockRollMutate = vi.fn(async () => ({}));
+const mockUseGetRollQuote = vi.fn();
+const mockUseGetRollSuggestion = vi.fn();
 const useRollPositionMock = vi.fn();
 
 vi.mock("@workspace/api-client-react", () => ({
-  useGetRollSuggestion: (...args: unknown[]) => useGetRollSuggestionMock(...args),
+  useGetRollQuote: (...args: unknown[]) => mockUseGetRollQuote(...args),
+  useGetRollSuggestion: (...args: unknown[]) => mockUseGetRollSuggestion(...args),
   useRollPosition: (...args: unknown[]) => useRollPositionMock(...args),
-  getGetRollSuggestionQueryKey: (id: number) => ["positions", id, "roll-suggestion"],
+  getGetRollQuoteQueryKey: (id: number, expiry: string, strike: number) =>
+    [`/api/positions/${id}/roll-quote/${expiry}/${strike}`] as const,
+  getGetRollSuggestionQueryKey: (id: number) =>
+    [`/api/positions/${id}/roll-suggestion`] as const,
 }));
 
-// The toast hook just needs a no-op shape; the dialog calls toast() on submit/error.
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
@@ -19,7 +26,7 @@ vi.mock("@/hooks/use-toast", () => ({
 import { RollPositionDialog } from "./roll-position-dialog";
 import type { Position } from "@workspace/api-client-react";
 
-const basePosition: Position = {
+const suggestionPosition: Position = {
   id: 42,
   ticker: "AAPL",
   strike: 200,
@@ -35,6 +42,30 @@ const basePosition: Position = {
   spot: 205,
   currentBid: 1.25,
   unrealizedPnl: 125,
+  realizedPnl: null,
+  assignmentRisk: false,
+  expiringSoon: false,
+  rolledFromId: null,
+  rolledFrom: null,
+  rolledTo: null,
+} as unknown as Position;
+
+const liveQuotePosition: Position = {
+  id: 42,
+  ticker: "AAPL",
+  strike: 150,
+  expiry: "2026-06-19",
+  premium: 2.5,
+  contracts: 1,
+  openedAt: "2026-05-01T00:00:00Z",
+  closedAt: null,
+  closePrice: null,
+  notes: null,
+  status: "open",
+  dte: 39,
+  spot: 152,
+  currentBid: 1.5,
+  unrealizedPnl: 100,
   realizedPnl: null,
   assignmentRisk: false,
   expiringSoon: false,
@@ -75,26 +106,39 @@ const sampleSuggestion = {
 };
 
 beforeEach(() => {
-  useGetRollSuggestionMock.mockReset();
+  mockRollMutate.mockClear();
+  mockUseGetRollQuote.mockReset();
+  mockUseGetRollSuggestion.mockReset();
   useRollPositionMock.mockReset();
-  useRollPositionMock.mockReturnValue({ mutateAsync: vi.fn(async () => ({})) });
+  useRollPositionMock.mockReturnValue({
+    mutateAsync: mockRollMutate,
+    isPending: false,
+  });
+
+  // Default: live-quote panel returns nothing so suggestion-focused tests
+  // aren't affected by an unrelated quote panel render.
+  mockUseGetRollQuote.mockReturnValue({
+    data: undefined,
+    isFetching: false,
+    error: null,
+  });
 });
 
-function openDialog() {
-  const trigger = screen.getByTestId("button-roll-position-42");
+function openDialog(positionId: number) {
+  const trigger = screen.getByTestId(`button-roll-position-${positionId}`);
   fireEvent.click(trigger);
 }
 
-describe("<RollPositionDialog />", () => {
+describe("<RollPositionDialog /> smart suggestion", () => {
   it("auto-applies the smart suggestion to expiry/strike/premium when it arrives", async () => {
-    useGetRollSuggestionMock.mockReturnValue({
+    mockUseGetRollSuggestion.mockReturnValue({
       data: sampleSuggestion,
       isLoading: false,
       error: null,
     });
 
-    render(<RollPositionDialog position={basePosition} onRolled={() => {}} />);
-    openDialog();
+    render(<RollPositionDialog position={suggestionPosition} onRolled={() => {}} />);
+    openDialog(suggestionPosition.id);
 
     await waitFor(() => {
       expect(screen.getByTestId("input-roll-expiry")).toHaveValue("2025-05-16");
@@ -104,14 +148,14 @@ describe("<RollPositionDialog />", () => {
   });
 
   it("populates inputs from the −5% quick-pick button without overwriting on later renders", async () => {
-    useGetRollSuggestionMock.mockReturnValue({
+    mockUseGetRollSuggestion.mockReturnValue({
       data: sampleSuggestion,
       isLoading: false,
       error: null,
     });
 
-    render(<RollPositionDialog position={basePosition} onRolled={() => {}} />);
-    openDialog();
+    render(<RollPositionDialog position={suggestionPosition} onRolled={() => {}} />);
+    openDialog(suggestionPosition.id);
 
     // Wait for the auto-apply to settle on the "same" strike first.
     await waitFor(() => {
@@ -125,14 +169,14 @@ describe("<RollPositionDialog />", () => {
   });
 
   it("renders both quick-pick buttons when the suggestion has same and down5 strikes", () => {
-    useGetRollSuggestionMock.mockReturnValue({
+    mockUseGetRollSuggestion.mockReturnValue({
       data: sampleSuggestion,
       isLoading: false,
       error: null,
     });
 
-    render(<RollPositionDialog position={basePosition} onRolled={() => {}} />);
-    openDialog();
+    render(<RollPositionDialog position={suggestionPosition} onRolled={() => {}} />);
+    openDialog(suggestionPosition.id);
 
     expect(screen.getByTestId("roll-suggestion-quickpicks")).toBeInTheDocument();
     expect(screen.getByTestId("button-roll-suggestion-same")).toBeInTheDocument();
@@ -141,16 +185,16 @@ describe("<RollPositionDialog />", () => {
 
   it("does not auto-apply once the user has manually edited a field", async () => {
     let suggestionData: typeof sampleSuggestion | undefined = undefined;
-    useGetRollSuggestionMock.mockImplementation(() => ({
+    mockUseGetRollSuggestion.mockImplementation(() => ({
       data: suggestionData,
       isLoading: suggestionData == null,
       error: null,
     }));
 
     const { rerender } = render(
-      <RollPositionDialog position={basePosition} onRolled={() => {}} />,
+      <RollPositionDialog position={suggestionPosition} onRolled={() => {}} />,
     );
-    openDialog();
+    openDialog(suggestionPosition.id);
 
     // User edits the strike before the suggestion arrives.
     const strikeInput = screen.getByTestId("input-roll-strike");
@@ -159,11 +203,94 @@ describe("<RollPositionDialog />", () => {
 
     // Suggestion arrives → re-render with data populated.
     suggestionData = sampleSuggestion;
-    rerender(<RollPositionDialog position={basePosition} onRolled={() => {}} />);
+    rerender(<RollPositionDialog position={suggestionPosition} onRolled={() => {}} />);
 
     // Strike must remain at the user's value; auto-apply is suppressed.
     await waitFor(() => {
       expect(screen.getByTestId("input-roll-strike")).toHaveValue(150);
     });
+  });
+});
+
+describe("<RollPositionDialog /> live quote panel", () => {
+  beforeEach(() => {
+    // Suggestion-off so the auto-apply effect doesn't clobber the strike the
+    // user types in this scenario.
+    mockUseGetRollSuggestion.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: null,
+    });
+  });
+
+  it("updates the live quote line and recomputes net credit + breakeven when the user types a custom strike", async () => {
+    const user = userEvent.setup();
+
+    // The dialog debounces the strike → useGetRollQuote call by 300ms; once
+    // the debounced strike lands on 145 we return a snapped quote at 144.5.
+    mockUseGetRollQuote.mockImplementation(
+      (_id: number, _expiry: string, strike: number) => {
+        if (strike === 145) {
+          return {
+            data: {
+              ticker: "AAPL",
+              expiry: "2026-07-17",
+              strike: 144.5,
+              requestedStrike: 145,
+              bid: 3.2,
+              ask: 3.6,
+              mid: 3.4,
+              lastPrice: 3.3,
+              premium: 3.2,
+              spot: 152,
+              fetchedAt: "2026-05-11T12:00:00Z",
+            },
+            isFetching: false,
+            error: null,
+          };
+        }
+        return { data: undefined, isFetching: false, error: null };
+      },
+    );
+
+    render(<RollPositionDialog position={liveQuotePosition} onRolled={() => {}} />);
+
+    await user.click(
+      screen.getByTestId(`button-roll-position-${liveQuotePosition.id}`),
+    );
+
+    const strikeInput = await screen.findByTestId("input-roll-strike");
+    const premiumInput = screen.getByTestId("input-roll-premium");
+    const contractsInput = screen.getByTestId("input-roll-contracts");
+    const closePriceInput = screen.getByTestId("input-roll-close-price");
+
+    // Set deterministic values so the math is easy to assert.
+    await user.clear(closePriceInput);
+    await user.type(closePriceInput, "1.00");
+    await user.clear(contractsInput);
+    await user.type(contractsInput, "2");
+    await user.clear(premiumInput);
+    await user.type(premiumInput, "3.20");
+
+    await user.clear(strikeInput);
+    await user.type(strikeInput, "145");
+
+    // Wait for debounced live quote to render with the snapped strike.
+    await waitFor(
+      () => {
+        expect(screen.getByText(/snapped from/i)).toBeInTheDocument();
+      },
+      { timeout: 2000 },
+    );
+
+    // Live quote line shows the bid/mid/last we returned.
+    expect(screen.getByTestId("roll-live-quote-bid")).toHaveTextContent("$3.20");
+    expect(screen.getByTestId("roll-live-quote-mid")).toHaveTextContent("$3.40");
+    expect(screen.getByTestId("roll-live-quote-last")).toHaveTextContent("$3.30");
+
+    // Net credit = (premium - closePrice) * 100 * contracts = (3.20 - 1.00) * 100 * 2 = 440.
+    expect(screen.getByTestId("roll-net-credit")).toHaveTextContent("+$440.00");
+    // Breakeven = strike - (premium - closePrice) = 145 - (3.20 - 1.00) = 142.80.
+    expect(screen.getByTestId("roll-breakeven")).toHaveTextContent("$142.80");
   });
 });
