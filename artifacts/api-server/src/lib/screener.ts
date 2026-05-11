@@ -61,6 +61,7 @@ export interface ScanResultOut {
   tickersScanned: number;
   tickersWithCandidate: number;
   cached: boolean;
+  stale: boolean;
 }
 
 function ivRank(
@@ -237,5 +238,6 @@ export async function runScreener(cfg: ScreenerSettings): Promise<ScanResultOut>
     tickersScanned: cfg.tickers.length,
     tickersWithCandidate: candidates.length,
     cached: false,
+    stale: false,
   };
 }

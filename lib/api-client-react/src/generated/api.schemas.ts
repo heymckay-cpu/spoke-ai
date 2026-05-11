@@ -190,6 +190,8 @@ export interface ScanResult {
   tickersScanned: number;
   tickersWithCandidate: number;
   cached: boolean;
+  /** True when the persisted snapshot is older than cacheTtlMinutes; the dashboard should treat candidates as historical and prompt a re-scan. */
+  stale: boolean;
 }
 
 export interface IvRankBucket {

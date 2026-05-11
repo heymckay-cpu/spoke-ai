@@ -35,6 +35,7 @@ async function loadLatestFromDb(): Promise<ScanResultOut> {
       tickersScanned: 0,
       tickersWithCandidate: 0,
       cached: false,
+      stale: false,
     };
   }
   // Mirror the in-memory cache TTL when serving DB-backed snapshots: if the
@@ -44,13 +45,17 @@ async function loadLatestFromDb(): Promise<ScanResultOut> {
   const settings = await getSettings();
   const ageMs = Date.now() - row.scannedAt.getTime();
   const isStale = ageMs > settings.cacheTtlMinutes * 60 * 1000;
+  // When stale, still surface the historical candidates and counts so the UI
+  // can render them dimmed with a "stale, please re-scan" affordance instead
+  // of an empty page.
   return {
     scannedAt: row.scannedAt.toISOString(),
-    candidates: isStale ? [] : (row.candidates as CandidateOut[]),
-    errors: isStale ? [] : (row.errors as ScanError[]),
-    tickersScanned: isStale ? 0 : row.tickersScanned,
-    tickersWithCandidate: isStale ? 0 : row.tickersWithCandidate,
+    candidates: row.candidates as CandidateOut[],
+    errors: row.errors as ScanError[],
+    tickersScanned: row.tickersScanned,
+    tickersWithCandidate: row.tickersWithCandidate,
     cached: !isStale,
+    stale: isStale,
   };
 }
 
@@ -107,7 +112,7 @@ router.post("/scan", async (req, res): Promise<void> => {
     overrides.riskFreeRate == null &&
     overrides.topN == null;
   if (isPlain && !overrides.forceRefresh && cachedScan && Date.now() < cachedScan.expiresAt) {
-    res.json(RunScanResponse.parse({ ...cachedScan.result, cached: true }));
+    res.json(RunScanResponse.parse({ ...cachedScan.result, cached: true, stale: false }));
     return;
   }
 
@@ -142,7 +147,7 @@ router.get("/scan/latest", async (_req, res): Promise<void> => {
     cachedScan = null;
   }
   if (cachedScan) {
-    res.json(GetLatestScanResponse.parse({ ...cachedScan.result, cached: true }));
+    res.json(GetLatestScanResponse.parse({ ...cachedScan.result, cached: true, stale: false }));
     return;
   }
   const latest = await loadLatestFromDb();

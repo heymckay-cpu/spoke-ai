@@ -286,6 +286,11 @@ export const RunScanResponse = zod.object({
   tickersScanned: zod.number(),
   tickersWithCandidate: zod.number(),
   cached: zod.boolean(),
+  stale: zod
+    .boolean()
+    .describe(
+      "True when the persisted snapshot is older than cacheTtlMinutes; the dashboard should treat candidates as historical and prompt a re-scan.",
+    ),
 });
 
 /**
@@ -330,6 +335,11 @@ export const GetLatestScanResponse = zod.object({
   tickersScanned: zod.number(),
   tickersWithCandidate: zod.number(),
   cached: zod.boolean(),
+  stale: zod
+    .boolean()
+    .describe(
+      "True when the persisted snapshot is older than cacheTtlMinutes; the dashboard should treat candidates as historical and prompt a re-scan.",
+    ),
 });
 
 /**

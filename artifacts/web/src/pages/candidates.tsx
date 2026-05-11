@@ -278,10 +278,20 @@ export function CandidatesPage() {
               >
                 <Clock className="h-3 w-3" /> Delayed ~15 min
               </span>
-              {latest.data?.cached && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5">
-                  <Sparkles className="h-3 w-3" /> cached
+              {latest.data?.stale ? (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-600 dark:text-amber-400"
+                  title="These results are older than your cache TTL. Run a fresh scan to update."
+                  data-testid="badge-stale-candidates"
+                >
+                  <Sparkles className="h-3 w-3" /> stale — re-scan
                 </span>
+              ) : (
+                latest.data?.cached && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5">
+                    <Sparkles className="h-3 w-3" /> cached
+                  </span>
+                )
               )}
               <span>
                 {filtered.length}{" "}

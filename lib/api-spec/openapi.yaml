@@ -324,6 +324,7 @@ components:
         - tickersScanned
         - tickersWithCandidate
         - cached
+        - stale
       properties:
         scannedAt: { type: ["string", "null"], description: "ISO timestamp of when this scan ran" }
         candidates:
@@ -337,6 +338,7 @@ components:
         tickersScanned: { type: integer }
         tickersWithCandidate: { type: integer }
         cached: { type: boolean }
+        stale: { type: boolean, description: "True when the persisted snapshot is older than cacheTtlMinutes; the dashboard should treat candidates as historical and prompt a re-scan." }
 
     IvRankBucket:
       type: object
