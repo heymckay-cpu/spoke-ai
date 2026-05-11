@@ -15,11 +15,15 @@ import {
   Clock,
   Layers,
   Percent,
+  PlusCircle,
   Search,
   Sparkles,
   TrendingUp,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { getListPositionsQueryKey } from "@workspace/api-client-react";
 import { AppShell } from "@/components/app-shell";
+import { AddPositionDialog } from "@/components/add-position-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -172,6 +176,7 @@ const COLUMNS: ColDef[] = [
 ];
 
 export function CandidatesPage() {
+  const qc = useQueryClient();
   const latest = useGetLatestScan();
   const summary = useGetScanSummary();
   const [sort, setSort] = useState<SortState>({ key: "annualized", dir: "desc" });
@@ -407,6 +412,9 @@ export function CandidatesPage() {
                       );
                     })}
                     <th className="w-8" />
+                    <th className="w-10 px-2 py-2.5" scope="col">
+                      <span className="sr-only">Log trade</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -470,6 +478,34 @@ export function CandidatesPage() {
                         <EarningsFlag
                           earningsDate={c.earningsDate}
                           inWindow={c.earningsInWindow}
+                        />
+                      </td>
+                      <td className="px-2 py-2 text-right">
+                        <AddPositionDialog
+                          defaultExpiry={c.expiry}
+                          initialValues={{
+                            ticker: c.ticker,
+                            strike: c.strike,
+                            expiry: c.expiry,
+                            premium: c.bid,
+                            contracts: 1,
+                          }}
+                          onCreated={() => {
+                            qc.invalidateQueries({ queryKey: getListPositionsQueryKey() });
+                          }}
+                          trigger={
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-primary"
+                              title={`Log ${c.ticker} ${c.strike}P ${c.expiry}`}
+                              data-testid={`button-log-trade-${c.ticker}-${i}`}
+                            >
+                              <PlusCircle className="h-4 w-4" />
+                              <span className="sr-only">Log this trade</span>
+                            </Button>
+                          }
                         />
                       </td>
                     </tr>
