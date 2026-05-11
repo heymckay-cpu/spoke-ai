@@ -21,4 +21,6 @@ export interface Quote {
   dayChange?: number | null;
   /** @nullable */
   dayChangePct?: number | null;
+  /** True when US equity regular trading hours are currently open. */
+  marketOpen: boolean;
 }

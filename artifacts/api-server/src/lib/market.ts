@@ -65,6 +65,10 @@ export interface OptionChainSnapshot {
   dte: number;
   puts: OptionRow[];
   calls: OptionRow[];
+  // ISO timestamp captured when the chain was actually fetched from the
+  // upstream provider. Surfaced to clients so the chain page can render a
+  // "Data as of …" indicator and warn when bid/IV are likely stale.
+  fetchedAt: string;
 }
 
 export interface QuoteInfo {
@@ -295,6 +299,7 @@ export async function getOptionChain(
       dte,
       puts: normalizeRows(first.puts as OptionContract[] | undefined),
       calls: normalizeRows(first.calls as OptionContract[] | undefined),
+      fetchedAt: new Date().toISOString(),
     };
     setCached(key, snap);
     return snap;

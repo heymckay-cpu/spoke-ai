@@ -229,6 +229,8 @@ export interface Quote {
   dayChange?: number | null;
   /** @nullable */
   dayChangePct?: number | null;
+  /** True when US equity regular trading hours are currently open. */
+  marketOpen: boolean;
 }
 
 export interface ChainExpirations {
@@ -259,6 +261,14 @@ export interface Chain {
   dte: number;
   puts: ChainRow[];
   calls: ChainRow[];
+  /** ISO timestamp when this chain was last fetched from the upstream provider. */
+  fetchedAt: string;
+  /** True when US equity regular trading hours are currently open. */
+  marketOpen: boolean;
+  /** True when bids are likely stale (after-hours or majority of rows show zero bid). */
+  staleBid: boolean;
+  /** True when implied vols look stale or quantized (after-hours or majority of rows show implausibly low IV). */
+  staleIv: boolean;
 }
 
 export interface PositionInput {

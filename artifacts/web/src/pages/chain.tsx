@@ -19,7 +19,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ArrowDown, ArrowUp, ChevronLeft, Clock, Search } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ChevronLeft, Clock, Search } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -36,6 +36,107 @@ import {
 import { fmtDate, fmtFractionPct, fmtInt, fmtMoney, fmtNum, fmtPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+
+function formatRelative(iso: string | null | undefined): string {
+  if (!iso) return "unknown";
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "unknown";
+  const diffSec = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.round(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.round(diffHr / 24);
+  return `${diffDay}d ago`;
+}
+
+function formatAbsolute(iso: string | null | undefined): string {
+  if (!iso) return "unknown";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "unknown";
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+interface FreshnessBadgeProps {
+  fetchedAt: string | null | undefined;
+  marketOpen: boolean;
+}
+
+function FreshnessBadge({ fetchedAt, marketOpen }: FreshnessBadgeProps) {
+  // Re-render every 30s so the relative time stays accurate without polling
+  // the API.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const tone = marketOpen
+    ? "bg-emerald-500/10 text-emerald-500"
+    : "bg-amber-500/10 text-amber-500";
+  const title = marketOpen
+    ? `US market open. Quotes from Yahoo Finance are typically delayed ~15 min. Last fetched ${formatAbsolute(fetchedAt)}.`
+    : `US market closed. Showing the most recent prices Yahoo returned at ${formatAbsolute(fetchedAt)}.`;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider tabular-nums",
+        tone,
+      )}
+      title={title}
+      data-testid="badge-freshness"
+    >
+      <Clock className="h-3 w-3" />
+      Data as of {formatRelative(fetchedAt)}
+    </span>
+  );
+}
+
+interface StaleDataBannerProps {
+  staleBid: boolean;
+  staleIv: boolean;
+  marketOpen: boolean;
+  fetchedAt: string | null | undefined;
+}
+
+function StaleDataBanner({
+  staleBid,
+  staleIv,
+  marketOpen,
+  fetchedAt,
+}: StaleDataBannerProps) {
+  if (!staleBid && !staleIv) return null;
+  const issues: string[] = [];
+  if (staleBid) issues.push("bids");
+  if (staleIv) issues.push("implied vols");
+  const label = issues.join(" and ");
+  const reason = !marketOpen
+    ? "the US market is closed, so quotes reflect the prior close"
+    : "most rows show zero or implausibly low values for this expiry";
+  return (
+    <Card
+      className="border-amber-500/30 bg-amber-500/10"
+      data-testid="banner-stale-data"
+    >
+      <CardContent className="flex items-start gap-3 p-3 text-xs">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+        <div className="space-y-0.5">
+          <div className="font-medium text-amber-100">
+            {label.charAt(0).toUpperCase() + label.slice(1)} may be stale
+          </div>
+          <div className="text-amber-100/80">
+            {`The chain was last fetched ${formatRelative(fetchedAt)} and ${reason}. Premium and annualized return estimates can be misleading until the market reopens.`}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 function findSpotInsertIndex(rows: ChainRow[], spot: number): number {
   for (let i = 0; i < rows.length; i++) {
@@ -390,13 +491,12 @@ export function ChainPage() {
                         earningsDate={quote.data?.earningsDate}
                         inWindow={quote.data?.earningsInWindow ?? false}
                       />
-                      <span
-                        className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-500"
-                        title="Yahoo Finance quotes are typically delayed by ~15 minutes during market hours and reflect the prior close after hours."
-                        data-testid="badge-delayed"
-                      >
-                        <Clock className="h-3 w-3" /> Delayed ~15 min
-                      </span>
+                      <FreshnessBadge
+                        fetchedAt={chain.data?.fetchedAt ?? quote.data?.asOf ?? null}
+                        marketOpen={
+                          chain.data?.marketOpen ?? quote.data?.marketOpen ?? false
+                        }
+                      />
                     </div>
                     {quote.data?.name && (
                       <div className="text-xs text-muted-foreground">{quote.data.name}</div>
@@ -445,6 +545,15 @@ export function ChainPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {chain.data && (
+              <StaleDataBanner
+                staleBid={chain.data.staleBid}
+                staleIv={chain.data.staleIv}
+                marketOpen={chain.data.marketOpen}
+                fetchedAt={chain.data.fetchedAt}
+              />
+            )}
 
             {/* Expirations + Chart */}
             <div className="grid gap-4 lg:grid-cols-3">

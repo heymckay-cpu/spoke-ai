@@ -7,19 +7,16 @@ import {
   GetLatestScanResponse,
   GetScanSummaryResponse,
 } from "@workspace/api-zod";
-import { getSettings, onSettingsSaved } from "../lib/settingsStore";
+import { getSettings } from "../lib/settingsStore";
 import { runScreener, type CandidateOut, type ScanError, type ScanResultOut } from "../lib/screener";
 import { clearMarketCache } from "../lib/market";
+import {
+  getCachedScan,
+  setCachedScan,
+  invalidateCachedScan,
+} from "../lib/scanRunner";
 
 const router: IRouter = Router();
-
-let cachedScan: { result: ScanResultOut; expiresAt: number } | null = null;
-
-// Drop the cached scan snapshot whenever settings change so the next /scan
-// call recomputes with the updated parameters.
-onSettingsSaved(() => {
-  cachedScan = null;
-});
 
 async function loadLatestFromDb(): Promise<ScanResultOut> {
   const [row] = await db
@@ -45,9 +42,6 @@ async function loadLatestFromDb(): Promise<ScanResultOut> {
   const settings = await getSettings();
   const ageMs = Date.now() - row.scannedAt.getTime();
   const isStale = ageMs > settings.cacheTtlMinutes * 60 * 1000;
-  // When stale, still surface the historical candidates and counts so the UI
-  // can render them dimmed with a "stale, please re-scan" affordance instead
-  // of an empty page.
   return {
     scannedAt: row.scannedAt.toISOString(),
     candidates: row.candidates as CandidateOut[],
@@ -111,18 +105,16 @@ router.post("/scan", async (req, res): Promise<void> => {
     overrides.minUnderlyingPrice == null &&
     overrides.riskFreeRate == null &&
     overrides.topN == null;
-  if (isPlain && !overrides.forceRefresh && cachedScan && Date.now() < cachedScan.expiresAt) {
-    res.json(RunScanResponse.parse({ ...cachedScan.result, cached: true, stale: false }));
+  const cached = getCachedScan();
+  if (isPlain && !overrides.forceRefresh && cached) {
+    res.json(RunScanResponse.parse({ ...cached.result, cached: true, stale: false }));
     return;
   }
 
   const result = await runScreener(cfg);
 
   if (isPlain) {
-    cachedScan = {
-      result,
-      expiresAt: Date.now() + cfg.cacheTtlMinutes * 60 * 1000,
-    };
+    setCachedScan(result, cfg.cacheTtlMinutes * 60 * 1000);
     // Best-effort persistence — do not fail the response if the DB hiccups.
     try {
       await db.insert(scanSnapshotTable).values({
@@ -135,19 +127,19 @@ router.post("/scan", async (req, res): Promise<void> => {
     } catch (err) {
       req.log.warn({ err }, "failed to persist scan snapshot");
     }
+  } else if (overrides.forceRefresh) {
+    // A forced refresh on a custom-config scan still invalidates any stale
+    // cached plain-config snapshot to avoid serving outdated data afterward.
+    invalidateCachedScan();
   }
 
   res.json(RunScanResponse.parse(result));
 });
 
 router.get("/scan/latest", async (_req, res): Promise<void> => {
-  // Honor the same TTL as POST /scan: a stale cached snapshot must not be
-  // served indefinitely or the freshness indicator becomes a lie.
-  if (cachedScan && Date.now() >= cachedScan.expiresAt) {
-    cachedScan = null;
-  }
-  if (cachedScan) {
-    res.json(GetLatestScanResponse.parse({ ...cachedScan.result, cached: true, stale: false }));
+  const cached = getCachedScan();
+  if (cached) {
+    res.json(GetLatestScanResponse.parse({ ...cached.result, cached: true, stale: false }));
     return;
   }
   const latest = await loadLatestFromDb();
@@ -162,10 +154,8 @@ function median(arr: number[]): number {
 }
 
 router.get("/scan/summary", async (_req, res): Promise<void> => {
-  if (cachedScan && Date.now() >= cachedScan.expiresAt) {
-    cachedScan = null;
-  }
-  const latest = cachedScan?.result ?? (await loadLatestFromDb());
+  const cached = getCachedScan();
+  const latest = cached?.result ?? (await loadLatestFromDb());
   const cands = latest.candidates;
   const annualized = cands.map((c) => c.annualizedPct);
   const buckets = [

@@ -413,6 +413,9 @@ export const GetQuoteResponse = zod.object({
   currency: zod.string().nullish(),
   dayChange: zod.number().nullish(),
   dayChangePct: zod.number().nullish(),
+  marketOpen: zod
+    .boolean()
+    .describe("True when US equity regular trading hours are currently open."),
 });
 
 /**
@@ -473,6 +476,24 @@ export const GetChainResponse = zod.object({
       inTheMoney: zod.boolean(),
     }),
   ),
+  fetchedAt: zod
+    .string()
+    .describe(
+      "ISO timestamp when this chain was last fetched from the upstream provider.",
+    ),
+  marketOpen: zod
+    .boolean()
+    .describe("True when US equity regular trading hours are currently open."),
+  staleBid: zod
+    .boolean()
+    .describe(
+      "True when bids are likely stale (after-hours or majority of rows show zero bid).",
+    ),
+  staleIv: zod
+    .boolean()
+    .describe(
+      "True when implied vols look stale or quantized (after-hours or majority of rows show implausibly low IV).",
+    ),
 });
 
 /**

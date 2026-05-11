@@ -10,6 +10,7 @@ import {
 import { getQuote, getExpirations, getOptionChain, getSpot } from "../lib/market";
 import { putGreeks, callGreeks } from "../lib/greeks";
 import { getSettings } from "../lib/settingsStore";
+import { isUsMarketOpen } from "../lib/marketHours";
 
 const router: IRouter = Router();
 
@@ -45,6 +46,7 @@ router.get("/quote/:ticker", async (req, res): Promise<void> => {
       currency: q.currency,
       dayChange: q.dayChange,
       dayChangePct: q.dayChangePct,
+      marketOpen: isUsMarketOpen(),
     }),
   );
 });
@@ -78,6 +80,18 @@ router.get("/chain/:ticker/:expiry", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Chain not found" });
     return;
   }
+  const marketOpen = isUsMarketOpen();
+  // Yahoo zeroes bid/ask outside market hours and frequently quantizes IV
+  // to suspicious flat values. Compute simple ratios so the chain page can
+  // surface a clear warning rather than silently presenting bad numbers.
+  const allRows = [...snap.puts, ...snap.calls];
+  const zeroBid = allRows.filter((r) => !(r.bid > 0)).length;
+  const lowIv = allRows.filter((r) => !(r.impliedVolatility > 0.05)).length;
+  const total = Math.max(allRows.length, 1);
+  // After-hours: bid is almost always zero. During market hours we still
+  // flag if more than half the rows have zero bid (illiquid chain).
+  const staleBid = !marketOpen || zeroBid / total > 0.5;
+  const staleIv = !marketOpen || lowIv / total > 0.5;
   const T = Math.max(snap.dte, 1) / 365;
   const r = settings.riskFreeRate;
   const puts = snap.puts.map((row) => {
@@ -122,6 +136,10 @@ router.get("/chain/:ticker/:expiry", async (req, res): Promise<void> => {
       dte: snap.dte,
       puts,
       calls,
+      fetchedAt: snap.fetchedAt,
+      marketOpen,
+      staleBid,
+      staleIv,
     }),
   );
 });

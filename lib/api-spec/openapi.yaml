@@ -453,7 +453,7 @@ components:
 
     Quote:
       type: object
-      required: [ticker, spot, asOf, earningsInWindow]
+      required: [ticker, spot, asOf, earningsInWindow, marketOpen]
       properties:
         ticker: { type: string }
         spot: { type: number }
@@ -464,6 +464,9 @@ components:
         currency: { type: ["string", "null"] }
         dayChange: { type: ["number", "null"] }
         dayChangePct: { type: ["number", "null"] }
+        marketOpen:
+          type: boolean
+          description: True when US equity regular trading hours are currently open.
 
     ChainExpirations:
       type: object
@@ -506,7 +509,7 @@ components:
 
     Chain:
       type: object
-      required: [ticker, spot, expiry, dte, puts, calls]
+      required: [ticker, spot, expiry, dte, puts, calls, fetchedAt, marketOpen, staleBid, staleIv]
       properties:
         ticker: { type: string }
         spot: { type: number }
@@ -520,6 +523,18 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ChainRow"
+        fetchedAt:
+          type: string
+          description: ISO timestamp when this chain was last fetched from the upstream provider.
+        marketOpen:
+          type: boolean
+          description: True when US equity regular trading hours are currently open.
+        staleBid:
+          type: boolean
+          description: True when bids are likely stale (after-hours or majority of rows show zero bid).
+        staleIv:
+          type: boolean
+          description: True when implied vols look stale or quantized (after-hours or majority of rows show implausibly low IV).
 
     PositionInput:
       type: object
