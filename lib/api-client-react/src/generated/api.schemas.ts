@@ -520,6 +520,46 @@ export interface PositionsStats {
   premiumByMonth: PositionsStatsPremiumByMonthItem[];
 }
 
+/**
+ * same = same strike as current; down5 = ~5% lower strike snapped to nearest available
+ */
+export type RollSuggestionStrikeKind =
+  (typeof RollSuggestionStrikeKind)[keyof typeof RollSuggestionStrikeKind];
+
+export const RollSuggestionStrikeKind = {
+  same: "same",
+  down5: "down5",
+} as const;
+
+export interface RollSuggestionStrike {
+  /** same = same strike as current; down5 = ~5% lower strike snapped to nearest available */
+  kind: RollSuggestionStrikeKind;
+  /** Strike snapped to the nearest available strike on the suggested expiry's chain */
+  strike: number;
+  /** Recommended premium per share — bid when > 0, else mid of bid/ask, else lastPrice; 0 when no quote */
+  premium: number;
+  bid: number;
+  ask: number;
+  /** (bid+ask)/2 when both > 0, else 0 */
+  mid: number;
+  lastPrice: number;
+}
+
+export interface RollSuggestion {
+  ticker: string;
+  currentExpiry: string;
+  currentStrike: number;
+  /** Next standard monthly expiry (third Friday) on or after currentExpiry+21d */
+  suggestedExpiry: string;
+  /** Days from today to suggestedExpiry */
+  dteFromNow: number;
+  /** Days from currentExpiry to suggestedExpiry */
+  dteFromCurrent: number;
+  spot: number;
+  fetchedAt: string;
+  options: RollSuggestionStrike[];
+}
+
 export interface DeleteResult {
   ok: boolean;
 }
@@ -632,3 +672,7 @@ export interface AlertScanResult {
   itmAlerts: number;
   expiringAlerts: number;
 }
+
+export type GetRollSuggestion404 = {
+  error: string;
+};

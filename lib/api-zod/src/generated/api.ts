@@ -1121,6 +1121,59 @@ export const RollPositionResponse = zod.object({
 });
 
 /**
+ * Suggests a roll target for an open position: the next standard
+monthly expiry (third Friday) on or after the current expiry +21
+days, plus live bid/mid premium for both the same strike and a
+~5% lower strike, snapped to the nearest available strike on the
+suggested expiry's option chain.
+
+ * @summary Smart roll target — next monthly expiry + live premium for same/-5% strikes
+ */
+export const GetRollSuggestionParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetRollSuggestionResponse = zod.object({
+  ticker: zod.string(),
+  currentExpiry: zod.string(),
+  currentStrike: zod.number(),
+  suggestedExpiry: zod
+    .string()
+    .describe(
+      "Next standard monthly expiry (third Friday) on or after currentExpiry+21d",
+    ),
+  dteFromNow: zod.number().describe("Days from today to suggestedExpiry"),
+  dteFromCurrent: zod
+    .number()
+    .describe("Days from currentExpiry to suggestedExpiry"),
+  spot: zod.number(),
+  fetchedAt: zod.string(),
+  options: zod.array(
+    zod.object({
+      kind: zod
+        .enum(["same", "down5"])
+        .describe(
+          "same = same strike as current; down5 = ~5% lower strike snapped to nearest available",
+        ),
+      strike: zod
+        .number()
+        .describe(
+          "Strike snapped to the nearest available strike on the suggested expiry's chain",
+        ),
+      premium: zod
+        .number()
+        .describe(
+          "Recommended premium per share — bid when > 0, else mid of bid\/ask, else lastPrice; 0 when no quote",
+        ),
+      bid: zod.number(),
+      ask: zod.number(),
+      mid: zod.number().describe("(bid+ask)\/2 when both > 0, else 0"),
+      lastPrice: zod.number(),
+    }),
+  ),
+});
+
+/**
  * @summary List recent position alerts (assignment risk / near-expiry)
  */
 export const ListNotificationsResponse = zod.object({

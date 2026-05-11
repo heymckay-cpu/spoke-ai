@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
-import { useRollPosition, type Position } from "@workspace/api-client-react";
+import { RefreshCw, Sparkles } from "lucide-react";
+import {
+  getGetRollSuggestionQueryKey,
+  useGetRollSuggestion,
+  useRollPosition,
+  type Position,
+} from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -39,8 +44,21 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
   const [newPremium, setNewPremium] = useState<string>("");
   const [newContracts, setNewContracts] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
+  // Tracks whether the user has manually edited the new-leg fields after the
+  // dialog opened. We only auto-apply the smart suggestion when nothing has
+  // been touched yet, so we never clobber a user's deliberate choice once it
+  // arrives.
+  const [touched, setTouched] = useState(false);
   const { toast } = useToast();
   const roll = useRollPosition();
+  const suggestion = useGetRollSuggestion(position.id, {
+    query: {
+      enabled: open,
+      staleTime: 60_000,
+      refetchOnWindowFocus: false,
+      queryKey: getGetRollSuggestionQueryKey(position.id),
+    },
+  });
 
   useEffect(() => {
     if (open) {
@@ -52,8 +70,35 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
       setNewPremium(position.premium.toFixed(2));
       setNewContracts(String(position.contracts));
       setSubmitting(false);
+      setTouched(false);
     }
   }, [open, position]);
+
+  // Auto-apply the suggestion's expiry + same-strike premium when it arrives,
+  // but only if the user hasn't started editing yet.
+  useEffect(() => {
+    if (!open || touched || !suggestion.data) return;
+    const sug = suggestion.data;
+    const same = sug.options.find((o) => o.kind === "same") ?? sug.options[0];
+    setNewExpiry(sug.suggestedExpiry);
+    if (same) {
+      setNewStrike(String(same.strike));
+      if (same.premium > 0) setNewPremium(same.premium.toFixed(2));
+    }
+  }, [open, touched, suggestion.data]);
+
+  const applyOption = (kind: "same" | "down5") => {
+    const sug = suggestion.data;
+    if (!sug) return;
+    const opt = sug.options.find((o) => o.kind === kind);
+    if (!opt) return;
+    setNewExpiry(sug.suggestedExpiry);
+    setNewStrike(String(opt.strike));
+    if (opt.premium > 0) setNewPremium(opt.premium.toFixed(2));
+    setTouched(true);
+  };
+
+  const markTouched = () => setTouched(true);
 
   const closeNum = Number(closePrice);
   const strikeNum = Number(newStrike);
@@ -179,9 +224,52 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
           </div>
 
           <div className="space-y-2 rounded-md border border-border/60 p-3">
-            <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-              Open new
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                Open new
+              </div>
+              {suggestion.isLoading ? (
+                <div className="text-[11px] text-muted-foreground">
+                  Loading suggestion…
+                </div>
+              ) : suggestion.data ? (
+                <div className="text-[11px] tabular-nums text-muted-foreground">
+                  Next monthly: {suggestion.data.suggestedExpiry} ·{" "}
+                  {suggestion.data.dteFromCurrent}d added
+                </div>
+              ) : null}
             </div>
+            {suggestion.data && suggestion.data.options.length > 0 ? (
+              <div
+                className="flex flex-wrap gap-2"
+                data-testid="roll-suggestion-quickpicks"
+              >
+                {suggestion.data.options.map((opt) => (
+                  <Button
+                    key={opt.kind}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => applyOption(opt.kind)}
+                    className="h-auto gap-1.5 px-2.5 py-1.5 text-xs"
+                    data-testid={`button-roll-suggestion-${opt.kind}`}
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    <span className="font-medium">
+                      {opt.kind === "same" ? "Same strike" : "−5% strike"}
+                    </span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {fmtMoney(opt.strike)}P ·{" "}
+                      {opt.premium > 0 ? fmtMoney(opt.premium) : "no quote"}
+                    </span>
+                  </Button>
+                ))}
+              </div>
+            ) : suggestion.error ? (
+              <div className="text-[11px] text-muted-foreground">
+                Couldn't load a live suggestion — fill in the new leg manually.
+              </div>
+            ) : null}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-medium text-muted-foreground">
@@ -190,7 +278,10 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
                 <Input
                   type="date"
                   value={newExpiry}
-                  onChange={(e) => setNewExpiry(e.target.value)}
+                  onChange={(e) => {
+                    setNewExpiry(e.target.value);
+                    markTouched();
+                  }}
                   className="tabular-nums"
                   data-testid="input-roll-expiry"
                 />
@@ -204,7 +295,10 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
                   min={1}
                   step={1}
                   value={newContracts}
-                  onChange={(e) => setNewContracts(e.target.value)}
+                  onChange={(e) => {
+                    setNewContracts(e.target.value);
+                    markTouched();
+                  }}
                   className="tabular-nums"
                   data-testid="input-roll-contracts"
                 />
@@ -218,7 +312,10 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
                   min={0}
                   step="0.5"
                   value={newStrike}
-                  onChange={(e) => setNewStrike(e.target.value)}
+                  onChange={(e) => {
+                    setNewStrike(e.target.value);
+                    markTouched();
+                  }}
                   className="tabular-nums"
                   data-testid="input-roll-strike"
                 />
@@ -232,7 +329,10 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
                   min={0}
                   step="0.01"
                   value={newPremium}
-                  onChange={(e) => setNewPremium(e.target.value)}
+                  onChange={(e) => {
+                    setNewPremium(e.target.value);
+                    markTouched();
+                  }}
                   className="tabular-nums"
                   data-testid="input-roll-premium"
                 />

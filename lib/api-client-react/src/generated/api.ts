@@ -22,6 +22,7 @@ import type {
   Chain,
   ChainExpirations,
   DeleteResult,
+  GetRollSuggestion404,
   HealthStatus,
   Holding,
   HoldingInput,
@@ -37,6 +38,7 @@ import type {
   Quote,
   RollPositionInput,
   RollPositionResult,
+  RollSuggestion,
   ScanInput,
   ScanResult,
   ScanSummary,
@@ -1630,6 +1632,99 @@ export const useRollPosition = <
 > => {
   return useMutation(getRollPositionMutationOptions(options));
 };
+
+/**
+ * Suggests a roll target for an open position: the next standard
+monthly expiry (third Friday) on or after the current expiry +21
+days, plus live bid/mid premium for both the same strike and a
+~5% lower strike, snapped to the nearest available strike on the
+suggested expiry's option chain.
+
+ * @summary Smart roll target — next monthly expiry + live premium for same/-5% strikes
+ */
+export const getGetRollSuggestionUrl = (id: number) => {
+  return `/api/positions/${id}/roll-suggestion`;
+};
+
+export const getRollSuggestion = async (
+  id: number,
+  options?: RequestInit,
+): Promise<RollSuggestion> => {
+  return customFetch<RollSuggestion>(getGetRollSuggestionUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRollSuggestionQueryKey = (id: number) => {
+  return [`/api/positions/${id}/roll-suggestion`] as const;
+};
+
+export const getGetRollSuggestionQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRollSuggestion>>,
+  TError = ErrorType<GetRollSuggestion404>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRollSuggestion>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetRollSuggestionQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getRollSuggestion>>
+  > = ({ signal }) => getRollSuggestion(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRollSuggestion>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRollSuggestionQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRollSuggestion>>
+>;
+export type GetRollSuggestionQueryError = ErrorType<GetRollSuggestion404>;
+
+/**
+ * @summary Smart roll target — next monthly expiry + live premium for same/-5% strikes
+ */
+
+export function useGetRollSuggestion<
+  TData = Awaited<ReturnType<typeof getRollSuggestion>>,
+  TError = ErrorType<GetRollSuggestion404>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRollSuggestion>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRollSuggestionQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary List recent position alerts (assignment risk / near-expiry)

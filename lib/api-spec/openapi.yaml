@@ -366,6 +366,39 @@ paths:
               schema:
                 $ref: "#/components/schemas/RollPositionResult"
 
+  /positions/{id}/roll-suggestion:
+    get:
+      operationId: getRollSuggestion
+      tags: [positions]
+      summary: Smart roll target — next monthly expiry + live premium for same/-5% strikes
+      description: |
+        Suggests a roll target for an open position: the next standard
+        monthly expiry (third Friday) on or after the current expiry +21
+        days, plus live bid/mid premium for both the same strike and a
+        ~5% lower strike, snapped to the nearest available strike on the
+        suggested expiry's option chain.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Roll suggestion
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RollSuggestion"
+        "404":
+          description: Position not found, no upcoming monthly expiry, or no chain available
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error: { type: string }
+
   /notifications:
     get:
       operationId: listNotifications
@@ -904,6 +937,40 @@ components:
               month: { type: string, description: "YYYY-MM" }
               premium: { type: number }
               count: { type: integer }
+
+    RollSuggestionStrike:
+      type: object
+      required: [kind, strike, premium, bid, ask, mid, lastPrice]
+      properties:
+        kind:
+          type: string
+          enum: [same, down5]
+          description: same = same strike as current; down5 = ~5% lower strike snapped to nearest available
+        strike: { type: number, description: "Strike snapped to the nearest available strike on the suggested expiry's chain" }
+        premium: { type: number, description: "Recommended premium per share — bid when > 0, else mid of bid/ask, else lastPrice; 0 when no quote" }
+        bid: { type: number }
+        ask: { type: number }
+        mid: { type: number, description: "(bid+ask)/2 when both > 0, else 0" }
+        lastPrice: { type: number }
+
+    RollSuggestion:
+      type: object
+      required: [ticker, currentExpiry, currentStrike, suggestedExpiry, dteFromNow, dteFromCurrent, spot, fetchedAt, options]
+      properties:
+        ticker: { type: string }
+        currentExpiry: { type: string }
+        currentStrike: { type: number }
+        suggestedExpiry:
+          type: string
+          description: Next standard monthly expiry (third Friday) on or after currentExpiry+21d
+        dteFromNow: { type: integer, description: "Days from today to suggestedExpiry" }
+        dteFromCurrent: { type: integer, description: "Days from currentExpiry to suggestedExpiry" }
+        spot: { type: number }
+        fetchedAt: { type: string }
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/RollSuggestionStrike"
 
     DeleteResult:
       type: object
