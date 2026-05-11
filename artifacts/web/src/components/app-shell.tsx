@@ -1,6 +1,6 @@
 import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutGrid, LineChart, Menu, Settings as SettingsIcon, Moon, Sun, Activity } from "lucide-react";
+import { LayoutGrid, LineChart, Menu, Settings as SettingsIcon, Moon, Sun } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -8,6 +8,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import spokeAiLogo from "@/assets/spoke-ai-logo.png";
 import {
   getGetLatestScanQueryKey,
   getHealthCheckQueryKey,
@@ -85,14 +86,13 @@ export function AppShell({ title, breadcrumbs, actions, children }: AppShellProp
         className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex"
         data-testid="nav-sidebar"
       >
-        <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Activity className="h-4 w-4" strokeWidth={2.5} />
-          </div>
-          <div className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold tracking-tight">Wheel</span>
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Screener</span>
-          </div>
+        <div className="flex h-20 items-center border-b border-sidebar-border px-4">
+          <img
+            src={spokeAiLogo}
+            alt="Spoke AI"
+            className="h-14 w-auto max-w-full object-contain"
+            data-testid="img-brand-logo"
+          />
         </div>
 
         <nav className="flex-1 space-y-1 p-3">
@@ -162,11 +162,13 @@ export function AppShell({ title, breadcrumbs, actions, children }: AppShellProp
               </SheetTrigger>
               <SheetContent side="left" className="w-64 p-0">
                 <SheetHeader className="border-b border-border px-4 py-3">
-                  <SheetTitle className="flex items-center gap-2 text-sm">
-                    <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                      <Activity className="h-3.5 w-3.5" strokeWidth={2.5} />
-                    </div>
-                    Wheel Screener
+                  <SheetTitle className="flex items-center text-sm">
+                    <img
+                      src={spokeAiLogo}
+                      alt="Spoke AI"
+                      className="h-10 w-auto max-w-full object-contain"
+                      data-testid="img-brand-logo-mobile"
+                    />
                   </SheetTitle>
                 </SheetHeader>
                 <nav className="space-y-1 p-3">
