@@ -38,6 +38,8 @@ export * from "./positionsStatsSummaryWorstTrade";
 export * from "./positionStatus";
 export * from "./positionUpdate";
 export * from "./quote";
+export * from "./rollPositionInput";
+export * from "./rollPositionResult";
 export * from "./scanError";
 export * from "./scanInput";
 export * from "./scanResult";

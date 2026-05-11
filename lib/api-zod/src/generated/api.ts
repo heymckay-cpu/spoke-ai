@@ -943,6 +943,184 @@ export const DeleteHoldingResponse = zod.object({
 });
 
 /**
+ * Closes the existing position at the supplied buy-to-close price and
+opens a brand-new short put with the supplied strike, expiry, premium
+and contract count. Both writes happen inside a single database
+transaction so the user can never end up with one leg without the
+other.
+
+ * @summary Atomically close an open position and open a new (rolled) one
+ */
+export const RollPositionParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const rollPositionBodyClosePriceMin = 0;
+
+export const rollPositionBodyStrikeExclusiveMin = 0;
+
+export const rollPositionBodyPremiumMin = 0;
+
+export const RollPositionBody = zod
+  .object({
+    closePrice: zod
+      .number()
+      .min(rollPositionBodyClosePriceMin)
+      .describe("Per-share buy-to-close price for the existing position"),
+    strike: zod
+      .number()
+      .gt(rollPositionBodyStrikeExclusiveMin)
+      .describe("Strike for the new (rolled) position"),
+    expiry: zod
+      .string()
+      .describe("ISO date YYYY-MM-DD for the new (rolled) position"),
+    premium: zod
+      .number()
+      .min(rollPositionBodyPremiumMin)
+      .describe("Premium per share received on the new (rolled) position"),
+    contracts: zod
+      .number()
+      .min(1)
+      .describe("Contract count for the new (rolled) position"),
+    notes: zod
+      .string()
+      .nullish()
+      .describe("Optional notes for the new (rolled) position"),
+  })
+  .describe(
+    "Inputs to atomically close an existing position and open the rolled replacement.",
+  );
+
+export const RollPositionResponse = zod.object({
+  closed: zod.object({
+    id: zod.number(),
+    ticker: zod.string(),
+    strike: zod.number(),
+    expiry: zod.string(),
+    premium: zod.number(),
+    contracts: zod.number(),
+    openedAt: zod.string(),
+    closedAt: zod.string().nullish(),
+    closePrice: zod.number().nullish(),
+    notes: zod.string().nullish(),
+    status: zod.enum(["open", "closed"]),
+    dte: zod.number().describe("Days to expiration (negative when expired)"),
+    spot: zod.number().nullish().describe("Current underlying price"),
+    currentBid: zod
+      .number()
+      .nullish()
+      .describe("Current put bid at this strike for this expiry"),
+    unrealizedPnl: zod
+      .number()
+      .nullish()
+      .describe(
+        "(premium - currentBid) \* 100 \* contracts; null when bid unavailable",
+      ),
+    realizedPnl: zod
+      .number()
+      .nullish()
+      .describe("(premium - closePrice) \* 100 \* contracts; null when open"),
+    assignmentRisk: zod
+      .boolean()
+      .optional()
+      .describe("Open position where spot has fallen below strike"),
+    expiringSoon: zod
+      .boolean()
+      .optional()
+      .describe("Open position with DTE <= 7"),
+    rolledFromId: zod
+      .number()
+      .nullish()
+      .describe("Id of the closed position this one was rolled from, if any."),
+    rolledFrom: zod
+      .object({
+        id: zod.number(),
+        ticker: zod.string(),
+        strike: zod.number(),
+        expiry: zod.string(),
+      })
+      .nullish()
+      .describe(
+        "Summary of the position this one was rolled from (parent leg).",
+      ),
+    rolledTo: zod
+      .object({
+        id: zod.number(),
+        ticker: zod.string(),
+        strike: zod.number(),
+        expiry: zod.string(),
+      })
+      .nullish()
+      .describe(
+        "Summary of the position this one was rolled into (child leg).",
+      ),
+  }),
+  opened: zod.object({
+    id: zod.number(),
+    ticker: zod.string(),
+    strike: zod.number(),
+    expiry: zod.string(),
+    premium: zod.number(),
+    contracts: zod.number(),
+    openedAt: zod.string(),
+    closedAt: zod.string().nullish(),
+    closePrice: zod.number().nullish(),
+    notes: zod.string().nullish(),
+    status: zod.enum(["open", "closed"]),
+    dte: zod.number().describe("Days to expiration (negative when expired)"),
+    spot: zod.number().nullish().describe("Current underlying price"),
+    currentBid: zod
+      .number()
+      .nullish()
+      .describe("Current put bid at this strike for this expiry"),
+    unrealizedPnl: zod
+      .number()
+      .nullish()
+      .describe(
+        "(premium - currentBid) \* 100 \* contracts; null when bid unavailable",
+      ),
+    realizedPnl: zod
+      .number()
+      .nullish()
+      .describe("(premium - closePrice) \* 100 \* contracts; null when open"),
+    assignmentRisk: zod
+      .boolean()
+      .optional()
+      .describe("Open position where spot has fallen below strike"),
+    expiringSoon: zod
+      .boolean()
+      .optional()
+      .describe("Open position with DTE <= 7"),
+    rolledFromId: zod
+      .number()
+      .nullish()
+      .describe("Id of the closed position this one was rolled from, if any."),
+    rolledFrom: zod
+      .object({
+        id: zod.number(),
+        ticker: zod.string(),
+        strike: zod.number(),
+        expiry: zod.string(),
+      })
+      .nullish()
+      .describe(
+        "Summary of the position this one was rolled from (parent leg).",
+      ),
+    rolledTo: zod
+      .object({
+        id: zod.number(),
+        ticker: zod.string(),
+        strike: zod.number(),
+        expiry: zod.string(),
+      })
+      .nullish()
+      .describe(
+        "Summary of the position this one was rolled into (child leg).",
+      ),
+  }),
+});
+
+/**
  * @summary List recent position alerts (assignment risk / near-expiry)
  */
 export const ListNotificationsResponse = zod.object({

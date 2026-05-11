@@ -1,10 +1,6 @@
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import {
-  useCreatePosition,
-  useUpdatePosition,
-  type Position,
-} from "@workspace/api-client-react";
+import { useRollPosition, type Position } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -44,8 +40,7 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
   const [newContracts, setNewContracts] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const { toast } = useToast();
-  const update = useUpdatePosition();
-  const create = useCreatePosition();
+  const roll = useRollPosition();
 
   useEffect(() => {
     if (open) {
@@ -90,37 +85,18 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
     }
     setSubmitting(true);
     try {
-      // Step 1: close the existing position.
-      await update.mutateAsync({
+      // Single atomic server call — close + open happen inside one DB
+      // transaction, so a network drop can never leave us half-rolled.
+      await roll.mutateAsync({
         id: position.id,
-        data: { closePrice: closeNum },
+        data: {
+          closePrice: closeNum,
+          strike: strikeNum,
+          expiry: newExpiry,
+          premium: premiumNum,
+          contracts: contractsNum,
+        },
       });
-
-      // Step 2: open the new (rolled) position, linked back to the closed leg.
-      try {
-        await create.mutateAsync({
-          data: {
-            ticker: position.ticker,
-            strike: strikeNum,
-            expiry: newExpiry,
-            premium: premiumNum,
-            contracts: contractsNum,
-            rolledFromId: position.id,
-          },
-        });
-      } catch (err) {
-        // Roll-back: re-open the original position so the user isn't left
-        // with a closed leg and no new leg.
-        try {
-          await update.mutateAsync({
-            id: position.id,
-            data: { closePrice: null },
-          });
-        } catch {
-          /* best-effort rollback */
-        }
-        throw err;
-      }
 
       toast({
         title: "Position rolled",
@@ -158,7 +134,7 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
           </DialogTitle>
           <DialogDescription>
             Close the current contract and open a new one with a later expiry.
-            Both happen together — if the new leg fails, the close is reverted.
+            Both happen together in a single server transaction.
           </DialogDescription>
         </DialogHeader>
 

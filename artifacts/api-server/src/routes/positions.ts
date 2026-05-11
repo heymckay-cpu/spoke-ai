@@ -11,6 +11,9 @@ import {
   UpdatePositionParams,
   DeletePositionResponse,
   GetPositionsStatsResponse,
+  RollPositionBody,
+  RollPositionParams,
+  RollPositionResponse,
 } from "@workspace/api-zod";
 import { getOptionChain, getSpot } from "../lib/market";
 import { clearAlertMarkers, deleteNotificationsForPosition } from "../lib/alerts";
@@ -403,6 +406,107 @@ router.patch("/positions/:id", async (req, res): Promise<void> => {
   }
   const enriched = await enrichOne(updated);
   res.json(UpdatePositionResponse.parse(enriched));
+});
+
+class RollError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+router.post("/positions/:id/roll", async (req, res): Promise<void> => {
+  const params = RollPositionParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const parsed = RollPositionBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const v = parsed.data;
+
+  // Both writes happen inside a single DB transaction so the user can never
+  // be left with a closed leg and no opened replacement (or vice versa).
+  let closedRow: typeof positionsTable.$inferSelect;
+  let openedRow: typeof positionsTable.$inferSelect;
+  try {
+    const result = await db.transaction(async (tx) => {
+      const existing = await tx
+        .select()
+        .from(positionsTable)
+        .where(eq(positionsTable.id, params.data.id));
+      const current = existing[0];
+      if (!current) {
+        throw new RollError(404, "Position not found");
+      }
+      if (current.closedAt != null) {
+        throw new RollError(409, "Position is already closed");
+      }
+
+      const [closed] = await tx
+        .update(positionsTable)
+        .set({ closedAt: new Date(), closePrice: v.closePrice })
+        .where(eq(positionsTable.id, params.data.id))
+        .returning();
+      if (!closed) {
+        throw new RollError(500, "Failed to close position");
+      }
+
+      const [opened] = await tx
+        .insert(positionsTable)
+        .values({
+          ticker: current.ticker,
+          strike: v.strike,
+          expiry: v.expiry,
+          premium: v.premium,
+          contracts: v.contracts,
+          notes: v.notes ?? null,
+          // A roll always links the new leg back to the closed one so the
+          // journal can render the chain (rolledFrom / rolledTo badges).
+          rolledFromId: current.id,
+        })
+        .returning();
+      if (!opened) {
+        throw new RollError(500, "Failed to open rolled position");
+      }
+
+      return { closed, opened };
+    });
+    closedRow = result.closed;
+    openedRow = result.opened;
+  } catch (err) {
+    if (err instanceof RollError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+
+  // Closing the original should clear its alert markers so a future re-open
+  // can alert fresh; mirrors the PATCH-close behavior. Best-effort — the
+  // roll itself already committed, so a stale marker shouldn't fail the call.
+  try {
+    await clearAlertMarkers(closedRow.id);
+  } catch {
+    /* ignore */
+  }
+
+  const ctxMap = await buildRollContexts([closedRow, openedRow]);
+  const [closedEnriched, openedEnriched] = await Promise.all([
+    enrichPosition(closedRow, ctxMap.get(closedRow.id) ?? {}),
+    enrichPosition(openedRow, ctxMap.get(openedRow.id) ?? {}),
+  ]);
+
+  res.json(
+    RollPositionResponse.parse({
+      closed: closedEnriched,
+      opened: openedEnriched,
+    }),
+  );
 });
 
 router.delete("/positions/:id", async (req, res): Promise<void> => {

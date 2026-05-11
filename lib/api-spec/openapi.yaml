@@ -336,6 +336,36 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeleteResult"
 
+  /positions/{id}/roll:
+    post:
+      operationId: rollPosition
+      tags: [positions]
+      summary: Atomically close an open position and open a new (rolled) one
+      description: |
+        Closes the existing position at the supplied buy-to-close price and
+        opens a brand-new short put with the supplied strike, expiry, premium
+        and contract count. Both writes happen inside a single database
+        transaction so the user can never end up with one leg without the
+        other.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RollPositionInput"
+      responses:
+        "200":
+          description: Roll succeeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RollPositionResult"
+
   /notifications:
     get:
       operationId: listNotifications
@@ -703,6 +733,27 @@ components:
         rolledFromId:
           type: ["integer", "null"]
           description: "Optional id of the closed position this one was rolled from. The server will reject ids that don't exist."
+
+    RollPositionInput:
+      type: object
+      required: [closePrice, strike, expiry, premium, contracts]
+      description: Inputs to atomically close an existing position and open the rolled replacement.
+      properties:
+        closePrice: { type: number, minimum: 0, description: "Per-share buy-to-close price for the existing position" }
+        strike: { type: number, exclusiveMinimum: 0, description: "Strike for the new (rolled) position" }
+        expiry: { type: string, description: "ISO date YYYY-MM-DD for the new (rolled) position" }
+        premium: { type: number, minimum: 0, description: "Premium per share received on the new (rolled) position" }
+        contracts: { type: integer, minimum: 1, description: "Contract count for the new (rolled) position" }
+        notes: { type: ["string", "null"], description: "Optional notes for the new (rolled) position" }
+
+    RollPositionResult:
+      type: object
+      required: [closed, opened]
+      properties:
+        closed:
+          $ref: "#/components/schemas/Position"
+        opened:
+          $ref: "#/components/schemas/Position"
 
     PositionUpdate:
       type: object

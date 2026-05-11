@@ -298,14 +298,36 @@ export interface PositionInput {
   rolledFromId?: number | null;
 }
 
-export interface PositionUpdate {
+/**
+ * Inputs to atomically close an existing position and open the rolled replacement.
+ */
+export interface RollPositionInput {
   /**
-   * Per-share buy-to-close price; null to re-open
+   * Per-share buy-to-close price for the existing position
    * @minimum 0
+   */
+  closePrice: number;
+  /**
+   * Strike for the new (rolled) position
+   * @exclusiveMinimum 0
+   */
+  strike: number;
+  /** ISO date YYYY-MM-DD for the new (rolled) position */
+  expiry: string;
+  /**
+   * Premium per share received on the new (rolled) position
+   * @minimum 0
+   */
+  premium: number;
+  /**
+   * Contract count for the new (rolled) position
+   * @minimum 1
+   */
+  contracts: number;
+  /**
+   * Optional notes for the new (rolled) position
    * @nullable
    */
-  closePrice?: number | null;
-  /** @nullable */
   notes?: string | null;
 }
 
@@ -395,6 +417,22 @@ export interface Position {
    * @nullable
    */
   rolledTo?: PositionRolledTo;
+}
+
+export interface RollPositionResult {
+  closed: Position;
+  opened: Position;
+}
+
+export interface PositionUpdate {
+  /**
+   * Per-share buy-to-close price; null to re-open
+   * @minimum 0
+   * @nullable
+   */
+  closePrice?: number | null;
+  /** @nullable */
+  notes?: string | null;
 }
 
 export type PositionsListTotals = {

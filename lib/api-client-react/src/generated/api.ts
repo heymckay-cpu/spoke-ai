@@ -35,6 +35,8 @@ import type {
   PositionsList,
   PositionsStats,
   Quote,
+  RollPositionInput,
+  RollPositionResult,
   ScanInput,
   ScanResult,
   ScanSummary,
@@ -1534,6 +1536,99 @@ export const useDeleteHolding = <
   TContext
 > => {
   return useMutation(getDeleteHoldingMutationOptions(options));
+};
+
+/**
+ * Closes the existing position at the supplied buy-to-close price and
+opens a brand-new short put with the supplied strike, expiry, premium
+and contract count. Both writes happen inside a single database
+transaction so the user can never end up with one leg without the
+other.
+
+ * @summary Atomically close an open position and open a new (rolled) one
+ */
+export const getRollPositionUrl = (id: number) => {
+  return `/api/positions/${id}/roll`;
+};
+
+export const rollPosition = async (
+  id: number,
+  rollPositionInput: RollPositionInput,
+  options?: RequestInit,
+): Promise<RollPositionResult> => {
+  return customFetch<RollPositionResult>(getRollPositionUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(rollPositionInput),
+  });
+};
+
+export const getRollPositionMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rollPosition>>,
+    TError,
+    { id: number; data: BodyType<RollPositionInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof rollPosition>>,
+  TError,
+  { id: number; data: BodyType<RollPositionInput> },
+  TContext
+> => {
+  const mutationKey = ["rollPosition"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof rollPosition>>,
+    { id: number; data: BodyType<RollPositionInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return rollPosition(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RollPositionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof rollPosition>>
+>;
+export type RollPositionMutationBody = BodyType<RollPositionInput>;
+export type RollPositionMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Atomically close an open position and open a new (rolled) one
+ */
+export const useRollPosition = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rollPosition>>,
+    TError,
+    { id: number; data: BodyType<RollPositionInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof rollPosition>>,
+  TError,
+  { id: number; data: BodyType<RollPositionInput> },
+  TContext
+> => {
+  return useMutation(getRollPositionMutationOptions(options));
 };
 
 /**
