@@ -17,10 +17,14 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  AckAllResult,
+  AlertScanResult,
   Chain,
   ChainExpirations,
   DeleteResult,
   HealthStatus,
+  Notification,
+  NotificationsList,
   Position,
   PositionInput,
   PositionUpdate,
@@ -1114,4 +1118,325 @@ export const useDeletePosition = <
   TContext
 > => {
   return useMutation(getDeletePositionMutationOptions(options));
+};
+
+/**
+ * @summary List recent position alerts (assignment risk / near-expiry)
+ */
+export const getListNotificationsUrl = () => {
+  return `/api/notifications`;
+};
+
+export const listNotifications = async (
+  options?: RequestInit,
+): Promise<NotificationsList> => {
+  return customFetch<NotificationsList>(getListNotificationsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListNotificationsQueryKey = () => {
+  return [`/api/notifications`] as const;
+};
+
+export const getListNotificationsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listNotifications>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listNotifications>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListNotificationsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listNotifications>>
+  > = ({ signal }) => listNotifications({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listNotifications>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListNotificationsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listNotifications>>
+>;
+export type ListNotificationsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List recent position alerts (assignment risk / near-expiry)
+ */
+
+export function useListNotifications<
+  TData = Awaited<ReturnType<typeof listNotifications>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listNotifications>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListNotificationsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Mark a notification as acknowledged
+ */
+export const getAckNotificationUrl = (id: number) => {
+  return `/api/notifications/${id}/ack`;
+};
+
+export const ackNotification = async (
+  id: number,
+  options?: RequestInit,
+): Promise<Notification> => {
+  return customFetch<Notification>(getAckNotificationUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getAckNotificationMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof ackNotification>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof ackNotification>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["ackNotification"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof ackNotification>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return ackNotification(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AckNotificationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof ackNotification>>
+>;
+
+export type AckNotificationMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Mark a notification as acknowledged
+ */
+export const useAckNotification = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof ackNotification>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof ackNotification>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getAckNotificationMutationOptions(options));
+};
+
+/**
+ * @summary Mark all unread notifications as acknowledged
+ */
+export const getAckAllNotificationsUrl = () => {
+  return `/api/notifications/ack-all`;
+};
+
+export const ackAllNotifications = async (
+  options?: RequestInit,
+): Promise<AckAllResult> => {
+  return customFetch<AckAllResult>(getAckAllNotificationsUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getAckAllNotificationsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof ackAllNotifications>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof ackAllNotifications>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["ackAllNotifications"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof ackAllNotifications>>,
+    void
+  > = () => {
+    return ackAllNotifications(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AckAllNotificationsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof ackAllNotifications>>
+>;
+
+export type AckAllNotificationsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Mark all unread notifications as acknowledged
+ */
+export const useAckAllNotifications = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof ackAllNotifications>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof ackAllNotifications>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getAckAllNotificationsMutationOptions(options));
+};
+
+/**
+ * @summary Force an immediate alert scan over open positions
+ */
+export const getScanForAlertsUrl = () => {
+  return `/api/notifications/scan`;
+};
+
+export const scanForAlerts = async (
+  options?: RequestInit,
+): Promise<AlertScanResult> => {
+  return customFetch<AlertScanResult>(getScanForAlertsUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getScanForAlertsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof scanForAlerts>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof scanForAlerts>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["scanForAlerts"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof scanForAlerts>>,
+    void
+  > = () => {
+    return scanForAlerts(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ScanForAlertsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof scanForAlerts>>
+>;
+
+export type ScanForAlertsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Force an immediate alert scan over open positions
+ */
+export const useScanForAlerts = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof scanForAlerts>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof scanForAlerts>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getScanForAlertsMutationOptions(options));
 };

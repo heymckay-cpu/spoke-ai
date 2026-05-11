@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./ackAllResult";
+export * from "./alertScanResult";
 export * from "./candidate";
 export * from "./chain";
 export * from "./chainExpirations";
@@ -13,6 +15,9 @@ export * from "./chainRow";
 export * from "./deleteResult";
 export * from "./healthStatus";
 export * from "./ivRankBucket";
+export * from "./notification";
+export * from "./notificationKind";
+export * from "./notificationsList";
 export * from "./position";
 export * from "./positionInput";
 export * from "./positionsList";

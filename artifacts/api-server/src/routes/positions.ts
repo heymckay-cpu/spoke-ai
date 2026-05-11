@@ -12,6 +12,7 @@ import {
   DeletePositionResponse,
 } from "@workspace/api-zod";
 import { getOptionChain, getSpot } from "../lib/market";
+import { clearAlertMarkers, deleteNotificationsForPosition } from "../lib/alerts";
 
 const router: IRouter = Router();
 
@@ -192,6 +193,11 @@ router.patch("/positions/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Position not found" });
     return;
   }
+  // Closing or re-opening should reset alert markers so a re-opened position
+  // can alert fresh next time it crosses a threshold.
+  if ("closePrice" in v) {
+    await clearAlertMarkers(updated.id);
+  }
   const enriched = await enrichPosition(updated);
   res.json(UpdatePositionResponse.parse(enriched));
 });
@@ -202,6 +208,9 @@ router.delete("/positions/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
+  // Notifications carry no FK constraint to positions, so clean up explicitly
+  // before deleting the row to avoid orphaned alerts referencing a missing id.
+  await deleteNotificationsForPosition(params.data.id);
   const result = await db
     .delete(positionsTable)
     .where(eq(positionsTable.id, params.data.id))

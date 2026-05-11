@@ -11,6 +11,8 @@ export const positionsTable = pgTable("positions", {
   closedAt: timestamp("closed_at", { withTimezone: true }),
   closePrice: doublePrecision("close_price"),
   notes: text("notes"),
+  lastAlertedItmAt: timestamp("last_alerted_itm_at", { withTimezone: true }),
+  lastAlertedExpiringSoonAt: timestamp("last_alerted_expiring_soon_at", { withTimezone: true }),
 });
 
 export type PositionRow = typeof positionsTable.$inferSelect;

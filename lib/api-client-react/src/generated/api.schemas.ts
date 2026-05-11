@@ -370,3 +370,41 @@ export interface PositionsList {
 export interface DeleteResult {
   ok: boolean;
 }
+
+/**
+ * itm = spot has fallen below strike; expiring_soon = DTE <= 3
+ */
+export type NotificationKind =
+  (typeof NotificationKind)[keyof typeof NotificationKind];
+
+export const NotificationKind = {
+  itm: "itm",
+  expiring_soon: "expiring_soon",
+} as const;
+
+export interface Notification {
+  id: number;
+  positionId: number;
+  /** itm = spot has fallen below strike; expiring_soon = DTE <= 3 */
+  kind: NotificationKind;
+  ticker: string;
+  message: string;
+  triggeredAt: string;
+  /** @nullable */
+  acknowledgedAt?: string | null;
+}
+
+export interface NotificationsList {
+  notifications: Notification[];
+  unreadCount: number;
+}
+
+export interface AckAllResult {
+  acknowledged: number;
+}
+
+export interface AlertScanResult {
+  scanned: number;
+  itmAlerts: number;
+  expiringAlerts: number;
+}

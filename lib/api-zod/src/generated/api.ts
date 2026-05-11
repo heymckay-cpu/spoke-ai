@@ -677,3 +677,60 @@ export const DeletePositionParams = zod.object({
 export const DeletePositionResponse = zod.object({
   ok: zod.boolean(),
 });
+
+/**
+ * @summary List recent position alerts (assignment risk / near-expiry)
+ */
+export const ListNotificationsResponse = zod.object({
+  notifications: zod.array(
+    zod.object({
+      id: zod.number(),
+      positionId: zod.number(),
+      kind: zod
+        .enum(["itm", "expiring_soon"])
+        .describe(
+          "itm = spot has fallen below strike; expiring_soon = DTE <= 3",
+        ),
+      ticker: zod.string(),
+      message: zod.string(),
+      triggeredAt: zod.string(),
+      acknowledgedAt: zod.string().nullish(),
+    }),
+  ),
+  unreadCount: zod.number(),
+});
+
+/**
+ * @summary Mark a notification as acknowledged
+ */
+export const AckNotificationParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const AckNotificationResponse = zod.object({
+  id: zod.number(),
+  positionId: zod.number(),
+  kind: zod
+    .enum(["itm", "expiring_soon"])
+    .describe("itm = spot has fallen below strike; expiring_soon = DTE <= 3"),
+  ticker: zod.string(),
+  message: zod.string(),
+  triggeredAt: zod.string(),
+  acknowledgedAt: zod.string().nullish(),
+});
+
+/**
+ * @summary Mark all unread notifications as acknowledged
+ */
+export const AckAllNotificationsResponse = zod.object({
+  acknowledged: zod.number(),
+});
+
+/**
+ * @summary Force an immediate alert scan over open positions
+ */
+export const ScanForAlertsResponse = zod.object({
+  scanned: zod.number(),
+  itmAlerts: zod.number(),
+  expiringAlerts: zod.number(),
+});

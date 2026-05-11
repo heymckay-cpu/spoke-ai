@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import { RunScanButton } from "@/components/run-scan-button";
+import { NotificationBell } from "@/components/notification-bell";
 import { fmtRelative } from "@/lib/format";
 import {
   Breadcrumb,
@@ -246,6 +247,7 @@ export function AppShell({ title, breadcrumbs, actions, children }: AppShellProp
           </div>
           <div className="flex items-center gap-2">
             {actions}
+            <NotificationBell />
             <RunScanButton />
             <Button
               variant="ghost"

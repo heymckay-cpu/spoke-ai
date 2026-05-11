@@ -20,6 +20,8 @@ tags:
     description: Market summary
   - name: positions
     description: Sold-put position tracker
+  - name: notifications
+    description: Position alerts (assignment risk, near-expiry)
 paths:
   /healthz:
     get:
@@ -246,6 +248,63 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DeleteResult"
+
+  /notifications:
+    get:
+      operationId: listNotifications
+      tags: [notifications]
+      summary: List recent position alerts (assignment risk / near-expiry)
+      responses:
+        "200":
+          description: Notifications
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationsList"
+
+  /notifications/{id}/ack:
+    post:
+      operationId: ackNotification
+      tags: [notifications]
+      summary: Mark a notification as acknowledged
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Notification"
+
+  /notifications/ack-all:
+    post:
+      operationId: ackAllNotifications
+      tags: [notifications]
+      summary: Mark all unread notifications as acknowledged
+      responses:
+        "200":
+          description: Count of acknowledged notifications
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AckAllResult"
+
+  /notifications/scan:
+    post:
+      operationId: scanForAlerts
+      tags: [notifications]
+      summary: Force an immediate alert scan over open positions
+      responses:
+        "200":
+          description: Scan stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertScanResult"
 
 components:
   schemas:
@@ -611,3 +670,42 @@ components:
       required: [ok]
       properties:
         ok: { type: boolean }
+
+    Notification:
+      type: object
+      required: [id, positionId, kind, ticker, message, triggeredAt]
+      properties:
+        id: { type: integer }
+        positionId: { type: integer }
+        kind:
+          type: string
+          enum: [itm, expiring_soon]
+          description: itm = spot has fallen below strike; expiring_soon = DTE <= 3
+        ticker: { type: string }
+        message: { type: string }
+        triggeredAt: { type: string }
+        acknowledgedAt: { type: ["string", "null"] }
+
+    NotificationsList:
+      type: object
+      required: [notifications, unreadCount]
+      properties:
+        notifications:
+          type: array
+          items:
+            $ref: "#/components/schemas/Notification"
+        unreadCount: { type: integer }
+
+    AckAllResult:
+      type: object
+      required: [acknowledged]
+      properties:
+        acknowledged: { type: integer }
+
+    AlertScanResult:
+      type: object
+      required: [scanned, itmAlerts, expiringAlerts]
+      properties:
+        scanned: { type: integer }
+        itmAlerts: { type: integer }
+        expiringAlerts: { type: integer }
