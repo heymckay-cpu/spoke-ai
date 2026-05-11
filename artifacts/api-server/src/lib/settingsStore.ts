@@ -1,7 +1,17 @@
 import { db, settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import type { ScreenerSettings } from "./screener";
-import { setCacheTtlMinutes } from "./market";
+import { setCacheTtlMinutes, clearMarketCache } from "./market";
+
+// Listeners notified whenever settings are saved. The /scan route registers
+// here to drop its in-memory cached snapshot so the next call rebuilds with
+// the new parameters.
+type SettingsListener = (s: ScreenerSettings) => void;
+const listeners = new Set<SettingsListener>();
+export function onSettingsSaved(fn: SettingsListener): () => void {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
 
 const DEFAULT_SETTINGS: ScreenerSettings = {
   tickers: [
@@ -64,5 +74,15 @@ export async function saveSettings(s: ScreenerSettings): Promise<ScreenerSetting
       set: { ...s, updatedAt: new Date() },
     });
   setCacheTtlMinutes(s.cacheTtlMinutes);
+  // Settings changed → invalidate market & scan caches so subsequent scans
+  // reflect the new parameters immediately.
+  clearMarketCache();
+  for (const fn of listeners) {
+    try {
+      fn(s);
+    } catch {
+      /* listener errors must not break saves */
+    }
+  }
   return s;
 }

@@ -6,8 +6,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
   getGetLatestScanQueryKey,
+  getGetScanSummaryQueryKey,
   getGetSettingsQueryKey,
   useGetSettings,
+  useRunScan,
   useUpdateSettings,
 } from "@workspace/api-client-react";
 import { AppShell } from "@/components/app-shell";
@@ -148,13 +150,30 @@ export function SettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings]);
 
+  const rescan = useRunScan({
+    mutation: {
+      onSuccess: (result) => {
+        qc.setQueryData(getGetLatestScanQueryKey(), result);
+        qc.invalidateQueries({ queryKey: getGetLatestScanQueryKey() });
+        qc.invalidateQueries({ queryKey: getGetScanSummaryQueryKey() });
+      },
+    },
+  });
+
   const update = useUpdateSettings({
     mutation: {
       onSuccess: (saved) => {
         qc.setQueryData(getGetSettingsQueryKey(), saved);
         qc.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
         qc.invalidateQueries({ queryKey: getGetLatestScanQueryKey() });
-        toast({ title: "Settings saved", description: "Your screener parameters were updated." });
+        toast({
+          title: "Settings saved",
+          description: "Re-running the screener with your new parameters…",
+        });
+        // Settings → scan: kick a fresh scan so the dashboard reflects the
+        // new parameters immediately. Server-side has already invalidated
+        // its caches.
+        rescan.mutate({ data: { forceRefresh: true } });
       },
       onError: (err: unknown) => {
         const message = err instanceof Error ? err.message : "Unknown error";
@@ -482,10 +501,14 @@ export function SettingsPage() {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={update.isPending}
+                  disabled={update.isPending || rescan.isPending}
                   data-testid="button-save-settings"
                 >
-                  {update.isPending ? "Saving…" : "Save changes"}
+                  {update.isPending
+                    ? "Saving…"
+                    : rescan.isPending
+                      ? "Re-scanning…"
+                      : "Save & re-scan"}
                 </Button>
               </div>
             </form>

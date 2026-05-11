@@ -46,7 +46,10 @@ type SortKey =
   | "delta"
   | "iv"
   | "ivRank"
+  | "bid"
   | "premium"
+  | "collateral"
+  | "staticReturn"
   | "annualized"
   | "pctOtm"
   | "breakeven"
@@ -78,8 +81,14 @@ function sortCandidates(rows: Candidate[], sort: SortState): Candidate[] {
         return c.iv;
       case "ivRank":
         return c.ivRank ?? -1;
+      case "bid":
+        return c.bid;
       case "premium":
         return c.premiumPerContract;
+      case "collateral":
+        return c.collateralPerContract;
+      case "staticReturn":
+        return c.staticReturnPct;
       case "annualized":
         return c.annualizedPct;
       case "pctOtm":
@@ -150,7 +159,10 @@ const COLUMNS: ColDef[] = [
   { key: "delta", label: "Δ", align: "right" },
   { key: "iv", label: "IV", align: "right" },
   { key: "ivRank", label: "IVR", align: "right" },
+  { key: "bid", label: "Bid", align: "right" },
   { key: "premium", label: "Prem", align: "right" },
+  { key: "collateral", label: "Collateral", align: "right" },
+  { key: "staticReturn", label: "Static %", align: "right" },
   { key: "annualized", label: "Ann %", align: "right" },
   { key: "pctOtm", label: "OTM %", align: "right" },
   { key: "breakeven", label: "B/E", align: "right" },
@@ -381,11 +393,23 @@ export function CandidatesPage() {
                       <td className="px-3 py-2 text-right tabular-nums">{c.dte}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{fmtNum(c.delta, 2)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{fmtFractionPct(c.iv, 1)}</td>
-                      <td className="px-3 py-2 text-right">
+                      <td
+                        className="px-3 py-2 text-right"
+                        title="IV Rank is approximated from 30-day realized volatility over a trailing 252-day window (true IVR isn't exposed by Yahoo Finance)."
+                      >
                         <IvRankPill rank={c.ivRank ?? null} />
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">
+                        {fmtMoney(c.bid)}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
                         {fmtMoney(c.premiumPerContract)}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                        {fmtCompactMoney(c.collateralPerContract)}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {fmtPct(c.staticReturnPct, 2)}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums font-semibold text-emerald-500">
                         {fmtPct(c.annualizedPct, 1)}

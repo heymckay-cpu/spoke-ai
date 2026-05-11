@@ -1,10 +1,51 @@
-// Market data layer wrapping yahoo-finance2 with an in-memory TTL cache.
+// Market data layer wrapping yahoo-finance2 with a disk-backed TTL cache.
+// Mirrors the requests-cache behavior of the Python reference implementation:
+// entries persist across restarts, so a fresh process avoids hammering Yahoo
+// for option chains it already fetched within the TTL window.
+import * as fs from "node:fs";
+import * as path from "node:path";
 import YahooFinance from "yahoo-finance2";
 import { logger } from "./logger";
 
 const yahooFinance = new YahooFinance({
   suppressNotices: ["yahooSurvey", "ripHistorical"],
 });
+
+// Provider abstraction: every market call in this file goes through the
+// `provider` binding below. Methods are bound to their owner so consumers
+// don't need to know about the underlying instance. To swap providers
+// (e.g. polygon, tradier), implement an adapter exposing the same four
+// methods and call `setMarketProvider(adapter)`. The disk cache layer below
+// is provider-agnostic.
+export interface MarketProvider {
+  quote: (...args: Parameters<typeof yahooFinance.quote>) => ReturnType<typeof yahooFinance.quote>;
+  quoteSummary: (
+    ...args: Parameters<typeof yahooFinance.quoteSummary>
+  ) => ReturnType<typeof yahooFinance.quoteSummary>;
+  options: (
+    ...args: Parameters<typeof yahooFinance.options>
+  ) => ReturnType<typeof yahooFinance.options>;
+  chart: (...args: Parameters<typeof yahooFinance.chart>) => ReturnType<typeof yahooFinance.chart>;
+}
+
+function adaptYahoo(yf: typeof yahooFinance): MarketProvider {
+  return {
+    quote: yf.quote.bind(yf),
+    quoteSummary: yf.quoteSummary.bind(yf),
+    options: yf.options.bind(yf),
+    chart: yf.chart.bind(yf),
+  };
+}
+
+let provider: MarketProvider = adaptYahoo(yahooFinance);
+
+export function setMarketProvider(p: MarketProvider): void {
+  provider = p;
+}
+
+export function getMarketProvider(): MarketProvider {
+  return provider;
+}
 
 export interface OptionRow {
   strike: number;
@@ -42,8 +83,53 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
+const CACHE_DIR = process.env.MARKET_CACHE_DIR ?? path.join(process.cwd(), ".cache");
+const CACHE_FILE = path.join(CACHE_DIR, "market-cache.json");
+
 const cache = new Map<string, CacheEntry<unknown>>();
 let cacheTtlMs = 15 * 60 * 1000;
+let flushTimer: NodeJS.Timeout | null = null;
+
+function loadDiskCache(): void {
+  try {
+    if (!fs.existsSync(CACHE_FILE)) return;
+    const raw = fs.readFileSync(CACHE_FILE, "utf-8");
+    const obj = JSON.parse(raw) as Record<string, CacheEntry<unknown>>;
+    const now = Date.now();
+    for (const [k, v] of Object.entries(obj)) {
+      if (v && typeof v.expiresAt === "number" && v.expiresAt > now) {
+        cache.set(k, v);
+      }
+    }
+    logger.info({ entries: cache.size, file: CACHE_FILE }, "loaded market cache from disk");
+  } catch (err) {
+    logger.warn({ err }, "failed to load market cache from disk");
+  }
+}
+
+function flushDiskCache(): void {
+  try {
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
+    const obj: Record<string, CacheEntry<unknown>> = {};
+    const now = Date.now();
+    for (const [k, v] of cache.entries()) {
+      if (v.expiresAt > now) obj[k] = v;
+    }
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(obj));
+  } catch (err) {
+    logger.warn({ err }, "failed to flush market cache to disk");
+  }
+}
+
+function scheduleFlush(): void {
+  if (flushTimer) return;
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    flushDiskCache();
+  }, 1000);
+}
+
+loadDiskCache();
 
 export function setCacheTtlMinutes(min: number): void {
   cacheTtlMs = Math.max(1, min) * 60 * 1000;
@@ -51,6 +137,7 @@ export function setCacheTtlMinutes(min: number): void {
 
 export function clearMarketCache(): void {
   cache.clear();
+  scheduleFlush();
 }
 
 function getCached<T>(key: string): T | null {
@@ -65,6 +152,7 @@ function getCached<T>(key: string): T | null {
 
 function setCached<T>(key: string, value: T, ttlMs = cacheTtlMs): void {
   cache.set(key, { value, expiresAt: Date.now() + ttlMs });
+  scheduleFlush();
 }
 
 function toIsoDate(d: Date): string {
@@ -82,13 +170,24 @@ export async function getQuote(ticker: string): Promise<QuoteInfo | null> {
   const cached = getCached<QuoteInfo>(key);
   if (cached) return cached;
   try {
-    const q = await yahooFinance.quote(ticker);
+    const qRaw = await provider.quote(ticker);
+    const q = qRaw as {
+      regularMarketPrice?: number;
+      shortName?: string;
+      longName?: string;
+      currency?: string;
+      regularMarketChange?: number;
+      regularMarketChangePercent?: number;
+    };
     if (!q || typeof q.regularMarketPrice !== "number") return null;
     let earningsDate: string | null = null;
     try {
-      const summary = await yahooFinance.quoteSummary(ticker, {
+      const summaryRaw = await provider.quoteSummary(ticker, {
         modules: ["calendarEvents"],
       });
+      const summary = summaryRaw as {
+        calendarEvents?: { earnings?: { earningsDate?: Date | Date[] } };
+      };
       const eRaw = summary.calendarEvents?.earnings?.earningsDate;
       const first = Array.isArray(eRaw) ? eRaw[0] : eRaw;
       if (first instanceof Date) earningsDate = toIsoDate(first);
@@ -148,9 +247,10 @@ export async function getExpirations(ticker: string): Promise<string[]> {
   const cached = getCached<string[]>(key);
   if (cached) return cached;
   try {
-    const res = await yahooFinance.options(ticker);
+    const resRaw = await provider.options(ticker);
+    const res = resRaw as { expirationDates?: Array<Date | number> };
     const exps = (res.expirationDates ?? [])
-      .map((d) => (d instanceof Date ? toIsoDate(d) : null))
+      .map((d: Date | number) => (d instanceof Date ? toIsoDate(d) : null))
       .filter((d): d is string => d !== null);
     setCached(key, exps);
     return exps;
@@ -169,11 +269,12 @@ export async function getOptionChain(
   if (cached) return cached;
   try {
     const expDate = new Date(`${expiry}T00:00:00Z`);
-    const [chain, spot] = await Promise.all([
-      yahooFinance.options(ticker, { date: expDate }),
+    const [chainRaw, spot] = await Promise.all([
+      provider.options(ticker, { date: expDate }),
       getSpot(ticker),
     ]);
     if (spot == null) return null;
+    const chain = chainRaw as { options?: Array<{ puts?: unknown[]; calls?: unknown[] }> };
     const first = chain.options?.[0];
     if (!first) return null;
     const today = new Date();
@@ -204,11 +305,12 @@ export async function getIvHistoryProxy(
     const today = new Date();
     const start = new Date(today);
     start.setFullYear(start.getFullYear() - 2);
-    const result = await yahooFinance.chart(ticker, {
+    const resultRaw = await provider.chart(ticker, {
       period1: start,
       period2: today,
       interval: "1d",
     });
+    const result = resultRaw as { quotes?: Array<{ close?: number | null }> };
     const closes = (result.quotes ?? [])
       .map((q) => q.close)
       .filter((c): c is number => typeof c === "number" && Number.isFinite(c));

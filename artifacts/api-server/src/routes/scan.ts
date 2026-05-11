@@ -7,13 +7,19 @@ import {
   GetLatestScanResponse,
   GetScanSummaryResponse,
 } from "@workspace/api-zod";
-import { getSettings } from "../lib/settingsStore";
+import { getSettings, onSettingsSaved } from "../lib/settingsStore";
 import { runScreener, type CandidateOut, type ScanError, type ScanResultOut } from "../lib/screener";
 import { clearMarketCache } from "../lib/market";
 
 const router: IRouter = Router();
 
 let cachedScan: { result: ScanResultOut; expiresAt: number } | null = null;
+
+// Drop the cached scan snapshot whenever settings change so the next /scan
+// call recomputes with the updated parameters.
+onSettingsSaved(() => {
+  cachedScan = null;
+});
 
 async function loadLatestFromDb(): Promise<ScanResultOut> {
   const [row] = await db
