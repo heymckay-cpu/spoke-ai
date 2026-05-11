@@ -1,6 +1,6 @@
 import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutGrid, LineChart, Menu, Settings as SettingsIcon, Moon, Sun } from "lucide-react";
+import { LayoutGrid, LineChart, Menu, Settings as SettingsIcon, Moon, Sun, Wallet } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -48,6 +48,12 @@ const NAV: NavItem[] = [
     label: "Chain",
     icon: LineChart,
     match: (l) => l.startsWith("/chain"),
+  },
+  {
+    href: "/positions",
+    label: "Positions",
+    icon: Wallet,
+    match: (l) => l.startsWith("/positions"),
   },
   {
     href: "/settings",

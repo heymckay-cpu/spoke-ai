@@ -260,3 +260,103 @@ export interface Chain {
   puts: ChainRow[];
   calls: ChainRow[];
 }
+
+export interface PositionInput {
+  /** @minLength 1 */
+  ticker: string;
+  /** @exclusiveMinimum 0 */
+  strike: number;
+  /** ISO date YYYY-MM-DD */
+  expiry: string;
+  /**
+   * Premium received per share
+   * @minimum 0
+   */
+  premium: number;
+  /** @minimum 1 */
+  contracts: number;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export interface PositionUpdate {
+  /**
+   * Per-share buy-to-close price; null to re-open
+   * @minimum 0
+   * @nullable
+   */
+  closePrice?: number | null;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export type PositionStatus =
+  (typeof PositionStatus)[keyof typeof PositionStatus];
+
+export const PositionStatus = {
+  open: "open",
+  closed: "closed",
+} as const;
+
+export interface Position {
+  id: number;
+  ticker: string;
+  strike: number;
+  expiry: string;
+  premium: number;
+  contracts: number;
+  openedAt: string;
+  /** @nullable */
+  closedAt?: string | null;
+  /** @nullable */
+  closePrice?: number | null;
+  /** @nullable */
+  notes?: string | null;
+  status: PositionStatus;
+  /** Days to expiration (negative when expired) */
+  dte: number;
+  /**
+   * Current underlying price
+   * @nullable
+   */
+  spot?: number | null;
+  /**
+   * Current put bid at this strike for this expiry
+   * @nullable
+   */
+  currentBid?: number | null;
+  /**
+   * (premium - currentBid) * 100 * contracts; null when bid unavailable
+   * @nullable
+   */
+  unrealizedPnl?: number | null;
+  /**
+   * (premium - closePrice) * 100 * contracts; null when open
+   * @nullable
+   */
+  realizedPnl?: number | null;
+  /** Open position where spot has fallen below strike */
+  assignmentRisk?: boolean;
+  /** Open position with DTE <= 7 */
+  expiringSoon?: boolean;
+}
+
+export type PositionsListTotals = {
+  openCount: number;
+  closedCount: number;
+  /** Sum of premium*100*contracts for open positions */
+  totalPremium: number;
+  /** Sum of strike*100*contracts for open positions */
+  totalCollateral: number;
+  openUnrealizedPnl: number;
+  closedRealizedPnl: number;
+};
+
+export interface PositionsList {
+  positions: Position[];
+  totals: PositionsListTotals;
+}
+
+export interface DeleteResult {
+  ok: boolean;
+}

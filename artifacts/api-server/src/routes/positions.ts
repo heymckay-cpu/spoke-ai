@@ -1,0 +1,216 @@
+import { Router, type IRouter } from "express";
+import { db, positionsTable } from "@workspace/db";
+import { desc, eq } from "drizzle-orm";
+import {
+  CreatePositionBody,
+  UpdatePositionBody,
+  ListPositionsResponse,
+  CreatePositionResponse,
+  UpdatePositionResponse,
+  DeletePositionParams,
+  UpdatePositionParams,
+  DeletePositionResponse,
+} from "@workspace/api-zod";
+import { getOptionChain, getSpot } from "../lib/market";
+
+const router: IRouter = Router();
+
+interface EnrichedPosition {
+  id: number;
+  ticker: string;
+  strike: number;
+  expiry: string;
+  premium: number;
+  contracts: number;
+  openedAt: string;
+  closedAt: string | null;
+  closePrice: number | null;
+  notes: string | null;
+  status: "open" | "closed";
+  dte: number;
+  spot: number | null;
+  currentBid: number | null;
+  unrealizedPnl: number | null;
+  realizedPnl: number | null;
+  assignmentRisk: boolean;
+  expiringSoon: boolean;
+}
+
+function dteFromIso(expiry: string): number {
+  const exp = new Date(`${expiry}T00:00:00Z`).getTime();
+  if (Number.isNaN(exp)) return 0;
+  return Math.round((exp - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
+async function enrichPosition(row: typeof positionsTable.$inferSelect): Promise<EnrichedPosition> {
+  const status: "open" | "closed" = row.closedAt ? "closed" : "open";
+  const dte = dteFromIso(row.expiry);
+  let spot: number | null = null;
+  let currentBid: number | null = null;
+  let unrealizedPnl: number | null = null;
+  let realizedPnl: number | null = null;
+
+  if (status === "closed" && row.closePrice != null) {
+    realizedPnl = (row.premium - row.closePrice) * 100 * row.contracts;
+  }
+
+  if (status === "open") {
+    // Best-effort live data — never fail the list because Yahoo had a hiccup.
+    try {
+      spot = await getSpot(row.ticker);
+    } catch {
+      /* ignore */
+    }
+    if (dte >= 0) {
+      try {
+        const chain = await getOptionChain(row.ticker, row.expiry);
+        if (chain) {
+          // Match on the closest strike (handles tiny float drift).
+          let best: { row: typeof chain.puts[number]; dist: number } | null = null;
+          for (const p of chain.puts) {
+            const d = Math.abs(p.strike - row.strike);
+            if (best == null || d < best.dist) best = { row: p, dist: d };
+          }
+          if (best && best.dist < 0.01) {
+            const bid = best.row.bid > 0 ? best.row.bid : best.row.lastPrice;
+            if (bid > 0) {
+              currentBid = bid;
+              unrealizedPnl = (row.premium - currentBid) * 100 * row.contracts;
+            }
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  const assignmentRisk = status === "open" && spot != null && spot < row.strike;
+  const expiringSoon = status === "open" && dte >= 0 && dte <= 7;
+
+  return {
+    id: row.id,
+    ticker: row.ticker,
+    strike: row.strike,
+    expiry: row.expiry,
+    premium: row.premium,
+    contracts: row.contracts,
+    openedAt: row.openedAt.toISOString(),
+    closedAt: row.closedAt ? row.closedAt.toISOString() : null,
+    closePrice: row.closePrice,
+    notes: row.notes,
+    status,
+    dte,
+    spot,
+    currentBid,
+    unrealizedPnl,
+    realizedPnl,
+    assignmentRisk,
+    expiringSoon,
+  };
+}
+
+router.get("/positions", async (_req, res): Promise<void> => {
+  const rows = await db
+    .select()
+    .from(positionsTable)
+    .orderBy(desc(positionsTable.openedAt));
+
+  const enriched = await Promise.all(rows.map(enrichPosition));
+
+  const open = enriched.filter((p) => p.status === "open");
+  const closed = enriched.filter((p) => p.status === "closed");
+  const totals = {
+    openCount: open.length,
+    closedCount: closed.length,
+    totalPremium: open.reduce((s, p) => s + p.premium * 100 * p.contracts, 0),
+    totalCollateral: open.reduce((s, p) => s + p.strike * 100 * p.contracts, 0),
+    openUnrealizedPnl: open.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0),
+    closedRealizedPnl: closed.reduce((s, p) => s + (p.realizedPnl ?? 0), 0),
+  };
+
+  res.json(ListPositionsResponse.parse({ positions: enriched, totals }));
+});
+
+router.post("/positions", async (req, res): Promise<void> => {
+  const parsed = CreatePositionBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const v = parsed.data;
+  const [inserted] = await db
+    .insert(positionsTable)
+    .values({
+      ticker: v.ticker.toUpperCase(),
+      strike: v.strike,
+      expiry: v.expiry,
+      premium: v.premium,
+      contracts: v.contracts,
+      notes: v.notes ?? null,
+    })
+    .returning();
+  if (!inserted) {
+    res.status(500).json({ error: "failed to insert" });
+    return;
+  }
+  const enriched = await enrichPosition(inserted);
+  res.json(CreatePositionResponse.parse(enriched));
+});
+
+router.patch("/positions/:id", async (req, res): Promise<void> => {
+  const params = UpdatePositionParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const parsed = UpdatePositionBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const v = parsed.data;
+  const updates: Partial<typeof positionsTable.$inferInsert> = {};
+  if ("closePrice" in v) {
+    if (v.closePrice == null) {
+      updates.closedAt = null;
+      updates.closePrice = null;
+    } else {
+      updates.closedAt = new Date();
+      updates.closePrice = v.closePrice;
+    }
+  }
+  if ("notes" in v) {
+    updates.notes = v.notes ?? null;
+  }
+  const [updated] = await db
+    .update(positionsTable)
+    .set(updates)
+    .where(eq(positionsTable.id, params.data.id))
+    .returning();
+  if (!updated) {
+    res.status(404).json({ error: "Position not found" });
+    return;
+  }
+  const enriched = await enrichPosition(updated);
+  res.json(UpdatePositionResponse.parse(enriched));
+});
+
+router.delete("/positions/:id", async (req, res): Promise<void> => {
+  const params = DeletePositionParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const result = await db
+    .delete(positionsTable)
+    .where(eq(positionsTable.id, params.data.id))
+    .returning({ id: positionsTable.id });
+  if (result.length === 0) {
+    res.status(404).json({ error: "Position not found" });
+    return;
+  }
+  res.json(DeletePositionResponse.parse({ ok: true }));
+});
+
+export default router;

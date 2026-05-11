@@ -474,3 +474,185 @@ export const GetChainResponse = zod.object({
     }),
   ),
 });
+
+/**
+ * @summary List tracked sold-put positions with live P/L
+ */
+export const ListPositionsResponse = zod.object({
+  positions: zod.array(
+    zod.object({
+      id: zod.number(),
+      ticker: zod.string(),
+      strike: zod.number(),
+      expiry: zod.string(),
+      premium: zod.number(),
+      contracts: zod.number(),
+      openedAt: zod.string(),
+      closedAt: zod.string().nullish(),
+      closePrice: zod.number().nullish(),
+      notes: zod.string().nullish(),
+      status: zod.enum(["open", "closed"]),
+      dte: zod.number().describe("Days to expiration (negative when expired)"),
+      spot: zod.number().nullish().describe("Current underlying price"),
+      currentBid: zod
+        .number()
+        .nullish()
+        .describe("Current put bid at this strike for this expiry"),
+      unrealizedPnl: zod
+        .number()
+        .nullish()
+        .describe(
+          "(premium - currentBid) \* 100 \* contracts; null when bid unavailable",
+        ),
+      realizedPnl: zod
+        .number()
+        .nullish()
+        .describe("(premium - closePrice) \* 100 \* contracts; null when open"),
+      assignmentRisk: zod
+        .boolean()
+        .optional()
+        .describe("Open position where spot has fallen below strike"),
+      expiringSoon: zod
+        .boolean()
+        .optional()
+        .describe("Open position with DTE <= 7"),
+    }),
+  ),
+  totals: zod.object({
+    openCount: zod.number(),
+    closedCount: zod.number(),
+    totalPremium: zod
+      .number()
+      .describe("Sum of premium\*100\*contracts for open positions"),
+    totalCollateral: zod
+      .number()
+      .describe("Sum of strike\*100\*contracts for open positions"),
+    openUnrealizedPnl: zod.number(),
+    closedRealizedPnl: zod.number(),
+  }),
+});
+
+/**
+ * @summary Log a newly-opened sold put
+ */
+
+export const createPositionBodyStrikeExclusiveMin = 0;
+
+export const createPositionBodyPremiumMin = 0;
+
+export const CreatePositionBody = zod.object({
+  ticker: zod.string().min(1),
+  strike: zod.number().gt(createPositionBodyStrikeExclusiveMin),
+  expiry: zod.string().describe("ISO date YYYY-MM-DD"),
+  premium: zod
+    .number()
+    .min(createPositionBodyPremiumMin)
+    .describe("Premium received per share"),
+  contracts: zod.number().min(1),
+  notes: zod.string().nullish(),
+});
+
+export const CreatePositionResponse = zod.object({
+  id: zod.number(),
+  ticker: zod.string(),
+  strike: zod.number(),
+  expiry: zod.string(),
+  premium: zod.number(),
+  contracts: zod.number(),
+  openedAt: zod.string(),
+  closedAt: zod.string().nullish(),
+  closePrice: zod.number().nullish(),
+  notes: zod.string().nullish(),
+  status: zod.enum(["open", "closed"]),
+  dte: zod.number().describe("Days to expiration (negative when expired)"),
+  spot: zod.number().nullish().describe("Current underlying price"),
+  currentBid: zod
+    .number()
+    .nullish()
+    .describe("Current put bid at this strike for this expiry"),
+  unrealizedPnl: zod
+    .number()
+    .nullish()
+    .describe(
+      "(premium - currentBid) \* 100 \* contracts; null when bid unavailable",
+    ),
+  realizedPnl: zod
+    .number()
+    .nullish()
+    .describe("(premium - closePrice) \* 100 \* contracts; null when open"),
+  assignmentRisk: zod
+    .boolean()
+    .optional()
+    .describe("Open position where spot has fallen below strike"),
+  expiringSoon: zod
+    .boolean()
+    .optional()
+    .describe("Open position with DTE <= 7"),
+});
+
+/**
+ * @summary Close (or re-open) a tracked position
+ */
+export const UpdatePositionParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const updatePositionBodyClosePriceMin = 0;
+
+export const UpdatePositionBody = zod.object({
+  closePrice: zod
+    .number()
+    .min(updatePositionBodyClosePriceMin)
+    .nullish()
+    .describe("Per-share buy-to-close price; null to re-open"),
+  notes: zod.string().nullish(),
+});
+
+export const UpdatePositionResponse = zod.object({
+  id: zod.number(),
+  ticker: zod.string(),
+  strike: zod.number(),
+  expiry: zod.string(),
+  premium: zod.number(),
+  contracts: zod.number(),
+  openedAt: zod.string(),
+  closedAt: zod.string().nullish(),
+  closePrice: zod.number().nullish(),
+  notes: zod.string().nullish(),
+  status: zod.enum(["open", "closed"]),
+  dte: zod.number().describe("Days to expiration (negative when expired)"),
+  spot: zod.number().nullish().describe("Current underlying price"),
+  currentBid: zod
+    .number()
+    .nullish()
+    .describe("Current put bid at this strike for this expiry"),
+  unrealizedPnl: zod
+    .number()
+    .nullish()
+    .describe(
+      "(premium - currentBid) \* 100 \* contracts; null when bid unavailable",
+    ),
+  realizedPnl: zod
+    .number()
+    .nullish()
+    .describe("(premium - closePrice) \* 100 \* contracts; null when open"),
+  assignmentRisk: zod
+    .boolean()
+    .optional()
+    .describe("Open position where spot has fallen below strike"),
+  expiringSoon: zod
+    .boolean()
+    .optional()
+    .describe("Open position with DTE <= 7"),
+});
+
+/**
+ * @summary Remove a tracked position
+ */
+export const DeletePositionParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeletePositionResponse = zod.object({
+  ok: zod.boolean(),
+});

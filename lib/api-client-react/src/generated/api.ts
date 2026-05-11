@@ -19,7 +19,12 @@ import type {
 import type {
   Chain,
   ChainExpirations,
+  DeleteResult,
   HealthStatus,
+  Position,
+  PositionInput,
+  PositionUpdate,
+  PositionsList,
   Quote,
   ScanInput,
   ScanResult,
@@ -778,3 +783,335 @@ export function useGetChain<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary List tracked sold-put positions with live P/L
+ */
+export const getListPositionsUrl = () => {
+  return `/api/positions`;
+};
+
+export const listPositions = async (
+  options?: RequestInit,
+): Promise<PositionsList> => {
+  return customFetch<PositionsList>(getListPositionsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListPositionsQueryKey = () => {
+  return [`/api/positions`] as const;
+};
+
+export const getListPositionsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listPositions>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listPositions>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListPositionsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listPositions>>> = ({
+    signal,
+  }) => listPositions({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listPositions>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListPositionsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listPositions>>
+>;
+export type ListPositionsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List tracked sold-put positions with live P/L
+ */
+
+export function useListPositions<
+  TData = Awaited<ReturnType<typeof listPositions>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listPositions>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListPositionsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Log a newly-opened sold put
+ */
+export const getCreatePositionUrl = () => {
+  return `/api/positions`;
+};
+
+export const createPosition = async (
+  positionInput: PositionInput,
+  options?: RequestInit,
+): Promise<Position> => {
+  return customFetch<Position>(getCreatePositionUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(positionInput),
+  });
+};
+
+export const getCreatePositionMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createPosition>>,
+    TError,
+    { data: BodyType<PositionInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createPosition>>,
+  TError,
+  { data: BodyType<PositionInput> },
+  TContext
+> => {
+  const mutationKey = ["createPosition"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createPosition>>,
+    { data: BodyType<PositionInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createPosition(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreatePositionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createPosition>>
+>;
+export type CreatePositionMutationBody = BodyType<PositionInput>;
+export type CreatePositionMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Log a newly-opened sold put
+ */
+export const useCreatePosition = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createPosition>>,
+    TError,
+    { data: BodyType<PositionInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createPosition>>,
+  TError,
+  { data: BodyType<PositionInput> },
+  TContext
+> => {
+  return useMutation(getCreatePositionMutationOptions(options));
+};
+
+/**
+ * @summary Close (or re-open) a tracked position
+ */
+export const getUpdatePositionUrl = (id: number) => {
+  return `/api/positions/${id}`;
+};
+
+export const updatePosition = async (
+  id: number,
+  positionUpdate: PositionUpdate,
+  options?: RequestInit,
+): Promise<Position> => {
+  return customFetch<Position>(getUpdatePositionUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(positionUpdate),
+  });
+};
+
+export const getUpdatePositionMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updatePosition>>,
+    TError,
+    { id: number; data: BodyType<PositionUpdate> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updatePosition>>,
+  TError,
+  { id: number; data: BodyType<PositionUpdate> },
+  TContext
+> => {
+  const mutationKey = ["updatePosition"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updatePosition>>,
+    { id: number; data: BodyType<PositionUpdate> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updatePosition(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdatePositionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updatePosition>>
+>;
+export type UpdatePositionMutationBody = BodyType<PositionUpdate>;
+export type UpdatePositionMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Close (or re-open) a tracked position
+ */
+export const useUpdatePosition = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updatePosition>>,
+    TError,
+    { id: number; data: BodyType<PositionUpdate> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updatePosition>>,
+  TError,
+  { id: number; data: BodyType<PositionUpdate> },
+  TContext
+> => {
+  return useMutation(getUpdatePositionMutationOptions(options));
+};
+
+/**
+ * @summary Remove a tracked position
+ */
+export const getDeletePositionUrl = (id: number) => {
+  return `/api/positions/${id}`;
+};
+
+export const deletePosition = async (
+  id: number,
+  options?: RequestInit,
+): Promise<DeleteResult> => {
+  return customFetch<DeleteResult>(getDeletePositionUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeletePositionMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deletePosition>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deletePosition>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deletePosition"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deletePosition>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deletePosition(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeletePositionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deletePosition>>
+>;
+
+export type DeletePositionMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Remove a tracked position
+ */
+export const useDeletePosition = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deletePosition>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deletePosition>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeletePositionMutationOptions(options));
+};

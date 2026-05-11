@@ -18,6 +18,8 @@ tags:
     description: Option chain explorer
   - name: market
     description: Market summary
+  - name: positions
+    description: Sold-put position tracker
 paths:
   /healthz:
     get:
@@ -174,6 +176,76 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Chain"
+
+  /positions:
+    get:
+      operationId: listPositions
+      tags: [positions]
+      summary: List tracked sold-put positions with live P/L
+      responses:
+        "200":
+          description: Positions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PositionsList"
+    post:
+      operationId: createPosition
+      tags: [positions]
+      summary: Log a newly-opened sold put
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PositionInput"
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Position"
+
+  /positions/{id}:
+    patch:
+      operationId: updatePosition
+      tags: [positions]
+      summary: Close (or re-open) a tracked position
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PositionUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Position"
+    delete:
+      operationId: deletePosition
+      tags: [positions]
+      summary: Remove a tracked position
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
 
 components:
   schemas:
@@ -448,3 +520,79 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ChainRow"
+
+    PositionInput:
+      type: object
+      required: [ticker, strike, expiry, premium, contracts]
+      properties:
+        ticker: { type: string, minLength: 1 }
+        strike: { type: number, exclusiveMinimum: 0 }
+        expiry: { type: string, description: "ISO date YYYY-MM-DD" }
+        premium: { type: number, minimum: 0, description: "Premium received per share" }
+        contracts: { type: integer, minimum: 1 }
+        notes: { type: ["string", "null"] }
+
+    PositionUpdate:
+      type: object
+      properties:
+        closePrice: { type: ["number", "null"], minimum: 0, description: "Per-share buy-to-close price; null to re-open" }
+        notes: { type: ["string", "null"] }
+
+    Position:
+      type: object
+      required:
+        - id
+        - ticker
+        - strike
+        - expiry
+        - premium
+        - contracts
+        - openedAt
+        - status
+        - dte
+      properties:
+        id: { type: integer }
+        ticker: { type: string }
+        strike: { type: number }
+        expiry: { type: string }
+        premium: { type: number }
+        contracts: { type: integer }
+        openedAt: { type: string }
+        closedAt: { type: ["string", "null"] }
+        closePrice: { type: ["number", "null"] }
+        notes: { type: ["string", "null"] }
+        status:
+          type: string
+          enum: [open, closed]
+        dte: { type: integer, description: "Days to expiration (negative when expired)" }
+        spot: { type: ["number", "null"], description: "Current underlying price" }
+        currentBid: { type: ["number", "null"], description: "Current put bid at this strike for this expiry" }
+        unrealizedPnl: { type: ["number", "null"], description: "(premium - currentBid) * 100 * contracts; null when bid unavailable" }
+        realizedPnl: { type: ["number", "null"], description: "(premium - closePrice) * 100 * contracts; null when open" }
+        assignmentRisk: { type: boolean, description: "Open position where spot has fallen below strike" }
+        expiringSoon: { type: boolean, description: "Open position with DTE <= 7" }
+
+    PositionsList:
+      type: object
+      required: [positions, totals]
+      properties:
+        positions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Position"
+        totals:
+          type: object
+          required: [openCount, closedCount, totalPremium, totalCollateral, openUnrealizedPnl, closedRealizedPnl]
+          properties:
+            openCount: { type: integer }
+            closedCount: { type: integer }
+            totalPremium: { type: number, description: "Sum of premium*100*contracts for open positions" }
+            totalCollateral: { type: number, description: "Sum of strike*100*contracts for open positions" }
+            openUnrealizedPnl: { type: number }
+            closedRealizedPnl: { type: number }
+
+    DeleteResult:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
