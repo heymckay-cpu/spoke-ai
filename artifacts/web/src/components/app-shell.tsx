@@ -1,6 +1,13 @@
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutGrid, LineChart, Settings as SettingsIcon, Moon, Sun, Activity } from "lucide-react";
+import { LayoutGrid, LineChart, Menu, Settings as SettingsIcon, Moon, Sun, Activity } from "lucide-react";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import {
   getGetLatestScanQueryKey,
   getHealthCheckQueryKey,
@@ -64,6 +71,7 @@ interface AppShellProps {
 export function AppShell({ title, breadcrumbs, actions, children }: AppShellProps) {
   const [location] = useLocation();
   const { theme, toggle } = useTheme();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const latest = useGetLatestScan({
     query: { staleTime: 30_000, queryKey: getGetLatestScanQueryKey() },
   });
@@ -139,6 +147,53 @@ export function AppShell({ title, breadcrumbs, actions, children }: AppShellProp
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-border bg-background/80 px-4 backdrop-blur md:px-8">
+          <div className="flex min-w-0 items-center gap-2">
+            <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+              <SheetTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="md:hidden"
+                  aria-label="Open navigation"
+                  data-testid="button-mobile-nav"
+                >
+                  <Menu className="h-4 w-4" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-64 p-0">
+                <SheetHeader className="border-b border-border px-4 py-3">
+                  <SheetTitle className="flex items-center gap-2 text-sm">
+                    <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                      <Activity className="h-3.5 w-3.5" strokeWidth={2.5} />
+                    </div>
+                    Wheel Screener
+                  </SheetTitle>
+                </SheetHeader>
+                <nav className="space-y-1 p-3">
+                  {NAV.map((item) => {
+                    const active = item.match(location);
+                    const Icon = item.icon;
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={() => setMobileNavOpen(false)}
+                        className={cn(
+                          "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
+                          active
+                            ? "bg-accent font-medium text-accent-foreground"
+                            : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                        )}
+                        data-testid={`link-mobile-nav-${item.label.toLowerCase()}`}
+                      >
+                        <Icon className={cn("h-4 w-4", active && "text-primary")} />
+                        {item.label}
+                      </Link>
+                    );
+                  })}
+                </nav>
+              </SheetContent>
+            </Sheet>
           <div className="flex min-w-0 flex-col">
             {breadcrumbs && breadcrumbs.length > 0 && (
               <Breadcrumb>
@@ -163,6 +218,7 @@ export function AppShell({ title, breadcrumbs, actions, children }: AppShellProp
             <h1 className="truncate text-base font-semibold tracking-tight" data-testid="text-page-title">
               {title}
             </h1>
+          </div>
           </div>
           <div className="flex items-center gap-2">
             {actions}
