@@ -27,8 +27,8 @@ import { useToast } from "@/hooks/use-toast";
 
 const HoldingFormSchema = z.object({
   ticker: z.string().min(1, "Ticker required"),
-  shares: z.number().int().min(1, "At least 1 share"),
-  avgCost: z.number().positive("Average cost must be > 0"),
+  shares: z.number({ invalid_type_error: "Required" }).int().min(1, "At least 1 share"),
+  avgCost: z.number({ invalid_type_error: "Required" }).positive("Average cost must be > 0"),
   notes: z.string().optional(),
 });
 
@@ -56,10 +56,13 @@ export function AddHoldingDialog({
   const { toast } = useToast();
   const create = useCreateHolding();
 
+  // Use `undefined` (not 0) for empty numeric defaults so the inputs render
+  // blank — a literal 0 default makes the field appear "stuck" because
+  // backspacing an empty string back to Number(0) just re-renders "0".
   const buildDefaults = (): FormValues => ({
     ticker: initialValues?.ticker ?? "",
     shares: initialValues?.shares ?? 100,
-    avgCost: initialValues?.avgCost ?? 0,
+    avgCost: initialValues?.avgCost ?? (undefined as unknown as number),
     notes: initialValues?.notes ?? "",
   });
 
@@ -160,8 +163,14 @@ export function AddHoldingDialog({
                         type="number"
                         min={1}
                         step={1}
-                        {...field}
-                        onChange={(e) => field.onChange(Number(e.target.value))}
+                        value={field.value ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          field.onChange(v === "" ? undefined : Number(v));
+                        }}
+                        onBlur={field.onBlur}
+                        name={field.name}
+                        ref={field.ref}
                         className="tabular-nums"
                         data-testid="input-holding-shares"
                       />
@@ -181,8 +190,15 @@ export function AddHoldingDialog({
                         type="number"
                         min={0}
                         step="0.01"
-                        {...field}
-                        onChange={(e) => field.onChange(Number(e.target.value))}
+                        placeholder="0.00"
+                        value={field.value ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          field.onChange(v === "" ? undefined : Number(v));
+                        }}
+                        onBlur={field.onBlur}
+                        name={field.name}
+                        ref={field.ref}
                         className="tabular-nums"
                         data-testid="input-holding-avgcost"
                       />
