@@ -266,6 +266,76 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeleteResult"
 
+  /holdings:
+    get:
+      operationId: listHoldings
+      tags: [holdings]
+      summary: List long-stock holdings with live market value
+      responses:
+        "200":
+          description: Holdings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HoldingsList"
+    post:
+      operationId: createHolding
+      tags: [holdings]
+      summary: Log a new stock holding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HoldingInput"
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Holding"
+
+  /holdings/{id}:
+    patch:
+      operationId: updateHolding
+      tags: [holdings]
+      summary: Update a stock holding (shares, average cost, notes)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HoldingUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Holding"
+    delete:
+      operationId: deleteHolding
+      tags: [holdings]
+      summary: Remove a stock holding
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+
   /notifications:
     get:
       operationId: listNotifications
@@ -789,6 +859,54 @@ components:
       required: [ok]
       properties:
         ok: { type: boolean }
+
+    HoldingInput:
+      type: object
+      required: [ticker, shares, avgCost]
+      properties:
+        ticker: { type: string, minLength: 1 }
+        shares: { type: integer, minimum: 1 }
+        avgCost: { type: number, exclusiveMinimum: 0, description: "Average cost basis per share" }
+        notes: { type: ["string", "null"] }
+
+    HoldingUpdate:
+      type: object
+      properties:
+        shares: { type: ["integer", "null"], minimum: 1 }
+        avgCost: { type: ["number", "null"], exclusiveMinimum: 0 }
+        notes: { type: ["string", "null"] }
+
+    Holding:
+      type: object
+      required: [id, ticker, shares, avgCost, openedAt]
+      properties:
+        id: { type: integer }
+        ticker: { type: string }
+        shares: { type: integer }
+        avgCost: { type: number }
+        openedAt: { type: string }
+        notes: { type: ["string", "null"] }
+        spot: { type: ["number", "null"], description: "Current underlying price" }
+        marketValue: { type: ["number", "null"], description: "spot * shares" }
+        unrealizedPnl: { type: ["number", "null"], description: "(spot - avgCost) * shares" }
+        unrealizedPnlPct: { type: ["number", "null"], description: "Unrealized P/L as a fraction of cost basis" }
+
+    HoldingsList:
+      type: object
+      required: [holdings, totals]
+      properties:
+        holdings:
+          type: array
+          items:
+            $ref: "#/components/schemas/Holding"
+        totals:
+          type: object
+          required: [holdingsCount, totalCost, totalMarketValue, totalUnrealizedPnl]
+          properties:
+            holdingsCount: { type: integer }
+            totalCost: { type: number }
+            totalMarketValue: { type: number }
+            totalUnrealizedPnl: { type: number }
 
     Notification:
       type: object

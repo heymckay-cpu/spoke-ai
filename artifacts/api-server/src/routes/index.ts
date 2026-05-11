@@ -5,6 +5,7 @@ import scanRouter from "./scan";
 import marketRouter from "./market";
 import positionsRouter from "./positions";
 import notificationsRouter from "./notifications";
+import holdingsRouter from "./holdings";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(scanRouter);
 router.use(marketRouter);
 router.use(positionsRouter);
 router.use(notificationsRouter);
+router.use(holdingsRouter);
 
 export default router;

@@ -7,6 +7,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { CandidatesPage } from "@/pages/candidates";
 import { ChainPage } from "@/pages/chain";
 import { PositionsPage } from "@/pages/positions";
+import { HoldingsPage } from "@/pages/holdings";
 import { SettingsPage } from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 
@@ -30,6 +31,7 @@ function Router() {
       <Route path="/chain" component={ChainPage} />
       <Route path="/chain/:ticker" component={ChainPage} />
       <Route path="/positions" component={PositionsPage} />
+      <Route path="/holdings" component={HoldingsPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route component={NotFound} />
     </Switch>

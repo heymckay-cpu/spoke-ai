@@ -4,11 +4,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useListPositions,
   getListPositionsQueryKey,
+  useListHoldings,
+  getListHoldingsQueryKey,
 } from "@workspace/api-client-react";
-import type { Candidate, Position } from "@workspace/api-client-react";
+import type { Candidate, Holding, Position } from "@workspace/api-client-react";
 import {
   AlertTriangle,
   ArrowUpRight,
+  Briefcase,
   CalendarClock,
   CheckCircle2,
   Clock,
@@ -48,7 +51,29 @@ interface Recommendation {
   ticket?: string;
 }
 
-function recommend(c: Candidate, openInTicker: Position[]): Recommendation {
+function recommend(
+  c: Candidate,
+  openInTicker: Position[],
+  holding: Holding | null,
+): Recommendation {
+  // If you already own >= 100 shares, the wheel-strategy answer is usually
+  // "sell a covered call against those shares" rather than stacking another
+  // short put. Surface that before any other recommendation.
+  const ownedShares = holding?.shares ?? 0;
+  if (ownedShares >= 100) {
+    const ccStrike = Math.max(holding!.avgCost, c.spot) * 1.05;
+    const contractsAvailable = Math.floor(ownedShares / 100);
+    const stackingDetail =
+      openInTicker.length > 0
+        ? ` You also have ${openInTicker.length} open put leg${openInTicker.length === 1 ? "" : "s"} here — adding more would concentrate risk further.`
+        : "";
+    return {
+      title: "You already own shares — sell a call instead",
+      detail: `You hold ${ownedShares} shares of ${c.ticker} at an avg cost of ${fmtMoney(holding!.avgCost)}. Selling another put adds correlated downside. Consider a covered call ~${fmtMoney(ccStrike)} (above your basis and 5% OTM) on ${contractsAvailable} contract${contractsAvailable === 1 ? "" : "s"}.${stackingDetail} (Calls aren't screened in this app yet — open the chain to pick a strike.)`,
+      tone: "warning",
+    };
+  }
+
   if (openInTicker.length === 0) {
     if (c.earningsInWindow) {
       return {
@@ -190,6 +215,12 @@ export function CandidateDetailDrawer({
       enabled: candidate != null,
     },
   });
+  const holdingsQuery = useListHoldings({
+    query: {
+      queryKey: getListHoldingsQueryKey(),
+      enabled: candidate != null,
+    },
+  });
 
   const openInTicker = useMemo<Position[]>(() => {
     if (!candidate) return [];
@@ -198,7 +229,25 @@ export function CandidateDetailDrawer({
     );
   }, [candidate, positionsQuery.data]);
 
-  const rec = candidate ? recommend(candidate, openInTicker) : null;
+  // Sum across any duplicate ticker rows so the recommendation reflects total
+  // exposure (rare, but the UI shouldn't ignore a second lot if one exists).
+  const holdingForTicker = useMemo<Holding | null>(() => {
+    if (!candidate) return null;
+    const rows = (holdingsQuery.data?.holdings ?? []).filter(
+      (h) => h.ticker === candidate.ticker,
+    );
+    if (rows.length === 0) return null;
+    if (rows.length === 1) return rows[0]!;
+    const totalShares = rows.reduce((s, h) => s + h.shares, 0);
+    const totalCost = rows.reduce((s, h) => s + h.avgCost * h.shares, 0);
+    return {
+      ...rows[0]!,
+      shares: totalShares,
+      avgCost: totalShares > 0 ? totalCost / totalShares : 0,
+    };
+  }, [candidate, holdingsQuery.data]);
+
+  const rec = candidate ? recommend(candidate, openInTicker, holdingForTicker) : null;
   const ToneIcon = rec ? TONE_STYLES[rec.tone].icon : Lightbulb;
 
   const invalidatePositions = () => {
@@ -272,6 +321,49 @@ export function CandidateDetailDrawer({
                 </div>
               </div>
             </div>
+
+            {/* Holdings (long stock) */}
+            {holdingForTicker && (
+              <div className="mt-5 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  <Briefcase className="h-3.5 w-3.5" />
+                  Shares you own
+                </div>
+                <div
+                  className="rounded-md border border-card-border bg-card px-3 py-2.5 text-sm"
+                  data-testid={`holding-row-${candidate.ticker}`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-medium tabular-nums">
+                      {holdingForTicker.shares} sh @ {fmtMoney(holdingForTicker.avgCost)} avg
+                    </div>
+                    <div
+                      className={cn(
+                        "tabular-nums text-xs font-medium",
+                        holdingForTicker.unrealizedPnl == null
+                          ? "text-muted-foreground"
+                          : holdingForTicker.unrealizedPnl >= 0
+                            ? "text-emerald-500"
+                            : "text-rose-500",
+                      )}
+                    >
+                      {holdingForTicker.unrealizedPnl != null
+                        ? `${fmtCompactMoney(holdingForTicker.unrealizedPnl)}${
+                            holdingForTicker.unrealizedPnlPct != null
+                              ? ` · ${fmtPct(holdingForTicker.unrealizedPnlPct * 100, 1)}`
+                              : ""
+                          }`
+                        : "P/L —"}
+                    </div>
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground tabular-nums">
+                    Cost basis {fmtCompactMoney(holdingForTicker.avgCost * holdingForTicker.shares)}
+                    {holdingForTicker.marketValue != null &&
+                      ` · Mkt value ${fmtCompactMoney(holdingForTicker.marketValue)}`}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Your position */}
             <div className="mt-5 space-y-2">

@@ -486,6 +486,77 @@ export interface DeleteResult {
   ok: boolean;
 }
 
+export interface HoldingInput {
+  /** @minLength 1 */
+  ticker: string;
+  /** @minimum 1 */
+  shares: number;
+  /**
+   * Average cost basis per share
+   * @exclusiveMinimum 0
+   */
+  avgCost: number;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export interface HoldingUpdate {
+  /**
+   * @minimum 1
+   * @nullable
+   */
+  shares?: number | null;
+  /**
+   * @exclusiveMinimum 0
+   * @nullable
+   */
+  avgCost?: number | null;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export interface Holding {
+  id: number;
+  ticker: string;
+  shares: number;
+  avgCost: number;
+  openedAt: string;
+  /** @nullable */
+  notes?: string | null;
+  /**
+   * Current underlying price
+   * @nullable
+   */
+  spot?: number | null;
+  /**
+   * spot * shares
+   * @nullable
+   */
+  marketValue?: number | null;
+  /**
+   * (spot - avgCost) * shares
+   * @nullable
+   */
+  unrealizedPnl?: number | null;
+  /**
+   * Unrealized P/L as a fraction of cost basis
+   * @nullable
+   */
+  unrealizedPnlPct?: number | null;
+}
+
+export type HoldingsListTotals = {
+  holdingsCount: number;
+  totalCost: number;
+  totalMarketValue: number;
+  totalUnrealizedPnl: number;
+};
+
+export interface HoldingsList {
+  holdings: Holding[];
+  totals: HoldingsListTotals;
+}
+
 /**
  * itm = spot has fallen below strike; expiring_soon = DTE <= 3
  */

@@ -837,6 +837,112 @@ export const DeletePositionResponse = zod.object({
 });
 
 /**
+ * @summary List long-stock holdings with live market value
+ */
+export const ListHoldingsResponse = zod.object({
+  holdings: zod.array(
+    zod.object({
+      id: zod.number(),
+      ticker: zod.string(),
+      shares: zod.number(),
+      avgCost: zod.number(),
+      openedAt: zod.string(),
+      notes: zod.string().nullish(),
+      spot: zod.number().nullish().describe("Current underlying price"),
+      marketValue: zod.number().nullish().describe("spot \* shares"),
+      unrealizedPnl: zod
+        .number()
+        .nullish()
+        .describe("(spot - avgCost) \* shares"),
+      unrealizedPnlPct: zod
+        .number()
+        .nullish()
+        .describe("Unrealized P\/L as a fraction of cost basis"),
+    }),
+  ),
+  totals: zod.object({
+    holdingsCount: zod.number(),
+    totalCost: zod.number(),
+    totalMarketValue: zod.number(),
+    totalUnrealizedPnl: zod.number(),
+  }),
+});
+
+/**
+ * @summary Log a new stock holding
+ */
+
+export const createHoldingBodyAvgCostExclusiveMin = 0;
+
+export const CreateHoldingBody = zod.object({
+  ticker: zod.string().min(1),
+  shares: zod.number().min(1),
+  avgCost: zod
+    .number()
+    .gt(createHoldingBodyAvgCostExclusiveMin)
+    .describe("Average cost basis per share"),
+  notes: zod.string().nullish(),
+});
+
+export const CreateHoldingResponse = zod.object({
+  id: zod.number(),
+  ticker: zod.string(),
+  shares: zod.number(),
+  avgCost: zod.number(),
+  openedAt: zod.string(),
+  notes: zod.string().nullish(),
+  spot: zod.number().nullish().describe("Current underlying price"),
+  marketValue: zod.number().nullish().describe("spot \* shares"),
+  unrealizedPnl: zod.number().nullish().describe("(spot - avgCost) \* shares"),
+  unrealizedPnlPct: zod
+    .number()
+    .nullish()
+    .describe("Unrealized P\/L as a fraction of cost basis"),
+});
+
+/**
+ * @summary Update a stock holding (shares, average cost, notes)
+ */
+export const UpdateHoldingParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const updateHoldingBodyAvgCostExclusiveMin = 0;
+
+export const UpdateHoldingBody = zod.object({
+  shares: zod.number().min(1).nullish(),
+  avgCost: zod.number().gt(updateHoldingBodyAvgCostExclusiveMin).nullish(),
+  notes: zod.string().nullish(),
+});
+
+export const UpdateHoldingResponse = zod.object({
+  id: zod.number(),
+  ticker: zod.string(),
+  shares: zod.number(),
+  avgCost: zod.number(),
+  openedAt: zod.string(),
+  notes: zod.string().nullish(),
+  spot: zod.number().nullish().describe("Current underlying price"),
+  marketValue: zod.number().nullish().describe("spot \* shares"),
+  unrealizedPnl: zod.number().nullish().describe("(spot - avgCost) \* shares"),
+  unrealizedPnlPct: zod
+    .number()
+    .nullish()
+    .describe("Unrealized P\/L as a fraction of cost basis"),
+});
+
+/**
+ * @summary Remove a stock holding
+ */
+export const DeleteHoldingParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteHoldingResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
  * @summary List recent position alerts (assignment risk / near-expiry)
  */
 export const ListNotificationsResponse = zod.object({
