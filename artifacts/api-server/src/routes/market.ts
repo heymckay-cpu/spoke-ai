@@ -7,7 +7,7 @@ import {
   GetChainParams,
   GetChainResponse,
 } from "@workspace/api-zod";
-import { getQuote, getExpirations, getOptionChain, getSpot } from "../lib/market";
+import { getQuote, getExpirations, getOptionChain, getSpot, isLiveProvider } from "../lib/market";
 import { putGreeks, callGreeks } from "../lib/greeks";
 import { getSettings } from "../lib/settingsStore";
 import { isUsMarketOpen } from "../lib/marketHours";
@@ -88,10 +88,14 @@ router.get("/chain/:ticker/:expiry", async (req, res): Promise<void> => {
   const zeroBid = allRows.filter((r) => !(r.bid > 0)).length;
   const lowIv = allRows.filter((r) => !(r.impliedVolatility > 0.05)).length;
   const total = Math.max(allRows.length, 1);
-  // After-hours: bid is almost always zero. During market hours we still
-  // flag if more than half the rows have zero bid (illiquid chain).
-  const staleBid = !marketOpen || zeroBid / total > 0.5;
-  const staleIv = !marketOpen || lowIv / total > 0.5;
+  // With a real-time provider configured, trust the data while the market
+  // is open and only flag stale when the market is genuinely closed. With
+  // the default delayed provider (Yahoo) we additionally flag chains
+  // where >50% of rows look bad, since that usually means the feed is
+  // returning previous-close placeholders.
+  const live = isLiveProvider();
+  const staleBid = !marketOpen || (!live && zeroBid / total > 0.5);
+  const staleIv = !marketOpen || (!live && lowIv / total > 0.5);
   const T = Math.max(snap.dte, 1) / 365;
   const r = settings.riskFreeRate;
   const puts = snap.puts.map((row) => {

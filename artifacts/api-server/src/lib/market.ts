@@ -38,13 +38,24 @@ function adaptYahoo(yf: typeof yahooFinance): MarketProvider {
 }
 
 let provider: MarketProvider = adaptYahoo(yahooFinance);
+// Tracks whether the active provider serves live (real-time or near-real-
+// time) quotes. Yahoo zeros bid/ask after hours and is delayed during
+// hours, so we treat it as non-live; adapters like Polygon/Tradier set
+// this to true so the chain route can skip the bid/IV ratio heuristic
+// during market hours.
+let providerIsLive = false;
 
-export function setMarketProvider(p: MarketProvider): void {
+export function setMarketProvider(p: MarketProvider, opts: { live?: boolean } = {}): void {
   provider = p;
+  providerIsLive = Boolean(opts.live);
 }
 
 export function getMarketProvider(): MarketProvider {
   return provider;
+}
+
+export function isLiveProvider(): boolean {
+  return providerIsLive;
 }
 
 export interface OptionRow {
