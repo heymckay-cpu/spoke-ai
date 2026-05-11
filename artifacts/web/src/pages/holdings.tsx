@@ -1,17 +1,27 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Briefcase, DollarSign, TrendingUp, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Briefcase,
+  DollarSign,
+  Phone,
+  TrendingUp,
+  Trash2,
+} from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useListHoldings,
   useDeleteHolding,
+  useRunCallScan,
   getListHoldingsQueryKey,
   type Holding,
+  type CallCandidate,
+  type CallScanResult,
 } from "@workspace/api-client-react";
 import { AppShell } from "@/components/app-shell";
 import { AddHoldingDialog } from "@/components/add-holding-dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Empty,
@@ -21,7 +31,15 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { useToast } from "@/hooks/use-toast";
-import { fmtCompactMoney, fmtMoney, fmtPct, fmtInt } from "@/lib/format";
+import {
+  fmtCompactMoney,
+  fmtDate,
+  fmtFractionPct,
+  fmtMoney,
+  fmtNum,
+  fmtPct,
+  fmtInt,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 interface KpiProps {
@@ -69,6 +87,30 @@ export function HoldingsPage() {
   });
   const del = useDeleteHolding();
   const [pendingDelete, setPendingDelete] = useState<number | null>(null);
+  const [callScan, setCallScan] = useState<CallScanResult | null>(null);
+  const runCalls = useRunCallScan();
+  const onScanCalls = () => {
+    runCalls.mutate(undefined, {
+      onSuccess: (result) => {
+        setCallScan(result);
+        if (result.candidates.length === 0 && result.holdingsScanned > 0) {
+          toast({
+            title: "No covered-call ideas qualified",
+            description:
+              "No strikes above your basis fit the configured delta/DTE window. Try widening Max Δ in Settings.",
+          });
+        }
+      },
+      onError: (err) => {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        toast({
+          variant: "destructive",
+          title: "Couldn't scan covered calls",
+          description: message,
+        });
+      },
+    });
+  };
 
   const holdings: Holding[] = data?.holdings ?? [];
   const totals = data?.totals ?? {
@@ -78,7 +120,12 @@ export function HoldingsPage() {
     totalUnrealizedPnl: 0,
   };
 
-  const invalidate = () => qc.invalidateQueries({ queryKey });
+  const invalidate = () => {
+    // Clear any stale covered-call results — they reference holdings that may
+    // have just been added, removed, or had their share count changed.
+    setCallScan(null);
+    qc.invalidateQueries({ queryKey });
+  };
 
   const onDelete = (id: number, ticker: string) => {
     setPendingDelete(id);
@@ -135,7 +182,18 @@ export function HoldingsPage() {
           />
         </div>
 
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {holdings.some((h) => h.shares >= 100) && (
+            <Button
+              variant="outline"
+              onClick={onScanCalls}
+              disabled={runCalls.isPending}
+              data-testid="button-scan-covered-calls"
+            >
+              <Phone className="mr-2 h-4 w-4" />
+              {runCalls.isPending ? "Scanning…" : "Scan covered calls"}
+            </Button>
+          )}
           <AddHoldingDialog onCreated={invalidate} />
         </div>
 
@@ -271,6 +329,125 @@ export function HoldingsPage() {
             </div>
           )}
         </Card>
+
+        {callScan && (
+          <Card className="overflow-hidden border-card-border" data-testid="card-covered-calls">
+            <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 border-b border-border bg-card/95 py-3">
+              <div className="flex items-center gap-2">
+                <Phone className="h-4 w-4 text-primary" />
+                <CardTitle className="text-sm font-medium">
+                  Covered call ideas
+                </CardTitle>
+              </div>
+              <div className="text-[11px] text-muted-foreground tabular-nums">
+                {callScan.holdingsWithCandidate} of {callScan.holdingsScanned}{" "}
+                holding{callScan.holdingsScanned === 1 ? "" : "s"} qualified
+              </div>
+            </CardHeader>
+            {callScan.candidates.length === 0 ? (
+              <Empty className="py-12">
+                <EmptyHeader>
+                  <EmptyTitle>No covered-call ideas qualified</EmptyTitle>
+                  <EmptyDescription>
+                    {callScan.errors.length > 0
+                      ? `No strikes above your basis fit the configured delta/DTE window. Common reason: spot is below your cost basis, so OTM strikes that protect against a loss are too far out for the target delta. You can widen Max Δ in Settings, or sell a call below your basis (knowing assignment would lock in a loss on the underlying).`
+                      : "Add holdings of at least 100 shares to scan covered calls."}
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm" data-testid="table-call-candidates">
+                  <thead>
+                    <tr className="border-b border-border bg-card/95">
+                      {[
+                        "Ticker",
+                        "Spot",
+                        "Strike",
+                        "Expiry",
+                        "DTE",
+                        "Δ",
+                        "IV",
+                        "Bid",
+                        "Prem (1ct)",
+                        "Prem (max)",
+                        "Static %",
+                        "Ann %",
+                        "OTM %",
+                        "Qty",
+                      ].map((label, i) => (
+                        <th
+                          key={label}
+                          className={cn(
+                            "px-3 py-2.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground",
+                            i === 0 ? "text-left" : "text-right",
+                          )}
+                        >
+                          {label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {callScan.candidates.map((c: CallCandidate, i) => (
+                      <tr
+                        key={`${c.ticker}-${c.expiry}-${c.strike}`}
+                        className={cn(
+                          "border-b border-border/60",
+                          i % 2 === 1 && "bg-muted/30",
+                        )}
+                        data-testid={`row-call-${c.ticker}`}
+                      >
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-2 font-semibold tracking-tight">
+                            {c.ticker}
+                            {!c.aboveBasis && (
+                              <span
+                                className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-500"
+                                title={`Strike ${fmtMoney(c.strike)} is below your avg cost ${fmtMoney(c.avgCost)} — assignment would realize a loss on the underlying.`}
+                              >
+                                <AlertTriangle className="h-3 w-3" /> below basis
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmtMoney(c.spot)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-medium">
+                          {fmtMoney(c.strike)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                          {fmtDate(c.expiry)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">{c.dte}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmtNum(c.delta, 2)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmtFractionPct(c.iv, 1)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmtMoney(c.bid)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {fmtMoney(c.premiumPerContract)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums font-medium text-emerald-500">
+                          {fmtCompactMoney(c.premiumTotal)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {fmtPct(c.staticReturnPct, 2)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums font-semibold text-emerald-500">
+                          {fmtPct(c.annualizedPct, 1)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                          {fmtPct(c.pctOtm, 1)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                          {c.contractsAvailable}× ({fmtInt(c.shares)} sh)
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        )}
       </motion.div>
     </AppShell>
   );

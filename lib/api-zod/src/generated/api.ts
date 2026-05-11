@@ -407,6 +407,67 @@ export const GetScanSummaryResponse = zod.object({
 });
 
 /**
+ * Mirrors the short-put screener but for covered calls. Scans every
+holding with >= 100 shares, filtering to OTM strikes above
+max(spot, avgCost) so a covered call can never lock in a loss on
+the underlying. Targets the same delta / DTE window configured
+in /settings.
+
+ * @summary Scan covered-call candidates against current holdings
+ */
+export const RunCallScanResponse = zod.object({
+  scannedAt: zod.string(),
+  candidates: zod.array(
+    zod.object({
+      ticker: zod.string(),
+      spot: zod.number(),
+      shares: zod.number(),
+      avgCost: zod.number(),
+      contractsAvailable: zod
+        .number()
+        .describe(
+          "floor(shares\/100) — max contracts that can be sold covered",
+        ),
+      expiry: zod.string().describe("ISO date YYYY-MM-DD"),
+      dte: zod.number(),
+      strike: zod.number(),
+      delta: zod.number(),
+      bid: zod.number(),
+      ask: zod.number().nullish(),
+      iv: zod.number(),
+      openInterest: zod.number(),
+      volume: zod.number().nullish(),
+      premiumPerContract: zod.number(),
+      premiumTotal: zod
+        .number()
+        .describe("premium \* 100 \* contractsAvailable"),
+      staticReturnPct: zod
+        .number()
+        .describe("premium \/ spot — shares are the collateral, not cash"),
+      annualizedPct: zod.number(),
+      pctOtm: zod.number(),
+      ivRank: zod.number().nullish(),
+      hv30: zod.number().nullish(),
+      earningsDate: zod.string().nullish(),
+      earningsInWindow: zod.boolean(),
+      aboveBasis: zod
+        .boolean()
+        .describe(
+          "True when strike > avgCost (assignment would still realize a gain on the shares)",
+        ),
+    }),
+  ),
+  errors: zod.array(
+    zod.object({
+      ticker: zod.string(),
+      reason: zod.string(),
+    }),
+  ),
+  holdingsScanned: zod.number(),
+  holdingsWithCandidate: zod.number(),
+});
+
+/**
  * @summary Get spot price and earnings flag for a ticker
  */
 export const GetQuoteParams = zod.object({

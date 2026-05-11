@@ -69,7 +69,7 @@ function recommend(
         : "";
     return {
       title: "You already own shares — sell a call instead",
-      detail: `You hold ${ownedShares} shares of ${c.ticker} at an avg cost of ${fmtMoney(holding!.avgCost)}. Selling another put adds correlated downside. Consider a covered call ~${fmtMoney(ccStrike)} (above your basis and 5% OTM) on ${contractsAvailable} contract${contractsAvailable === 1 ? "" : "s"}.${stackingDetail} (Calls aren't screened in this app yet — open the chain to pick a strike.)`,
+      detail: `You hold ${ownedShares} shares of ${c.ticker} at an avg cost of ${fmtMoney(holding!.avgCost)}. Selling another put adds correlated downside. Consider a covered call ~${fmtMoney(ccStrike)} (above your basis and 5% OTM) on ${contractsAvailable} contract${contractsAvailable === 1 ? "" : "s"}.${stackingDetail} Run the covered-call screener on the Holdings tab for live strikes.`,
       tone: "warning",
     };
   }

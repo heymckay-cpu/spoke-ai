@@ -120,6 +120,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScanSummary"
 
+  /scan/calls:
+    post:
+      operationId: runCallScan
+      tags: [scan]
+      summary: Scan covered-call candidates against current holdings
+      description: |
+        Mirrors the short-put screener but for covered calls. Scans every
+        holding with >= 100 shares, filtering to OTM strikes above
+        max(spot, avgCost) so a covered call can never lock in a loss on
+        the underlying. Targets the same delta / DTE window configured
+        in /settings.
+      responses:
+        "200":
+          description: Ranked covered-call candidates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallScanResult"
+
   /quote/{ticker}:
     get:
       operationId: getQuote
@@ -1055,6 +1074,70 @@ components:
       required: [ok]
       properties:
         ok: { type: boolean }
+
+    CallCandidate:
+      type: object
+      required:
+        - ticker
+        - spot
+        - shares
+        - avgCost
+        - contractsAvailable
+        - expiry
+        - dte
+        - strike
+        - delta
+        - bid
+        - iv
+        - openInterest
+        - premiumPerContract
+        - premiumTotal
+        - staticReturnPct
+        - annualizedPct
+        - pctOtm
+        - earningsInWindow
+        - aboveBasis
+      properties:
+        ticker: { type: string }
+        spot: { type: number }
+        shares: { type: integer }
+        avgCost: { type: number }
+        contractsAvailable: { type: integer, description: "floor(shares/100) — max contracts that can be sold covered" }
+        expiry: { type: string, description: "ISO date YYYY-MM-DD" }
+        dte: { type: integer }
+        strike: { type: number }
+        delta: { type: number }
+        bid: { type: number }
+        ask: { type: ["number", "null"] }
+        iv: { type: number }
+        openInterest: { type: integer }
+        volume: { type: ["integer", "null"] }
+        premiumPerContract: { type: number }
+        premiumTotal: { type: number, description: "premium * 100 * contractsAvailable" }
+        staticReturnPct: { type: number, description: "premium / spot — shares are the collateral, not cash" }
+        annualizedPct: { type: number }
+        pctOtm: { type: number }
+        ivRank: { type: ["number", "null"] }
+        hv30: { type: ["number", "null"] }
+        earningsDate: { type: ["string", "null"] }
+        earningsInWindow: { type: boolean }
+        aboveBasis: { type: boolean, description: "True when strike > avgCost (assignment would still realize a gain on the shares)" }
+
+    CallScanResult:
+      type: object
+      required: [scannedAt, candidates, errors, holdingsScanned, holdingsWithCandidate]
+      properties:
+        scannedAt: { type: string }
+        candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/CallCandidate"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanError"
+        holdingsScanned: { type: integer }
+        holdingsWithCandidate: { type: integer }
 
     HoldingInput:
       type: object

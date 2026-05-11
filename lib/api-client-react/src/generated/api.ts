@@ -19,6 +19,7 @@ import type {
 import type {
   AckAllResult,
   AlertScanResult,
+  CallScanResult,
   Chain,
   ChainExpirations,
   DeleteResult,
@@ -533,6 +534,93 @@ export function useGetScanSummary<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Mirrors the short-put screener but for covered calls. Scans every
+holding with >= 100 shares, filtering to OTM strikes above
+max(spot, avgCost) so a covered call can never lock in a loss on
+the underlying. Targets the same delta / DTE window configured
+in /settings.
+
+ * @summary Scan covered-call candidates against current holdings
+ */
+export const getRunCallScanUrl = () => {
+  return `/api/scan/calls`;
+};
+
+export const runCallScan = async (
+  options?: RequestInit,
+): Promise<CallScanResult> => {
+  return customFetch<CallScanResult>(getRunCallScanUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRunCallScanMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runCallScan>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof runCallScan>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["runCallScan"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof runCallScan>>,
+    void
+  > = () => {
+    return runCallScan(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RunCallScanMutationResult = NonNullable<
+  Awaited<ReturnType<typeof runCallScan>>
+>;
+
+export type RunCallScanMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Scan covered-call candidates against current holdings
+ */
+export const useRunCallScan = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runCallScan>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof runCallScan>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRunCallScanMutationOptions(options));
+};
 
 /**
  * @summary Get spot price and earnings flag for a ticker

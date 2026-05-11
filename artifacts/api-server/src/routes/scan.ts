@@ -1,14 +1,16 @@
 import { Router, type IRouter } from "express";
-import { db, scanSnapshotTable } from "@workspace/db";
+import { db, scanSnapshotTable, holdingsTable } from "@workspace/db";
 import { desc } from "drizzle-orm";
 import {
   RunScanBody,
   RunScanResponse,
   GetLatestScanResponse,
   GetScanSummaryResponse,
+  RunCallScanResponse,
 } from "@workspace/api-zod";
 import { getSettings } from "../lib/settingsStore";
 import { runScreener, type CandidateOut, type ScanError, type ScanResultOut } from "../lib/screener";
+import { runCallScreener } from "../lib/callScreener";
 import { clearMarketCache } from "../lib/market";
 import {
   getCachedScan,
@@ -186,6 +188,28 @@ router.get("/scan/summary", async (_req, res): Promise<void> => {
     topTickers: [...cands].sort((a, b) => b.annualizedPct - a.annualizedPct).slice(0, 5),
   };
   res.json(GetScanSummaryResponse.parse(summary));
+});
+
+router.post("/scan/calls", async (_req, res): Promise<void> => {
+  const settings = await getSettings();
+  const rows = await db.select().from(holdingsTable);
+  // Aggregate by ticker — the holdings table allows multiple rows per
+  // ticker (split lots), and a covered-call recommendation should reflect
+  // total share ownership and the share-weighted average cost basis.
+  const byTicker = new Map<string, { shares: number; cost: number }>();
+  for (const r of rows) {
+    const acc = byTicker.get(r.ticker) ?? { shares: 0, cost: 0 };
+    acc.shares += r.shares;
+    acc.cost += r.shares * r.avgCost;
+    byTicker.set(r.ticker, acc);
+  }
+  const holdings = Array.from(byTicker.entries()).map(([ticker, v]) => ({
+    ticker,
+    shares: v.shares,
+    avgCost: v.shares > 0 ? v.cost / v.shares : 0,
+  }));
+  const result = await runCallScreener(holdings, settings);
+  res.json(RunCallScanResponse.parse(result));
 });
 
 export default router;

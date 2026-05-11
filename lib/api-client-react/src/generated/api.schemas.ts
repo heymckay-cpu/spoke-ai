@@ -623,6 +623,51 @@ export interface DeleteResult {
   ok: boolean;
 }
 
+export interface CallCandidate {
+  ticker: string;
+  spot: number;
+  shares: number;
+  avgCost: number;
+  /** floor(shares/100) — max contracts that can be sold covered */
+  contractsAvailable: number;
+  /** ISO date YYYY-MM-DD */
+  expiry: string;
+  dte: number;
+  strike: number;
+  delta: number;
+  bid: number;
+  /** @nullable */
+  ask?: number | null;
+  iv: number;
+  openInterest: number;
+  /** @nullable */
+  volume?: number | null;
+  premiumPerContract: number;
+  /** premium * 100 * contractsAvailable */
+  premiumTotal: number;
+  /** premium / spot — shares are the collateral, not cash */
+  staticReturnPct: number;
+  annualizedPct: number;
+  pctOtm: number;
+  /** @nullable */
+  ivRank?: number | null;
+  /** @nullable */
+  hv30?: number | null;
+  /** @nullable */
+  earningsDate?: string | null;
+  earningsInWindow: boolean;
+  /** True when strike > avgCost (assignment would still realize a gain on the shares) */
+  aboveBasis: boolean;
+}
+
+export interface CallScanResult {
+  scannedAt: string;
+  candidates: CallCandidate[];
+  errors: ScanError[];
+  holdingsScanned: number;
+  holdingsWithCandidate: number;
+}
+
 export interface HoldingInput {
   /** @minLength 1 */
   ticker: string;

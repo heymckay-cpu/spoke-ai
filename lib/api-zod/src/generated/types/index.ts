@@ -8,6 +8,8 @@
 
 export * from "./ackAllResult";
 export * from "./alertScanResult";
+export * from "./callCandidate";
+export * from "./callScanResult";
 export * from "./candidate";
 export * from "./chain";
 export * from "./chainExpirations";
