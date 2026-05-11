@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { RefreshCw, Sparkles } from "lucide-react";
 import {
+  getGetRollQuoteQueryKey,
   getGetRollSuggestionQueryKey,
+  useGetRollQuote,
   useGetRollSuggestion,
   useRollPosition,
   type Position,
@@ -104,6 +106,63 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
   const strikeNum = Number(newStrike);
   const premiumNum = Number(newPremium);
   const contractsNum = Number(newContracts);
+
+  // Debounce the strike+expiry the user is editing so we don't hammer the
+  // chain endpoint on every keystroke. 300ms feels responsive but also
+  // collapses the noisy intermediate values when typing "150" or scrolling
+  // the date picker.
+  const [debouncedExpiry, setDebouncedExpiry] = useState(newExpiry);
+  const [debouncedStrike, setDebouncedStrike] = useState(newStrike);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedExpiry(newExpiry), 300);
+    return () => clearTimeout(t);
+  }, [newExpiry]);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedStrike(newStrike), 300);
+    return () => clearTimeout(t);
+  }, [newStrike]);
+
+  const debouncedStrikeNum = Number(debouncedStrike);
+  const debouncedExpiryValid = /^\d{4}-\d{2}-\d{2}$/.test(debouncedExpiry);
+  const debouncedStrikeValid =
+    Number.isFinite(debouncedStrikeNum) && debouncedStrikeNum > 0;
+  const liveQuoteEnabled =
+    open && debouncedExpiryValid && debouncedStrikeValid;
+  const liveQuote = useGetRollQuote(
+    position.id,
+    liveQuoteEnabled ? debouncedExpiry : "",
+    liveQuoteEnabled ? debouncedStrikeNum : 0,
+    {
+      query: {
+        enabled: liveQuoteEnabled,
+        staleTime: 30_000,
+        refetchOnWindowFocus: false,
+        retry: false,
+        queryKey: getGetRollQuoteQueryKey(
+          position.id,
+          liveQuoteEnabled ? debouncedExpiry : "",
+          liveQuoteEnabled ? debouncedStrikeNum : 0,
+        ),
+      },
+    },
+  );
+
+  // Net credit and breakeven update from whatever the user has currently
+  // entered (not the debounced values) so the math feels reactive even while
+  // the live quote is mid-flight.
+  const previews = useMemo(() => {
+    const contractsValid =
+      Number.isInteger(contractsNum) && contractsNum >= 1;
+    const netCredit =
+      Number.isFinite(premiumNum) && Number.isFinite(closeNum) && contractsValid
+        ? (premiumNum - closeNum) * 100 * contractsNum
+        : null;
+    const breakeven =
+      Number.isFinite(strikeNum) && Number.isFinite(premiumNum) && Number.isFinite(closeNum)
+        ? strikeNum - (premiumNum - closeNum)
+        : null;
+    return { netCredit, breakeven };
+  }, [premiumNum, closeNum, contractsNum, strikeNum]);
 
   const realizedPreview =
     Number.isFinite(closeNum)
@@ -336,6 +395,107 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
                   className="tabular-nums"
                   data-testid="input-roll-premium"
                 />
+              </div>
+            </div>
+
+            <div
+              className="space-y-1 rounded-md bg-muted/40 px-3 py-2 text-xs"
+              data-testid="roll-live-quote"
+            >
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span className="font-medium uppercase tracking-wider text-[10px]">
+                  Live quote
+                </span>
+                {liveQuote.isFetching ? (
+                  <span className="text-[10px]">Refreshing…</span>
+                ) : liveQuote.data ? (
+                  <span className="text-[10px] tabular-nums">
+                    {liveQuote.data.expiry} · {fmtMoney(liveQuote.data.strike)}P
+                    {Math.abs(liveQuote.data.strike - (Number(debouncedStrike) || 0)) > 0.0001
+                      ? ` (snapped from ${fmtMoney(Number(debouncedStrike) || 0)})`
+                      : ""}
+                  </span>
+                ) : null}
+              </div>
+              {liveQuote.data ? (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
+                  <span>
+                    <span className="text-muted-foreground">Bid </span>
+                    <span data-testid="roll-live-quote-bid">
+                      {liveQuote.data.bid > 0 ? fmtMoney(liveQuote.data.bid) : "—"}
+                    </span>
+                  </span>
+                  <span>
+                    <span className="text-muted-foreground">Mid </span>
+                    <span data-testid="roll-live-quote-mid">
+                      {liveQuote.data.mid > 0 ? fmtMoney(liveQuote.data.mid) : "—"}
+                    </span>
+                  </span>
+                  <span>
+                    <span className="text-muted-foreground">Last </span>
+                    <span data-testid="roll-live-quote-last">
+                      {liveQuote.data.lastPrice > 0
+                        ? fmtMoney(liveQuote.data.lastPrice)
+                        : "—"}
+                    </span>
+                  </span>
+                  {liveQuote.data.premium > 0 &&
+                  Math.abs(liveQuote.data.premium - premiumNum) > 0.0001 ? (
+                    <button
+                      type="button"
+                      className="ml-auto text-[10px] font-medium text-primary hover:underline"
+                      onClick={() => {
+                        setNewPremium(liveQuote.data!.premium.toFixed(2));
+                        if (
+                          Math.abs(
+                            liveQuote.data!.strike - (Number(newStrike) || 0),
+                          ) > 0.0001
+                        ) {
+                          setNewStrike(String(liveQuote.data!.strike));
+                        }
+                        markTouched();
+                      }}
+                      data-testid="button-apply-live-quote"
+                    >
+                      Use {fmtMoney(liveQuote.data.premium)}
+                    </button>
+                  ) : null}
+                </div>
+              ) : liveQuote.error ? (
+                <div className="text-muted-foreground">
+                  No quote available for that strike+expiry.
+                </div>
+              ) : !liveQuoteEnabled ? (
+                <div className="text-muted-foreground">
+                  Enter a strike and expiry to see a live quote.
+                </div>
+              ) : (
+                <div className="text-muted-foreground">Loading…</div>
+              )}
+              <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border/50 pt-1 tabular-nums">
+                <span>
+                  <span className="text-muted-foreground">Net credit </span>
+                  <span
+                    className={
+                      previews.netCredit != null && previews.netCredit >= 0
+                        ? "font-medium text-emerald-500"
+                        : "font-medium text-rose-500"
+                    }
+                    data-testid="roll-net-credit"
+                  >
+                    {previews.netCredit != null
+                      ? `${previews.netCredit >= 0 ? "+" : ""}${fmtMoney(previews.netCredit)}`
+                      : "—"}
+                  </span>
+                </span>
+                <span>
+                  <span className="text-muted-foreground">Breakeven </span>
+                  <span className="font-medium" data-testid="roll-breakeven">
+                    {previews.breakeven != null
+                      ? fmtMoney(previews.breakeven)
+                      : "—"}
+                  </span>
+                </span>
               </div>
             </div>
           </div>

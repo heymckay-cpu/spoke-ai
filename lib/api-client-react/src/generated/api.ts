@@ -23,6 +23,7 @@ import type {
   Chain,
   ChainExpirations,
   DeleteResult,
+  GetRollQuote404,
   GetRollSuggestion404,
   HealthStatus,
   Holding,
@@ -39,6 +40,7 @@ import type {
   Quote,
   RollPositionInput,
   RollPositionResult,
+  RollQuote,
   RollSuggestion,
   ScanInput,
   ScanResult,
@@ -1806,6 +1808,113 @@ export function useGetRollSuggestion<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetRollSuggestionQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Looks up the live bid / ask / mid / lastPrice for the put at the
+given expiry+strike on the position's underlying. Used by the roll
+dialog to keep the "live quote" panel in sync as the user edits
+the new-leg strike or expiry.
+
+ * @summary Live premium quote for an arbitrary strike+expiry roll target
+ */
+export const getGetRollQuoteUrl = (
+  id: number,
+  expiry: string,
+  strike: number,
+) => {
+  return `/api/positions/${id}/roll-quote/${expiry}/${strike}`;
+};
+
+export const getRollQuote = async (
+  id: number,
+  expiry: string,
+  strike: number,
+  options?: RequestInit,
+): Promise<RollQuote> => {
+  return customFetch<RollQuote>(getGetRollQuoteUrl(id, expiry, strike), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRollQuoteQueryKey = (
+  id: number,
+  expiry: string,
+  strike: number,
+) => {
+  return [`/api/positions/${id}/roll-quote/${expiry}/${strike}`] as const;
+};
+
+export const getGetRollQuoteQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRollQuote>>,
+  TError = ErrorType<GetRollQuote404>,
+>(
+  id: number,
+  expiry: string,
+  strike: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRollQuote>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetRollQuoteQueryKey(id, expiry, strike);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getRollQuote>>> = ({
+    signal,
+  }) => getRollQuote(id, expiry, strike, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!(id && expiry && strike),
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRollQuote>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRollQuoteQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRollQuote>>
+>;
+export type GetRollQuoteQueryError = ErrorType<GetRollQuote404>;
+
+/**
+ * @summary Live premium quote for an arbitrary strike+expiry roll target
+ */
+
+export function useGetRollQuote<
+  TData = Awaited<ReturnType<typeof getRollQuote>>,
+  TError = ErrorType<GetRollQuote404>,
+>(
+  id: number,
+  expiry: string,
+  strike: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getRollQuote>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRollQuoteQueryOptions(id, expiry, strike, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

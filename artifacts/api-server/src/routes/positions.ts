@@ -16,6 +16,8 @@ import {
   RollPositionResponse,
   GetRollSuggestionParams,
   GetRollSuggestionResponse,
+  GetRollQuoteParams,
+  GetRollQuoteResponse,
 } from "@workspace/api-zod";
 import { getExpirations, getOptionChain, getSpot } from "../lib/market";
 import { clearAlertMarkers, deleteNotificationsForPosition } from "../lib/alerts";
@@ -746,6 +748,70 @@ router.get("/positions/:id/roll-suggestion", async (req, res): Promise<void> => 
     }),
   );
 });
+
+router.get(
+  "/positions/:id/roll-quote/:expiry/:strike",
+  async (req, res): Promise<void> => {
+    const params = GetRollQuoteParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+    const { id, expiry, strike } = params.data;
+    const [row] = await db
+      .select()
+      .from(positionsTable)
+      .where(eq(positionsTable.id, id));
+    if (!row) {
+      res.status(404).json({ error: "Position not found" });
+      return;
+    }
+
+    const chain = await getOptionChain(row.ticker, expiry);
+    if (!chain) {
+      res
+        .status(404)
+        .json({ error: "Option chain unavailable for requested expiry" });
+      return;
+    }
+
+    // Snap to the nearest listed strike — same forgiving behavior the
+    // suggestion endpoint uses, so a user typing "150" still gets a quote
+    // when the chain is listed as 149.5/150.5.
+    const strikes = chain.puts.map((p) => p.strike).sort((a, b) => a - b);
+    const snapped = snapToNearestStrike(strike, strikes);
+    if (snapped == null) {
+      res.status(404).json({ error: "No strikes listed for this expiry" });
+      return;
+    }
+    const r = chain.puts.find((p) => Math.abs(p.strike - snapped) < 0.0001);
+    if (!r) {
+      res.status(404).json({ error: "Strike not found in chain" });
+      return;
+    }
+    const bid = r.bid > 0 ? r.bid : 0;
+    const ask = r.ask > 0 ? r.ask : 0;
+    const mid = bid > 0 && ask > 0 ? (bid + ask) / 2 : 0;
+    const lastPrice = r.lastPrice > 0 ? r.lastPrice : 0;
+    const premium = bid > 0 ? bid : mid > 0 ? mid : lastPrice;
+
+    res.json(
+      GetRollQuoteResponse.parse({
+        ticker: row.ticker,
+        expiry,
+        strike: snapped,
+        requestedStrike: strike,
+        bid,
+        ask,
+        mid,
+        lastPrice,
+        premium,
+        spot: chain.spot,
+        fetchedAt: chain.fetchedAt,
+      }),
+    );
+  },
+);
 
 router.delete("/positions/:id", async (req, res): Promise<void> => {
   const params = DeletePositionParams.safeParse(req.params);

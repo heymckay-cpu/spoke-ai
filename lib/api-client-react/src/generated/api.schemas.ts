@@ -604,6 +604,24 @@ export interface RollSuggestionStrike {
   lastPrice: number;
 }
 
+export interface RollQuote {
+  ticker: string;
+  expiry: string;
+  /** Strike snapped to the nearest available strike on the requested expiry's chain */
+  strike: number;
+  /** The strike originally requested before snapping */
+  requestedStrike?: number;
+  bid: number;
+  ask: number;
+  /** (bid+ask)/2 when both > 0, else 0 */
+  mid: number;
+  lastPrice: number;
+  /** Recommended premium per share — bid when > 0, else mid, else lastPrice; 0 when no quote */
+  premium: number;
+  spot: number;
+  fetchedAt: string;
+}
+
 export interface RollSuggestion {
   ticker: string;
   currentExpiry: string;
@@ -778,5 +796,9 @@ export interface AlertScanResult {
 }
 
 export type GetRollSuggestion404 = {
+  error: string;
+};
+
+export type GetRollQuote404 = {
   error: string;
 };

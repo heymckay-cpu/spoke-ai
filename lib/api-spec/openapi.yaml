@@ -418,6 +418,52 @@ paths:
                 properties:
                   error: { type: string }
 
+  /positions/{id}/roll-quote/{expiry}/{strike}:
+    get:
+      operationId: getRollQuote
+      tags: [positions]
+      summary: Live premium quote for an arbitrary strike+expiry roll target
+      description: |
+        Looks up the live bid / ask / mid / lastPrice for the put at the
+        given expiry+strike on the position's underlying. Used by the roll
+        dialog to keep the "live quote" panel in sync as the user edits
+        the new-leg strike or expiry.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+        - in: path
+          name: expiry
+          required: true
+          schema:
+            type: string
+            pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+          description: Target expiry date (YYYY-MM-DD)
+        - in: path
+          name: strike
+          required: true
+          schema:
+            type: number
+            exclusiveMinimum: 0
+          description: Target strike price
+      responses:
+        "200":
+          description: Live quote for the requested strike+expiry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RollQuote"
+        "404":
+          description: Position not found, expiry/strike not listed, or chain unavailable
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error: { type: string }
+
   /notifications:
     get:
       operationId: listNotifications
@@ -1049,6 +1095,22 @@ components:
         ask: { type: number }
         mid: { type: number, description: "(bid+ask)/2 when both > 0, else 0" }
         lastPrice: { type: number }
+
+    RollQuote:
+      type: object
+      required: [ticker, expiry, strike, bid, ask, mid, lastPrice, premium, spot, fetchedAt]
+      properties:
+        ticker: { type: string }
+        expiry: { type: string }
+        strike: { type: number, description: "Strike snapped to the nearest available strike on the requested expiry's chain" }
+        requestedStrike: { type: number, description: "The strike originally requested before snapping" }
+        bid: { type: number }
+        ask: { type: number }
+        mid: { type: number, description: "(bid+ask)/2 when both > 0, else 0" }
+        lastPrice: { type: number }
+        premium: { type: number, description: "Recommended premium per share — bid when > 0, else mid, else lastPrice; 0 when no quote" }
+        spot: { type: number }
+        fetchedAt: { type: string }
 
     RollSuggestion:
       type: object

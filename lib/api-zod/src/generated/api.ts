@@ -1287,6 +1287,56 @@ export const GetRollSuggestionResponse = zod.object({
 });
 
 /**
+ * Looks up the live bid / ask / mid / lastPrice for the put at the
+given expiry+strike on the position's underlying. Used by the roll
+dialog to keep the "live quote" panel in sync as the user edits
+the new-leg strike or expiry.
+
+ * @summary Live premium quote for an arbitrary strike+expiry roll target
+ */
+export const getRollQuotePathExpiryRegExp = new RegExp(
+  "^\\d{4}-\\d{2}-\\d{2}$",
+);
+export const getRollQuotePathStrikeExclusiveMin = 0;
+
+export const GetRollQuoteParams = zod.object({
+  id: zod.coerce.number(),
+  expiry: zod.coerce
+    .string()
+    .regex(getRollQuotePathExpiryRegExp)
+    .describe("Target expiry date (YYYY-MM-DD)"),
+  strike: zod.coerce
+    .number()
+    .gt(getRollQuotePathStrikeExclusiveMin)
+    .describe("Target strike price"),
+});
+
+export const GetRollQuoteResponse = zod.object({
+  ticker: zod.string(),
+  expiry: zod.string(),
+  strike: zod
+    .number()
+    .describe(
+      "Strike snapped to the nearest available strike on the requested expiry's chain",
+    ),
+  requestedStrike: zod
+    .number()
+    .optional()
+    .describe("The strike originally requested before snapping"),
+  bid: zod.number(),
+  ask: zod.number(),
+  mid: zod.number().describe("(bid+ask)\/2 when both > 0, else 0"),
+  lastPrice: zod.number(),
+  premium: zod
+    .number()
+    .describe(
+      "Recommended premium per share — bid when > 0, else mid, else lastPrice; 0 when no quote",
+    ),
+  spot: zod.number(),
+  fetchedAt: zod.string(),
+});
+
+/**
  * @summary List recent position alerts (assignment risk / near-expiry)
  */
 export const ListNotificationsResponse = zod.object({
