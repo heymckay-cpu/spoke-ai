@@ -22,4 +22,9 @@ export interface PositionInput {
   contracts: number;
   /** @nullable */
   notes?: string | null;
+  /**
+   * Optional id of the closed position this one was rolled from. The server will reject ids that don't exist.
+   * @nullable
+   */
+  rolledFromId?: number | null;
 }

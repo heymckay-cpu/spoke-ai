@@ -96,7 +96,7 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
         data: { closePrice: closeNum },
       });
 
-      // Step 2: open the new (rolled) position.
+      // Step 2: open the new (rolled) position, linked back to the closed leg.
       try {
         await create.mutateAsync({
           data: {
@@ -105,6 +105,7 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
             expiry: newExpiry,
             premium: premiumNum,
             contracts: contractsNum,
+            rolledFromId: position.id,
           },
         });
       } catch (err) {

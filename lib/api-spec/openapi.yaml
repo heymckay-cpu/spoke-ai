@@ -630,6 +630,9 @@ components:
         premium: { type: number, minimum: 0, description: "Premium received per share" }
         contracts: { type: integer, minimum: 1 }
         notes: { type: ["string", "null"] }
+        rolledFromId:
+          type: ["integer", "null"]
+          description: "Optional id of the closed position this one was rolled from. The server will reject ids that don't exist."
 
     PositionUpdate:
       type: object
@@ -670,6 +673,27 @@ components:
         realizedPnl: { type: ["number", "null"], description: "(premium - closePrice) * 100 * contracts; null when open" }
         assignmentRisk: { type: boolean, description: "Open position where spot has fallen below strike" }
         expiringSoon: { type: boolean, description: "Open position with DTE <= 7" }
+        rolledFromId:
+          type: ["integer", "null"]
+          description: "Id of the closed position this one was rolled from, if any."
+        rolledFrom:
+          type: ["object", "null"]
+          description: "Summary of the position this one was rolled from (parent leg)."
+          required: [id, ticker, strike, expiry]
+          properties:
+            id: { type: integer }
+            ticker: { type: string }
+            strike: { type: number }
+            expiry: { type: string }
+        rolledTo:
+          type: ["object", "null"]
+          description: "Summary of the position this one was rolled into (child leg)."
+          required: [id, ticker, strike, expiry]
+          properties:
+            id: { type: integer }
+            ticker: { type: string }
+            strike: { type: number }
+            expiry: { type: string }
 
     PositionsList:
       type: object

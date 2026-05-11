@@ -1,4 +1,4 @@
-import { pgTable, integer, doublePrecision, text, timestamp, serial } from "drizzle-orm/pg-core";
+import { pgTable, integer, doublePrecision, text, timestamp, serial, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 export const positionsTable = pgTable("positions", {
   id: serial("id").primaryKey(),
@@ -13,6 +13,9 @@ export const positionsTable = pgTable("positions", {
   notes: text("notes"),
   lastAlertedItmAt: timestamp("last_alerted_itm_at", { withTimezone: true }),
   lastAlertedExpiringSoonAt: timestamp("last_alerted_expiring_soon_at", { withTimezone: true }),
+  rolledFromId: integer("rolled_from_id").references((): AnyPgColumn => positionsTable.id, {
+    onDelete: "set null",
+  }),
 });
 
 export type PositionRow = typeof positionsTable.$inferSelect;

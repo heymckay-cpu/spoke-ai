@@ -547,6 +547,34 @@ export const ListPositionsResponse = zod.object({
         .boolean()
         .optional()
         .describe("Open position with DTE <= 7"),
+      rolledFromId: zod
+        .number()
+        .nullish()
+        .describe(
+          "Id of the closed position this one was rolled from, if any.",
+        ),
+      rolledFrom: zod
+        .object({
+          id: zod.number(),
+          ticker: zod.string(),
+          strike: zod.number(),
+          expiry: zod.string(),
+        })
+        .nullish()
+        .describe(
+          "Summary of the position this one was rolled from (parent leg).",
+        ),
+      rolledTo: zod
+        .object({
+          id: zod.number(),
+          ticker: zod.string(),
+          strike: zod.number(),
+          expiry: zod.string(),
+        })
+        .nullish()
+        .describe(
+          "Summary of the position this one was rolled into (child leg).",
+        ),
     }),
   ),
   totals: zod.object({
@@ -581,6 +609,12 @@ export const CreatePositionBody = zod.object({
     .describe("Premium received per share"),
   contracts: zod.number().min(1),
   notes: zod.string().nullish(),
+  rolledFromId: zod
+    .number()
+    .nullish()
+    .describe(
+      "Optional id of the closed position this one was rolled from. The server will reject ids that don't exist.",
+    ),
 });
 
 export const CreatePositionResponse = zod.object({
@@ -619,6 +653,28 @@ export const CreatePositionResponse = zod.object({
     .boolean()
     .optional()
     .describe("Open position with DTE <= 7"),
+  rolledFromId: zod
+    .number()
+    .nullish()
+    .describe("Id of the closed position this one was rolled from, if any."),
+  rolledFrom: zod
+    .object({
+      id: zod.number(),
+      ticker: zod.string(),
+      strike: zod.number(),
+      expiry: zod.string(),
+    })
+    .nullish()
+    .describe("Summary of the position this one was rolled from (parent leg)."),
+  rolledTo: zod
+    .object({
+      id: zod.number(),
+      ticker: zod.string(),
+      strike: zod.number(),
+      expiry: zod.string(),
+    })
+    .nullish()
+    .describe("Summary of the position this one was rolled into (child leg)."),
 });
 
 /**
@@ -745,6 +801,28 @@ export const UpdatePositionResponse = zod.object({
     .boolean()
     .optional()
     .describe("Open position with DTE <= 7"),
+  rolledFromId: zod
+    .number()
+    .nullish()
+    .describe("Id of the closed position this one was rolled from, if any."),
+  rolledFrom: zod
+    .object({
+      id: zod.number(),
+      ticker: zod.string(),
+      strike: zod.number(),
+      expiry: zod.string(),
+    })
+    .nullish()
+    .describe("Summary of the position this one was rolled from (parent leg)."),
+  rolledTo: zod
+    .object({
+      id: zod.number(),
+      ticker: zod.string(),
+      strike: zod.number(),
+      expiry: zod.string(),
+    })
+    .nullish()
+    .describe("Summary of the position this one was rolled into (child leg)."),
 });
 
 /**

@@ -20,6 +20,8 @@ export * from "./notificationKind";
 export * from "./notificationsList";
 export * from "./position";
 export * from "./positionInput";
+export * from "./positionRolledFrom";
+export * from "./positionRolledTo";
 export * from "./positionsList";
 export * from "./positionsListTotals";
 export * from "./positionsStats";

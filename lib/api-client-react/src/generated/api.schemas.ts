@@ -291,6 +291,11 @@ export interface PositionInput {
   contracts: number;
   /** @nullable */
   notes?: string | null;
+  /**
+   * Optional id of the closed position this one was rolled from. The server will reject ids that don't exist.
+   * @nullable
+   */
+  rolledFromId?: number | null;
 }
 
 export interface PositionUpdate {
@@ -311,6 +316,28 @@ export const PositionStatus = {
   open: "open",
   closed: "closed",
 } as const;
+
+/**
+ * Summary of the position this one was rolled from (parent leg).
+ * @nullable
+ */
+export type PositionRolledFrom = {
+  id: number;
+  ticker: string;
+  strike: number;
+  expiry: string;
+} | null;
+
+/**
+ * Summary of the position this one was rolled into (child leg).
+ * @nullable
+ */
+export type PositionRolledTo = {
+  id: number;
+  ticker: string;
+  strike: number;
+  expiry: string;
+} | null;
 
 export interface Position {
   id: number;
@@ -353,6 +380,21 @@ export interface Position {
   assignmentRisk?: boolean;
   /** Open position with DTE <= 7 */
   expiringSoon?: boolean;
+  /**
+   * Id of the closed position this one was rolled from, if any.
+   * @nullable
+   */
+  rolledFromId?: number | null;
+  /**
+   * Summary of the position this one was rolled from (parent leg).
+   * @nullable
+   */
+  rolledFrom?: PositionRolledFrom;
+  /**
+   * Summary of the position this one was rolled into (child leg).
+   * @nullable
+   */
+  rolledTo?: PositionRolledTo;
 }
 
 export type PositionsListTotals = {

@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, positionsTable } from "@workspace/db";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import {
   CreatePositionBody,
   UpdatePositionBody,
@@ -16,6 +16,13 @@ import { getOptionChain, getSpot } from "../lib/market";
 import { clearAlertMarkers, deleteNotificationsForPosition } from "../lib/alerts";
 
 const router: IRouter = Router();
+
+interface RollSummary {
+  id: number;
+  ticker: string;
+  strike: number;
+  expiry: string;
+}
 
 interface EnrichedPosition {
   id: number;
@@ -36,6 +43,13 @@ interface EnrichedPosition {
   realizedPnl: number | null;
   assignmentRisk: boolean;
   expiringSoon: boolean;
+  rolledFromId: number | null;
+  rolledFrom: RollSummary | null;
+  rolledTo: RollSummary | null;
+}
+
+function toRollSummary(row: typeof positionsTable.$inferSelect): RollSummary {
+  return { id: row.id, ticker: row.ticker, strike: row.strike, expiry: row.expiry };
 }
 
 function dteFromIso(expiry: string): number {
@@ -44,7 +58,15 @@ function dteFromIso(expiry: string): number {
   return Math.round((exp - Date.now()) / (24 * 60 * 60 * 1000));
 }
 
-async function enrichPosition(row: typeof positionsTable.$inferSelect): Promise<EnrichedPosition> {
+interface RollContext {
+  rolledFrom?: RollSummary | null;
+  rolledTo?: RollSummary | null;
+}
+
+async function enrichPosition(
+  row: typeof positionsTable.$inferSelect,
+  rollContext: RollContext = {},
+): Promise<EnrichedPosition> {
   const status: "open" | "closed" = row.closedAt ? "closed" : "open";
   const dte = dteFromIso(row.expiry);
   let spot: number | null = null;
@@ -109,7 +131,62 @@ async function enrichPosition(row: typeof positionsTable.$inferSelect): Promise<
     realizedPnl,
     assignmentRisk,
     expiringSoon,
+    rolledFromId: row.rolledFromId ?? null,
+    rolledFrom: rollContext.rolledFrom ?? null,
+    rolledTo: rollContext.rolledTo ?? null,
   };
+}
+
+async function buildRollContexts(
+  rows: ReadonlyArray<typeof positionsTable.$inferSelect>,
+): Promise<Map<number, RollContext>> {
+  const result = new Map<number, RollContext>();
+  if (rows.length === 0) return result;
+
+  const byId = new Map<number, typeof positionsTable.$inferSelect>();
+  for (const r of rows) byId.set(r.id, r);
+
+  // Find any parent rows that aren't already in the working set so we can
+  // describe rolledFrom for newly-fetched single rows (e.g. POST/PATCH).
+  const missingParentIds = new Set<number>();
+  for (const r of rows) {
+    if (r.rolledFromId != null && !byId.has(r.rolledFromId)) {
+      missingParentIds.add(r.rolledFromId);
+    }
+  }
+  if (missingParentIds.size > 0) {
+    const parents = await db
+      .select()
+      .from(positionsTable)
+      .where(inArray(positionsTable.id, Array.from(missingParentIds)));
+    for (const p of parents) byId.set(p.id, p);
+  }
+
+  // For child lookups, we need every position that points at one of our rows.
+  const ourIds = rows.map((r) => r.id);
+  const children = await db
+    .select()
+    .from(positionsTable)
+    .where(inArray(positionsTable.rolledFromId, ourIds));
+  const childByParentId = new Map<number, typeof positionsTable.$inferSelect>();
+  for (const c of children) {
+    if (c.rolledFromId != null) childByParentId.set(c.rolledFromId, c);
+  }
+
+  for (const r of rows) {
+    const parent = r.rolledFromId != null ? byId.get(r.rolledFromId) : undefined;
+    const child = childByParentId.get(r.id);
+    result.set(r.id, {
+      rolledFrom: parent ? toRollSummary(parent) : null,
+      rolledTo: child ? toRollSummary(child) : null,
+    });
+  }
+  return result;
+}
+
+async function enrichOne(row: typeof positionsTable.$inferSelect): Promise<EnrichedPosition> {
+  const ctxMap = await buildRollContexts([row]);
+  return enrichPosition(row, ctxMap.get(row.id) ?? {});
 }
 
 router.get("/positions", async (_req, res): Promise<void> => {
@@ -118,7 +195,10 @@ router.get("/positions", async (_req, res): Promise<void> => {
     .from(positionsTable)
     .orderBy(desc(positionsTable.openedAt));
 
-  const enriched = await Promise.all(rows.map(enrichPosition));
+  const ctxMap = await buildRollContexts(rows);
+  const enriched = await Promise.all(
+    rows.map((r) => enrichPosition(r, ctxMap.get(r.id) ?? {})),
+  );
 
   const open = enriched.filter((p) => p.status === "open");
   const closed = enriched.filter((p) => p.status === "closed");
@@ -251,6 +331,17 @@ router.post("/positions", async (req, res): Promise<void> => {
     return;
   }
   const v = parsed.data;
+  // Validate rolledFromId if provided so the link can never dangle.
+  if (v.rolledFromId != null) {
+    const [parent] = await db
+      .select({ id: positionsTable.id })
+      .from(positionsTable)
+      .where(eq(positionsTable.id, v.rolledFromId));
+    if (!parent) {
+      res.status(400).json({ error: `rolledFromId ${v.rolledFromId} does not exist` });
+      return;
+    }
+  }
   const [inserted] = await db
     .insert(positionsTable)
     .values({
@@ -260,13 +351,14 @@ router.post("/positions", async (req, res): Promise<void> => {
       premium: v.premium,
       contracts: v.contracts,
       notes: v.notes ?? null,
+      rolledFromId: v.rolledFromId ?? null,
     })
     .returning();
   if (!inserted) {
     res.status(500).json({ error: "failed to insert" });
     return;
   }
-  const enriched = await enrichPosition(inserted);
+  const enriched = await enrichOne(inserted);
   res.json(CreatePositionResponse.parse(enriched));
 });
 
@@ -309,7 +401,7 @@ router.patch("/positions/:id", async (req, res): Promise<void> => {
   if ("closePrice" in v) {
     await clearAlertMarkers(updated.id);
   }
-  const enriched = await enrichPosition(updated);
+  const enriched = await enrichOne(updated);
   res.json(UpdatePositionResponse.parse(enriched));
 });
 

@@ -5,6 +5,8 @@
  * Wheel Strategy Dashboard API
  * OpenAPI spec version: 0.1.0
  */
+import type { PositionRolledFrom } from "./positionRolledFrom";
+import type { PositionRolledTo } from "./positionRolledTo";
 import type { PositionStatus } from "./positionStatus";
 
 export interface Position {
@@ -48,4 +50,19 @@ export interface Position {
   assignmentRisk?: boolean;
   /** Open position with DTE <= 7 */
   expiringSoon?: boolean;
+  /**
+   * Id of the closed position this one was rolled from, if any.
+   * @nullable
+   */
+  rolledFromId?: number | null;
+  /**
+   * Summary of the position this one was rolled from (parent leg).
+   * @nullable
+   */
+  rolledFrom?: PositionRolledFrom;
+  /**
+   * Summary of the position this one was rolled into (child leg).
+   * @nullable
+   */
+  rolledTo?: PositionRolledTo;
 }

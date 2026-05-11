@@ -6,6 +6,7 @@ import {
   CalendarClock,
   CircleDollarSign,
   Layers,
+  RefreshCw,
   Trash2,
   TrendingDown,
   TrendingUp,
@@ -46,6 +47,27 @@ import { PerformancePanel } from "@/components/performance-panel";
 import { useToast } from "@/hooks/use-toast";
 import { fmtCompactMoney, fmtDate, fmtMoney, fmtInt } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
+function RollChainBadge({
+  direction,
+  leg,
+}: {
+  direction: "from" | "to";
+  leg: { ticker: string; strike: number; expiry: string };
+}) {
+  const label = direction === "from" ? "Rolled from" : "Rolled to";
+  const tooltip = `${label} ${leg.ticker} ${fmtMoney(leg.strike)}P ${leg.expiry}`;
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary"
+      title={tooltip}
+      data-testid={`badge-rolled-${direction}`}
+    >
+      <RefreshCw className="h-3 w-3" />
+      {direction === "from" ? "from" : "to"} {leg.ticker} {fmtMoney(leg.strike)}P {leg.expiry}
+    </span>
+  );
+}
 
 interface KpiProps {
   label: string;
@@ -430,7 +452,17 @@ export function PositionsPage() {
                       )}
                       data-testid={`row-position-${p.id}`}
                     >
-                      <td className="px-3 py-2 font-semibold tracking-tight">{p.ticker}</td>
+                      <td className="px-3 py-2 font-semibold tracking-tight">
+                        <div className="flex flex-col gap-1">
+                          <span>{p.ticker}</span>
+                          {p.rolledFrom && (
+                            <RollChainBadge direction="from" leg={p.rolledFrom} />
+                          )}
+                          {p.rolledTo && (
+                            <RollChainBadge direction="to" leg={p.rolledTo} />
+                          )}
+                        </div>
+                      </td>
                       <td className="px-3 py-2 text-right tabular-nums">{fmtMoney(p.strike)}</td>
                       <td className="px-3 py-2 text-left tabular-nums text-muted-foreground">
                         {fmtDate(p.expiry)}
