@@ -92,7 +92,7 @@ export function AppShell({ title, breadcrumbs, actions, children }: AppShellProp
         className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex"
         data-testid="nav-sidebar"
       >
-        <div className="flex h-20 items-center gap-3 px-4">
+        <div className="flex h-20 items-center gap-3 border-b border-sidebar-border px-4">
           <img
             src={spokeMark}
             alt=""
@@ -161,7 +161,7 @@ export function AppShell({ title, breadcrumbs, actions, children }: AppShellProp
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-border bg-background/80 px-4 backdrop-blur md:px-8">
+        <header className="sticky top-0 z-30 flex h-20 items-center justify-between gap-4 border-b border-border bg-background/80 px-4 backdrop-blur md:px-8">
           <div className="flex min-w-0 items-center gap-2">
             <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
               <SheetTrigger asChild>
