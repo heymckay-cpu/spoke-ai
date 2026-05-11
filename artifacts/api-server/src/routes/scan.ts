@@ -68,13 +68,44 @@ router.post("/scan", async (req, res): Promise<void> => {
     ...(overrides.minDte != null ? { minDte: overrides.minDte } : {}),
     ...(overrides.maxDte != null ? { maxDte: overrides.maxDte } : {}),
     ...(overrides.targetDelta != null ? { targetDelta: overrides.targetDelta } : {}),
+    ...(overrides.minDelta != null ? { minDelta: overrides.minDelta } : {}),
+    ...(overrides.maxDelta != null ? { maxDelta: overrides.maxDelta } : {}),
+    ...(overrides.minOpenInterest != null ? { minOpenInterest: overrides.minOpenInterest } : {}),
+    ...(overrides.minBid != null ? { minBid: overrides.minBid } : {}),
+    ...(overrides.minUnderlyingPrice != null ? { minUnderlyingPrice: overrides.minUnderlyingPrice } : {}),
+    ...(overrides.riskFreeRate != null ? { riskFreeRate: overrides.riskFreeRate } : {}),
+    ...(overrides.topN != null ? { topN: overrides.topN } : {}),
   };
+
+  // Cross-field invariants when overrides are supplied.
+  if (cfg.minDte > cfg.maxDte) {
+    res.status(400).json({ error: "minDte must be <= maxDte" });
+    return;
+  }
+  if (cfg.minDelta > cfg.maxDelta) {
+    res.status(400).json({ error: "minDelta must be <= maxDelta" });
+    return;
+  }
+  if (cfg.targetDelta < cfg.minDelta || cfg.targetDelta > cfg.maxDelta) {
+    res.status(400).json({ error: "targetDelta must be within [minDelta, maxDelta]" });
+    return;
+  }
 
   if (overrides.forceRefresh) clearMarketCache();
 
   // Use in-memory TTL when no overrides and not forced.
   const isPlain =
-    !overrides.tickers && overrides.minDte == null && overrides.maxDte == null && overrides.targetDelta == null;
+    !overrides.tickers &&
+    overrides.minDte == null &&
+    overrides.maxDte == null &&
+    overrides.targetDelta == null &&
+    overrides.minDelta == null &&
+    overrides.maxDelta == null &&
+    overrides.minOpenInterest == null &&
+    overrides.minBid == null &&
+    overrides.minUnderlyingPrice == null &&
+    overrides.riskFreeRate == null &&
+    overrides.topN == null;
   if (isPlain && !overrides.forceRefresh && cachedScan && Date.now() < cachedScan.expiresAt) {
     res.json(RunScanResponse.parse({ ...cachedScan.result, cached: true }));
     return;

@@ -194,6 +194,23 @@ so repeated calls within the TTL are instant.
 export const runScanBodyTargetDeltaMin = 0;
 export const runScanBodyTargetDeltaMax = 1;
 
+export const runScanBodyMinDeltaMin = 0;
+export const runScanBodyMinDeltaMax = 1;
+
+export const runScanBodyMaxDeltaMin = 0;
+export const runScanBodyMaxDeltaMax = 1;
+
+export const runScanBodyMinOpenInterestMin = 0;
+
+export const runScanBodyMinBidMin = 0;
+
+export const runScanBodyMinUnderlyingPriceMin = 0;
+
+export const runScanBodyRiskFreeRateMin = 0;
+export const runScanBodyRiskFreeRateMax = 1;
+
+export const runScanBodyTopNMax = 200;
+
 export const RunScanBody = zod
   .object({
     tickers: zod.array(zod.string()).optional(),
@@ -204,6 +221,28 @@ export const RunScanBody = zod
       .min(runScanBodyTargetDeltaMin)
       .max(runScanBodyTargetDeltaMax)
       .optional(),
+    minDelta: zod
+      .number()
+      .min(runScanBodyMinDeltaMin)
+      .max(runScanBodyMinDeltaMax)
+      .optional(),
+    maxDelta: zod
+      .number()
+      .min(runScanBodyMaxDeltaMin)
+      .max(runScanBodyMaxDeltaMax)
+      .optional(),
+    minOpenInterest: zod.number().min(runScanBodyMinOpenInterestMin).optional(),
+    minBid: zod.number().min(runScanBodyMinBidMin).optional(),
+    minUnderlyingPrice: zod
+      .number()
+      .min(runScanBodyMinUnderlyingPriceMin)
+      .optional(),
+    riskFreeRate: zod
+      .number()
+      .min(runScanBodyRiskFreeRateMin)
+      .max(runScanBodyRiskFreeRateMax)
+      .optional(),
+    topN: zod.number().min(1).max(runScanBodyTopNMax).optional(),
     forceRefresh: zod.boolean().optional(),
   })
   .describe("Optional one-shot overrides for this scan (does not persist)");

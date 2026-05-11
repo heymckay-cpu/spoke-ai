@@ -20,5 +20,31 @@ export interface ScanInput {
    * @maximum 1
    */
   targetDelta?: number;
+  /**
+   * @minimum 0
+   * @maximum 1
+   */
+  minDelta?: number;
+  /**
+   * @minimum 0
+   * @maximum 1
+   */
+  maxDelta?: number;
+  /** @minimum 0 */
+  minOpenInterest?: number;
+  /** @minimum 0 */
+  minBid?: number;
+  /** @minimum 0 */
+  minUnderlyingPrice?: number;
+  /**
+   * @minimum 0
+   * @maximum 1
+   */
+  riskFreeRate?: number;
+  /**
+   * @minimum 1
+   * @maximum 200
+   */
+  topN?: number;
   forceRefresh?: boolean;
 }

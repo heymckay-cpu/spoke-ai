@@ -257,6 +257,13 @@ components:
         minDte: { type: integer, minimum: 1 }
         maxDte: { type: integer, minimum: 1 }
         targetDelta: { type: number, minimum: 0, maximum: 1 }
+        minDelta: { type: number, minimum: 0, maximum: 1 }
+        maxDelta: { type: number, minimum: 0, maximum: 1 }
+        minOpenInterest: { type: integer, minimum: 0 }
+        minBid: { type: number, minimum: 0 }
+        minUnderlyingPrice: { type: number, minimum: 0 }
+        riskFreeRate: { type: number, minimum: 0, maximum: 1 }
+        topN: { type: integer, minimum: 1, maximum: 200 }
         forceRefresh: { type: boolean }
 
     Candidate:
