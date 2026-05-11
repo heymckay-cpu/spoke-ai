@@ -10,6 +10,7 @@ import {
   DeletePositionParams,
   UpdatePositionParams,
   DeletePositionResponse,
+  GetPositionsStatsResponse,
 } from "@workspace/api-zod";
 import { getOptionChain, getSpot } from "../lib/market";
 import { clearAlertMarkers, deleteNotificationsForPosition } from "../lib/alerts";
@@ -131,6 +132,116 @@ router.get("/positions", async (_req, res): Promise<void> => {
   };
 
   res.json(ListPositionsResponse.parse({ positions: enriched, totals }));
+});
+
+router.get("/positions/stats", async (_req, res): Promise<void> => {
+  const rows = await db
+    .select()
+    .from(positionsTable)
+    .orderBy(desc(positionsTable.openedAt));
+
+  const closed = rows.filter(
+    (r): r is typeof r & { closedAt: Date; closePrice: number } =>
+      r.closedAt != null && r.closePrice != null,
+  );
+
+  const closedSorted = [...closed].sort(
+    (a, b) => a.closedAt.getTime() - b.closedAt.getTime(),
+  );
+
+  let cumulative = 0;
+  const cumulativePnl = closedSorted.map((r) => {
+    const pnl = (r.premium - r.closePrice) * 100 * r.contracts;
+    cumulative += pnl;
+    return {
+      date: r.closedAt.toISOString(),
+      pnl,
+      cumulative,
+    };
+  });
+
+  const monthBuckets = new Map<string, { premium: number; count: number }>();
+  for (const r of closedSorted) {
+    const month = r.closedAt.toISOString().slice(0, 7);
+    const premium = r.premium * 100 * r.contracts;
+    const cur = monthBuckets.get(month) ?? { premium: 0, count: 0 };
+    cur.premium += premium;
+    cur.count += 1;
+    monthBuckets.set(month, cur);
+  }
+  const premiumByMonth = Array.from(monthBuckets.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, v]) => ({ month, premium: v.premium, count: v.count }));
+
+  const closedCount = closedSorted.length;
+  const totalRealizedPnl = closedSorted.reduce(
+    (s, r) => s + (r.premium - r.closePrice) * 100 * r.contracts,
+    0,
+  );
+  const totalPremiumCollected = closedSorted.reduce(
+    (s, r) => s + r.premium * 100 * r.contracts,
+    0,
+  );
+  const winCount = closedSorted.filter(
+    (r) => (r.premium - r.closePrice) * 100 * r.contracts >= 0,
+  ).length;
+  const lossCount = closedCount - winCount;
+
+  const daysHeldTotal = closedSorted.reduce((s, r) => {
+    const ms = r.closedAt.getTime() - r.openedAt.getTime();
+    return s + Math.max(0, ms / (24 * 60 * 60 * 1000));
+  }, 0);
+
+  type TradeBest = {
+    id: number;
+    ticker: string;
+    strike: number;
+    expiry: string;
+    contracts: number;
+    realizedPnl: number;
+    closedAt: string;
+  };
+  const toBest = (
+    r: (typeof closedSorted)[number],
+    pnl: number,
+  ): TradeBest => ({
+    id: r.id,
+    ticker: r.ticker,
+    strike: r.strike,
+    expiry: r.expiry,
+    contracts: r.contracts,
+    realizedPnl: pnl,
+    closedAt: r.closedAt.toISOString(),
+  });
+
+  let bestTrade: TradeBest | null = null;
+  let worstTrade: TradeBest | null = null;
+  for (const r of closedSorted) {
+    const pnl = (r.premium - r.closePrice) * 100 * r.contracts;
+    if (bestTrade == null || pnl > bestTrade.realizedPnl) bestTrade = toBest(r, pnl);
+    if (worstTrade == null || pnl < worstTrade.realizedPnl) worstTrade = toBest(r, pnl);
+  }
+
+  const summary = {
+    closedCount,
+    winCount,
+    lossCount,
+    winRate: closedCount > 0 ? winCount / closedCount : 0,
+    totalRealizedPnl,
+    totalPremiumCollected,
+    avgPremiumPerTrade: closedCount > 0 ? totalPremiumCollected / closedCount : 0,
+    avgDaysHeld: closedCount > 0 ? daysHeldTotal / closedCount : 0,
+    bestTrade,
+    worstTrade,
+  };
+
+  res.json(
+    GetPositionsStatsResponse.parse({
+      summary,
+      cumulativePnl,
+      premiumByMonth,
+    }),
+  );
 });
 
 router.post("/positions", async (req, res): Promise<void> => {

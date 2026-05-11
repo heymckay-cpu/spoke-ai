@@ -367,6 +367,75 @@ export interface PositionsList {
   totals: PositionsListTotals;
 }
 
+/**
+ * @nullable
+ */
+export type PositionsStatsSummaryBestTrade = {
+  id: number;
+  ticker: string;
+  strike: number;
+  expiry: string;
+  contracts: number;
+  realizedPnl: number;
+  closedAt: string;
+} | null;
+
+/**
+ * @nullable
+ */
+export type PositionsStatsSummaryWorstTrade = {
+  id: number;
+  ticker: string;
+  strike: number;
+  expiry: string;
+  contracts: number;
+  realizedPnl: number;
+  closedAt: string;
+} | null;
+
+export type PositionsStatsSummary = {
+  closedCount: number;
+  /** Closed trades with realized P/L >= 0 */
+  winCount: number;
+  lossCount: number;
+  /** winCount / closedCount, 0 when no closed trades */
+  winRate: number;
+  totalRealizedPnl: number;
+  /** Sum of premium*100*contracts across closed trades */
+  totalPremiumCollected: number;
+  avgPremiumPerTrade: number;
+  /** Calendar days between openedAt and closedAt */
+  avgDaysHeld: number;
+  /** @nullable */
+  bestTrade?: PositionsStatsSummaryBestTrade;
+  /** @nullable */
+  worstTrade?: PositionsStatsSummaryWorstTrade;
+};
+
+export type PositionsStatsCumulativePnlItem = {
+  /** ISO datetime of close */
+  date: string;
+  /** Realized P/L for that trade */
+  pnl: number;
+  /** Running total of realized P/L */
+  cumulative: number;
+};
+
+export type PositionsStatsPremiumByMonthItem = {
+  /** YYYY-MM */
+  month: string;
+  premium: number;
+  count: number;
+};
+
+export interface PositionsStats {
+  summary: PositionsStatsSummary;
+  /** One point per closed trade (in close order); cumulative running total. */
+  cumulativePnl: PositionsStatsCumulativePnlItem[];
+  /** Premium collected (premium*100*contracts) grouped by close month. */
+  premiumByMonth: PositionsStatsPremiumByMonthItem[];
+}
+
 export interface DeleteResult {
   ok: boolean;
 }

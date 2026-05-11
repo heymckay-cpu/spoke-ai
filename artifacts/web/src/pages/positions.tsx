@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  getGetPositionsStatsQueryKey,
   getListPositionsQueryKey,
   useListPositions,
   useUpdatePosition,
@@ -40,6 +41,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { PerformancePanel } from "@/components/performance-panel";
 import { useToast } from "@/hooks/use-toast";
 import { fmtCompactMoney, fmtDate, fmtMoney, fmtInt } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -259,6 +261,7 @@ export function PositionsPage() {
   const totals = data?.totals;
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: getListPositionsQueryKey() });
+    qc.invalidateQueries({ queryKey: getGetPositionsStatsQueryKey() });
   };
 
   const onReopen = (p: Position) => {
@@ -334,6 +337,8 @@ export function PositionsPage() {
             accent={totals && totals.closedRealizedPnl >= 0 ? "success" : "danger"}
           />
         </div>
+
+        <PerformancePanel />
 
         <Card className="border-card-border">
           <CardContent className="flex flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between">

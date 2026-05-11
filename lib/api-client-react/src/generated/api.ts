@@ -29,6 +29,7 @@ import type {
   PositionInput,
   PositionUpdate,
   PositionsList,
+  PositionsStats,
   Quote,
   ScanInput,
   ScanResult,
@@ -948,6 +949,85 @@ export const useCreatePosition = <
 > => {
   return useMutation(getCreatePositionMutationOptions(options));
 };
+
+/**
+ * Performance journal — cumulative realized P/L over time, premium
+collected per month, and headline summary stats (win rate, average
+days held, best/worst trade). Computed from closed positions only.
+
+ * @summary Aggregate performance stats across closed positions
+ */
+export const getGetPositionsStatsUrl = () => {
+  return `/api/positions/stats`;
+};
+
+export const getPositionsStats = async (
+  options?: RequestInit,
+): Promise<PositionsStats> => {
+  return customFetch<PositionsStats>(getGetPositionsStatsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPositionsStatsQueryKey = () => {
+  return [`/api/positions/stats`] as const;
+};
+
+export const getGetPositionsStatsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPositionsStats>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getPositionsStats>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPositionsStatsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPositionsStats>>
+  > = ({ signal }) => getPositionsStats({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPositionsStats>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPositionsStatsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPositionsStats>>
+>;
+export type GetPositionsStatsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Aggregate performance stats across closed positions
+ */
+
+export function useGetPositionsStats<
+  TData = Awaited<ReturnType<typeof getPositionsStats>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getPositionsStats>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPositionsStatsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Close (or re-open) a tracked position

@@ -209,6 +209,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/Position"
 
+  /positions/stats:
+    get:
+      operationId: getPositionsStats
+      tags: [positions]
+      summary: Aggregate performance stats across closed positions
+      description: |
+        Performance journal — cumulative realized P/L over time, premium
+        collected per month, and headline summary stats (win rate, average
+        days held, best/worst trade). Computed from closed positions only.
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PositionsStats"
+
   /positions/{id}:
     patch:
       operationId: updatePosition
@@ -664,6 +681,76 @@ components:
             totalCollateral: { type: number, description: "Sum of strike*100*contracts for open positions" }
             openUnrealizedPnl: { type: number }
             closedRealizedPnl: { type: number }
+
+    PositionsStats:
+      type: object
+      required:
+        - summary
+        - cumulativePnl
+        - premiumByMonth
+      properties:
+        summary:
+          type: object
+          required:
+            - closedCount
+            - winCount
+            - lossCount
+            - winRate
+            - totalRealizedPnl
+            - totalPremiumCollected
+            - avgPremiumPerTrade
+            - avgDaysHeld
+          properties:
+            closedCount: { type: integer }
+            winCount: { type: integer, description: "Closed trades with realized P/L >= 0" }
+            lossCount: { type: integer }
+            winRate: { type: number, description: "winCount / closedCount, 0 when no closed trades" }
+            totalRealizedPnl: { type: number }
+            totalPremiumCollected: { type: number, description: "Sum of premium*100*contracts across closed trades" }
+            avgPremiumPerTrade: { type: number }
+            avgDaysHeld: { type: number, description: "Calendar days between openedAt and closedAt" }
+            bestTrade:
+              type: ["object", "null"]
+              required: [id, ticker, strike, expiry, contracts, realizedPnl, closedAt]
+              properties:
+                id: { type: integer }
+                ticker: { type: string }
+                strike: { type: number }
+                expiry: { type: string }
+                contracts: { type: integer }
+                realizedPnl: { type: number }
+                closedAt: { type: string }
+            worstTrade:
+              type: ["object", "null"]
+              required: [id, ticker, strike, expiry, contracts, realizedPnl, closedAt]
+              properties:
+                id: { type: integer }
+                ticker: { type: string }
+                strike: { type: number }
+                expiry: { type: string }
+                contracts: { type: integer }
+                realizedPnl: { type: number }
+                closedAt: { type: string }
+        cumulativePnl:
+          type: array
+          description: One point per closed trade (in close order); cumulative running total.
+          items:
+            type: object
+            required: [date, pnl, cumulative]
+            properties:
+              date: { type: string, description: "ISO datetime of close" }
+              pnl: { type: number, description: "Realized P/L for that trade" }
+              cumulative: { type: number, description: "Running total of realized P/L" }
+        premiumByMonth:
+          type: array
+          description: Premium collected (premium*100*contracts) grouped by close month.
+          items:
+            type: object
+            required: [month, premium, count]
+            properties:
+              month: { type: string, description: "YYYY-MM" }
+              premium: { type: number }
+              count: { type: integer }
 
     DeleteResult:
       type: object

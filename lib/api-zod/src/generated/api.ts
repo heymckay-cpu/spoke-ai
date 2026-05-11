@@ -612,6 +612,76 @@ export const CreatePositionResponse = zod.object({
 });
 
 /**
+ * Performance journal — cumulative realized P/L over time, premium
+collected per month, and headline summary stats (win rate, average
+days held, best/worst trade). Computed from closed positions only.
+
+ * @summary Aggregate performance stats across closed positions
+ */
+export const GetPositionsStatsResponse = zod.object({
+  summary: zod.object({
+    closedCount: zod.number(),
+    winCount: zod.number().describe("Closed trades with realized P\/L >= 0"),
+    lossCount: zod.number(),
+    winRate: zod
+      .number()
+      .describe("winCount \/ closedCount, 0 when no closed trades"),
+    totalRealizedPnl: zod.number(),
+    totalPremiumCollected: zod
+      .number()
+      .describe("Sum of premium\*100\*contracts across closed trades"),
+    avgPremiumPerTrade: zod.number(),
+    avgDaysHeld: zod
+      .number()
+      .describe("Calendar days between openedAt and closedAt"),
+    bestTrade: zod
+      .object({
+        id: zod.number(),
+        ticker: zod.string(),
+        strike: zod.number(),
+        expiry: zod.string(),
+        contracts: zod.number(),
+        realizedPnl: zod.number(),
+        closedAt: zod.string(),
+      })
+      .nullish(),
+    worstTrade: zod
+      .object({
+        id: zod.number(),
+        ticker: zod.string(),
+        strike: zod.number(),
+        expiry: zod.string(),
+        contracts: zod.number(),
+        realizedPnl: zod.number(),
+        closedAt: zod.string(),
+      })
+      .nullish(),
+  }),
+  cumulativePnl: zod
+    .array(
+      zod.object({
+        date: zod.string().describe("ISO datetime of close"),
+        pnl: zod.number().describe("Realized P\/L for that trade"),
+        cumulative: zod.number().describe("Running total of realized P\/L"),
+      }),
+    )
+    .describe(
+      "One point per closed trade (in close order); cumulative running total.",
+    ),
+  premiumByMonth: zod
+    .array(
+      zod.object({
+        month: zod.string().describe("YYYY-MM"),
+        premium: zod.number(),
+        count: zod.number(),
+      }),
+    )
+    .describe(
+      "Premium collected (premium\*100\*contracts) grouped by close month.",
+    ),
+});
+
+/**
  * @summary Close (or re-open) a tracked position
  */
 export const UpdatePositionParams = zod.object({
