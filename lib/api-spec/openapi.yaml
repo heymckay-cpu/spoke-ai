@@ -3,13 +3,21 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Wheel Strategy Dashboard API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: settings
+    description: Screener settings
+  - name: scan
+    description: Wheel candidates scan
+  - name: chain
+    description: Option chain explorer
+  - name: market
+    description: Market summary
 paths:
   /healthz:
     get:
@@ -24,6 +32,149 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get current screener settings
+      responses:
+        "200":
+          description: Current settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+    put:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Update screener settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingsInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+
+  /scan:
+    post:
+      operationId: runScan
+      tags: [scan]
+      summary: Run the wheel screener using current settings
+      description: |
+        Scans the watchlist and returns ranked short-put candidates.
+        Results are cached to disk according to settings.cacheTtlMinutes
+        so repeated calls within the TTL are instant.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScanInput"
+      responses:
+        "200":
+          description: Ranked candidates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanResult"
+
+  /scan/latest:
+    get:
+      operationId: getLatestScan
+      tags: [scan]
+      summary: Get the most recent scan results without re-running
+      responses:
+        "200":
+          description: Latest scan (may be empty if never scanned)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanResult"
+
+  /scan/summary:
+    get:
+      operationId: getScanSummary
+      tags: [scan]
+      summary: Aggregated stats over the latest scan
+      description: |
+        Lightweight aggregate view of the latest candidate set —
+        average annualized yield, count of candidates with earnings in
+        the DTE window, top sector / ticker, IV-rank distribution buckets.
+      responses:
+        "200":
+          description: Summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanSummary"
+
+  /quote/{ticker}:
+    get:
+      operationId: getQuote
+      tags: [market]
+      summary: Get spot price and earnings flag for a ticker
+      parameters:
+        - in: path
+          name: ticker
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Quote
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quote"
+
+  /chain/{ticker}:
+    get:
+      operationId: getChainExpirations
+      tags: [chain]
+      summary: List expirations for a ticker
+      parameters:
+        - in: path
+          name: ticker
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Expirations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChainExpirations"
+
+  /chain/{ticker}/{expiry}:
+    get:
+      operationId: getChain
+      tags: [chain]
+      summary: Get put + call chain with greeks for a ticker and expiry
+      parameters:
+        - in: path
+          name: ticker
+          required: true
+          schema: { type: string }
+        - in: path
+          name: expiry
+          required: true
+          description: ISO date (YYYY-MM-DD)
+          schema: { type: string }
+      responses:
+        "200":
+          description: Chain with greeks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chain"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +185,257 @@ components:
       required:
         - status
 
+    Settings:
+      type: object
+      required:
+        - tickers
+        - minDte
+        - maxDte
+        - targetDelta
+        - minDelta
+        - maxDelta
+        - minOpenInterest
+        - minBid
+        - minUnderlyingPrice
+        - riskFreeRate
+        - topN
+        - cacheTtlMinutes
+      properties:
+        tickers:
+          type: array
+          items: { type: string }
+        minDte: { type: integer, minimum: 1 }
+        maxDte: { type: integer, minimum: 1 }
+        targetDelta: { type: number, minimum: 0, maximum: 1 }
+        minDelta: { type: number, minimum: 0, maximum: 1 }
+        maxDelta: { type: number, minimum: 0, maximum: 1 }
+        minOpenInterest: { type: integer, minimum: 0 }
+        minBid: { type: number, minimum: 0 }
+        minUnderlyingPrice: { type: number, minimum: 0 }
+        riskFreeRate: { type: number, minimum: 0, maximum: 1 }
+        topN: { type: integer, minimum: 1, maximum: 200 }
+        cacheTtlMinutes: { type: integer, minimum: 1, maximum: 1440 }
+
+    SettingsInput:
+      type: object
+      required:
+        - tickers
+        - minDte
+        - maxDte
+        - targetDelta
+        - minDelta
+        - maxDelta
+        - minOpenInterest
+        - minBid
+        - minUnderlyingPrice
+        - riskFreeRate
+        - topN
+        - cacheTtlMinutes
+      properties:
+        tickers:
+          type: array
+          items: { type: string }
+        minDte: { type: integer, minimum: 1 }
+        maxDte: { type: integer, minimum: 1 }
+        targetDelta: { type: number, minimum: 0, maximum: 1 }
+        minDelta: { type: number, minimum: 0, maximum: 1 }
+        maxDelta: { type: number, minimum: 0, maximum: 1 }
+        minOpenInterest: { type: integer, minimum: 0 }
+        minBid: { type: number, minimum: 0 }
+        minUnderlyingPrice: { type: number, minimum: 0 }
+        riskFreeRate: { type: number, minimum: 0, maximum: 1 }
+        topN: { type: integer, minimum: 1, maximum: 200 }
+        cacheTtlMinutes: { type: integer, minimum: 1, maximum: 1440 }
+
+    ScanInput:
+      type: object
+      description: Optional one-shot overrides for this scan (does not persist)
+      properties:
+        tickers:
+          type: array
+          items: { type: string }
+        minDte: { type: integer, minimum: 1 }
+        maxDte: { type: integer, minimum: 1 }
+        targetDelta: { type: number, minimum: 0, maximum: 1 }
+        forceRefresh: { type: boolean }
+
+    Candidate:
+      type: object
+      required:
+        - ticker
+        - spot
+        - expiry
+        - dte
+        - strike
+        - delta
+        - bid
+        - iv
+        - openInterest
+        - premiumPerContract
+        - collateralPerContract
+        - staticReturnPct
+        - annualizedPct
+        - breakeven
+        - pctOtm
+        - earningsInWindow
+      properties:
+        ticker: { type: string }
+        spot: { type: number }
+        expiry: { type: string, description: "ISO date YYYY-MM-DD" }
+        dte: { type: integer }
+        strike: { type: number }
+        delta: { type: number }
+        bid: { type: number }
+        ask: { type: ["number", "null"] }
+        iv: { type: number, description: "Implied volatility, 0..1" }
+        openInterest: { type: integer }
+        volume: { type: ["integer", "null"] }
+        premiumPerContract: { type: number }
+        collateralPerContract: { type: number }
+        staticReturnPct: { type: number }
+        annualizedPct: { type: number }
+        breakeven: { type: number }
+        pctOtm: { type: number }
+        ivRank: { type: ["number", "null"], description: "0..1, proxy from realized vol" }
+        hv30: { type: ["number", "null"] }
+        earningsDate: { type: ["string", "null"] }
+        earningsInWindow: { type: boolean }
+
+    ScanError:
+      type: object
+      required: [ticker, reason]
+      properties:
+        ticker: { type: string }
+        reason: { type: string }
+
+    ScanResult:
+      type: object
+      required:
+        - scannedAt
+        - candidates
+        - errors
+        - tickersScanned
+        - tickersWithCandidate
+        - cached
+      properties:
+        scannedAt: { type: ["string", "null"], description: "ISO timestamp of when this scan ran" }
+        candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/Candidate"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanError"
+        tickersScanned: { type: integer }
+        tickersWithCandidate: { type: integer }
+        cached: { type: boolean }
+
+    IvRankBucket:
+      type: object
+      required: [label, count]
+      properties:
+        label: { type: string }
+        count: { type: integer }
+
+    ScanSummary:
+      type: object
+      required:
+        - scannedAt
+        - candidateCount
+        - earningsFlaggedCount
+        - avgAnnualizedPct
+        - medianAnnualizedPct
+        - maxAnnualizedPct
+        - totalCollateral
+        - totalPremium
+        - ivRankBuckets
+        - topTickers
+      properties:
+        scannedAt: { type: ["string", "null"] }
+        candidateCount: { type: integer }
+        earningsFlaggedCount: { type: integer }
+        avgAnnualizedPct: { type: number }
+        medianAnnualizedPct: { type: number }
+        maxAnnualizedPct: { type: number }
+        totalCollateral: { type: number }
+        totalPremium: { type: number }
+        ivRankBuckets:
+          type: array
+          items:
+            $ref: "#/components/schemas/IvRankBucket"
+        topTickers:
+          type: array
+          description: Top 5 candidates by annualized yield
+          items:
+            $ref: "#/components/schemas/Candidate"
+
+    Quote:
+      type: object
+      required: [ticker, spot, asOf, earningsInWindow]
+      properties:
+        ticker: { type: string }
+        spot: { type: number }
+        asOf: { type: string }
+        earningsDate: { type: ["string", "null"] }
+        earningsInWindow: { type: boolean }
+        name: { type: ["string", "null"] }
+        currency: { type: ["string", "null"] }
+        dayChange: { type: ["number", "null"] }
+        dayChangePct: { type: ["number", "null"] }
+
+    ChainExpirations:
+      type: object
+      required: [ticker, spot, expirations]
+      properties:
+        ticker: { type: string }
+        spot: { type: number }
+        expirations:
+          type: array
+          items: { type: string, description: "ISO date YYYY-MM-DD" }
+
+    ChainRow:
+      type: object
+      required:
+        - strike
+        - bid
+        - ask
+        - lastPrice
+        - iv
+        - delta
+        - gamma
+        - theta
+        - vega
+        - openInterest
+        - volume
+        - inTheMoney
+      properties:
+        strike: { type: number }
+        bid: { type: number }
+        ask: { type: number }
+        lastPrice: { type: number }
+        iv: { type: number }
+        delta: { type: number }
+        gamma: { type: number }
+        theta: { type: number }
+        vega: { type: number }
+        openInterest: { type: integer }
+        volume: { type: integer }
+        inTheMoney: { type: boolean }
+
+    Chain:
+      type: object
+      required: [ticker, spot, expiry, dte, puts, calls]
+      properties:
+        ticker: { type: string }
+        spot: { type: number }
+        expiry: { type: string }
+        dte: { type: integer }
+        puts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChainRow"
+        calls:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChainRow"
