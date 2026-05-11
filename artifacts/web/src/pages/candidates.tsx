@@ -221,7 +221,7 @@ export function CandidatesPage() {
   const hasData = (latest.data?.candidates.length ?? 0) > 0;
 
   return (
-    <AppShell title="Candidates" breadcrumbs={[{ label: "Candidates" }]}>
+    <AppShell title="McKay Barnes" breadcrumbs={[{ label: "Candidates" }]}>
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
