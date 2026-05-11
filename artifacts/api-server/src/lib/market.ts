@@ -44,10 +44,17 @@ let provider: MarketProvider = adaptYahoo(yahooFinance);
 // this to true so the chain route can skip the bid/IV ratio heuristic
 // during market hours.
 let providerIsLive = false;
+// Human-readable name of the active provider, surfaced via /healthz so
+// the dashboard can show users which feed is powering their numbers.
+let providerName = "yahoo";
 
-export function setMarketProvider(p: MarketProvider, opts: { live?: boolean } = {}): void {
+export function setMarketProvider(
+  p: MarketProvider,
+  opts: { live?: boolean; name?: string } = {},
+): void {
   provider = p;
   providerIsLive = Boolean(opts.live);
+  if (opts.name) providerName = opts.name;
 }
 
 export function getMarketProvider(): MarketProvider {
@@ -56,6 +63,10 @@ export function getMarketProvider(): MarketProvider {
 
 export function isLiveProvider(): boolean {
   return providerIsLive;
+}
+
+export function getProviderName(): string {
+  return providerName;
 }
 
 export interface OptionRow {

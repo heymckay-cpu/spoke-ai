@@ -246,6 +246,33 @@ export function AppShell({ title, breadcrumbs, actions, children }: AppShellProp
           </div>
           </div>
           <div className="flex items-center gap-2">
+            {health.data?.provider && (
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-medium tabular-nums sm:px-2.5",
+                  health.data.live
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                    : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+                )}
+                data-testid="badge-data-provider"
+                title={
+                  health.data.live
+                    ? `Live quotes from ${health.data.provider}`
+                    : `Delayed quotes from ${health.data.provider}`
+                }
+              >
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full",
+                    health.data.live ? "bg-emerald-500" : "bg-amber-500",
+                  )}
+                  aria-hidden="true"
+                />
+                {health.data.live ? "Live" : "Delayed"}
+                <span className="hidden text-muted-foreground sm:inline">·</span>
+                <span className="hidden capitalize sm:inline">{health.data.provider}</span>
+              </span>
+            )}
             {actions}
             <NotificationBell />
             <RunScanButton />

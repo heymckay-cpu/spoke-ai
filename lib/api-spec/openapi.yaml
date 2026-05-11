@@ -330,8 +330,16 @@ components:
       properties:
         status:
           type: string
+        provider:
+          type: string
+          description: Active market data provider name (e.g. "yahoo", "polygon").
+        live:
+          type: boolean
+          description: True when the active provider serves live (real-time) quotes; false for delayed feeds.
       required:
         - status
+        - provider
+        - live
 
     Settings:
       type: object

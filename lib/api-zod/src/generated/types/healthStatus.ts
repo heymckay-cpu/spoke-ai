@@ -8,4 +8,8 @@
 
 export interface HealthStatus {
   status: string;
+  /** Active market data provider name (e.g. "yahoo", "polygon"). */
+  provider: string;
+  /** True when the active provider serves live (real-time) quotes; false for delayed feeds. */
+  live: boolean;
 }

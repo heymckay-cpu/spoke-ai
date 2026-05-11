@@ -16,7 +16,7 @@ if (marketProviderName === "polygon") {
       "MARKET_PROVIDER=polygon but POLYGON_API_KEY is not set; falling back to default Yahoo provider",
     );
   } else {
-    setMarketProvider(createPolygonProvider(apiKey), { live: true });
+    setMarketProvider(createPolygonProvider(apiKey), { live: true, name: "polygon" });
     logger.info("Using Polygon market data provider");
   }
 } else if (marketProviderName && marketProviderName !== "yahoo") {

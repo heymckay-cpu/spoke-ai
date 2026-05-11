@@ -13,6 +13,16 @@ import * as zod from "zod";
  */
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
+  provider: zod
+    .string()
+    .describe(
+      'Active market data provider name (e.g. \"yahoo\", \"polygon\").',
+    ),
+  live: zod
+    .boolean()
+    .describe(
+      "True when the active provider serves live (real-time) quotes; false for delayed feeds.",
+    ),
 });
 
 /**
