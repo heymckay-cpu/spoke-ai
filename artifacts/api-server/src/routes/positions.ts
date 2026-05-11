@@ -508,7 +508,7 @@ class RollError extends Error {
 // Returns the next standard monthly equity-options expiry (third Friday of
 // the month) on or after the given ISO date. Used as the smart default for
 // rolling a sold put — most liquidity sits on standard monthlies.
-function nextThirdFridayOnOrAfter(iso: string): string {
+export function nextThirdFridayOnOrAfter(iso: string): string {
   const start = new Date(`${iso}T00:00:00Z`);
   if (Number.isNaN(start.getTime())) {
     throw new Error(`invalid date: ${iso}`);
@@ -531,7 +531,7 @@ function nextThirdFridayOnOrAfter(iso: string): string {
   return iso;
 }
 
-function snapToNearestStrike(target: number, strikes: number[]): number | null {
+export function snapToNearestStrike(target: number, strikes: number[]): number | null {
   if (strikes.length === 0) return null;
   let best = strikes[0]!;
   let bestDist = Math.abs(best - target);
@@ -708,7 +708,10 @@ router.get("/positions/:id/roll-suggestion", async (req, res): Promise<void> => 
     if (!r) return null;
     const bid = r.bid > 0 ? r.bid : 0;
     const ask = r.ask > 0 ? r.ask : 0;
-    const mid = bid > 0 && ask > 0 ? (bid + ask) / 2 : 0;
+    // Midpoint when both sides are quoted; when only ask is quoted (common
+    // after-hours when the bid zeroes out), fall back to the ask alone so
+    // the bid → mid → lastPrice chain has a usable middle rung.
+    const mid = bid > 0 && ask > 0 ? (bid + ask) / 2 : ask > 0 ? ask : 0;
     const lastPrice = r.lastPrice > 0 ? r.lastPrice : 0;
     const premium = bid > 0 ? bid : mid > 0 ? mid : lastPrice;
     return { kind, strike, premium, bid, ask, mid, lastPrice };
