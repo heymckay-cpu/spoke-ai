@@ -365,11 +365,14 @@ export function CandidateDetailDrawer({
               </div>
             )}
 
-            {/* Your position */}
+            {/* Open put legs — hide entirely when there are none AND the user
+                already owns shares, since the holdings panel above already
+                describes their exposure. */}
+            {(openInTicker.length > 0 || (!holdingForTicker && !positionsQuery.isLoading)) && (
             <div className="mt-5 space-y-2">
               <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 <Layers className="h-3.5 w-3.5" />
-                Your position in {candidate.ticker}
+                Open put legs in {candidate.ticker}
               </div>
               {positionsQuery.isLoading ? (
                 <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
@@ -377,7 +380,7 @@ export function CandidateDetailDrawer({
                 </div>
               ) : openInTicker.length === 0 ? (
                 <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
-                  No open position in {candidate.ticker}. This would be a fresh entry.
+                  No open puts on {candidate.ticker}. This would be a fresh entry.
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -441,6 +444,7 @@ export function CandidateDetailDrawer({
                 </div>
               )}
             </div>
+            )}
 
             <Separator className="my-5" />
 
