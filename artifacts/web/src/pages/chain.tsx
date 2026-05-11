@@ -436,7 +436,7 @@ export function ChainPage() {
                         {fmtMoney(Math.abs(dayChange))}
                         {dayChangePct != null && (
                           <span className="text-xs opacity-80">
-                            ({(dayChangePct * 100).toFixed(2)}%)
+                            ({dayChangePct.toFixed(2)}%)
                           </span>
                         )}
                       </div>

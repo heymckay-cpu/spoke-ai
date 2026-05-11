@@ -12,6 +12,7 @@ import {
   ArrowUpDown,
   CalendarClock,
   CircleDollarSign,
+  Clock,
   Layers,
   Percent,
   Search,
@@ -270,6 +271,13 @@ export function CandidatesPage() {
               />
             </div>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-500"
+                title="Yahoo Finance quotes are typically delayed by ~15 minutes during market hours and reflect the prior close after hours."
+                data-testid="badge-delayed-candidates"
+              >
+                <Clock className="h-3 w-3" /> Delayed ~15 min
+              </span>
               {latest.data?.cached && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5">
                   <Sparkles className="h-3 w-3" /> cached
