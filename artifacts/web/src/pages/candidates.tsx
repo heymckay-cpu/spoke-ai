@@ -14,7 +14,9 @@ import {
   CircleDollarSign,
   Clock,
   Layers,
+  Minus,
   Percent,
+  Plus,
   PlusCircle,
   Search,
   Sparkles,
@@ -184,7 +186,16 @@ export function CandidatesPage() {
   const [filter, setFilter] = useState("");
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<Candidate | null>(null);
+  const [contractsByRow, setContractsByRow] = useState<Record<string, number>>({});
   const PAGE_SIZE = 25;
+  const MAX_CONTRACTS = 999;
+
+  const rowKey = (c: Candidate) => `${c.ticker}-${c.expiry}-${c.strike}`;
+  const getContracts = (c: Candidate) => contractsByRow[rowKey(c)] ?? 1;
+  const setContracts = (c: Candidate, n: number) => {
+    const clamped = Math.max(1, Math.min(MAX_CONTRACTS, Math.floor(n) || 1));
+    setContractsByRow((prev) => ({ ...prev, [rowKey(c)]: clamped }));
+  };
 
   const candidates = latest.data?.candidates ?? [];
 
@@ -414,6 +425,9 @@ export function CandidatesPage() {
                       );
                     })}
                     <th className="w-8" />
+                    <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase tracking-wider text-muted-foreground" scope="col">
+                      Qty
+                    </th>
                     <th className="w-10 px-2 py-2.5" scope="col">
                       <span className="sr-only">Log trade</span>
                     </th>
@@ -494,6 +508,43 @@ export function CandidatesPage() {
                         />
                       </td>
                       <td
+                        className="px-2 py-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="inline-flex items-center gap-0.5 rounded-md border border-border bg-background">
+                          <button
+                            type="button"
+                            onClick={() => setContracts(c, getContracts(c) - 1)}
+                            disabled={getContracts(c) <= 1}
+                            className="flex h-6 w-6 items-center justify-center rounded-l-md text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent"
+                            title="Decrease contracts"
+                            data-testid={`button-contracts-decrement-${c.ticker}-${i}`}
+                          >
+                            <Minus className="h-3 w-3" />
+                          </button>
+                          <input
+                            type="number"
+                            min={1}
+                            max={MAX_CONTRACTS}
+                            value={getContracts(c)}
+                            onChange={(e) => setContracts(c, Number(e.target.value))}
+                            className="h-6 w-10 border-none bg-transparent text-center text-xs tabular-nums focus:outline-none focus:ring-0 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            aria-label={`Contracts for ${c.ticker}`}
+                            data-testid={`input-contracts-${c.ticker}-${i}`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setContracts(c, getContracts(c) + 1)}
+                            disabled={getContracts(c) >= MAX_CONTRACTS}
+                            className="flex h-6 w-6 items-center justify-center rounded-r-md text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent"
+                            title="Increase contracts"
+                            data-testid={`button-contracts-increment-${c.ticker}-${i}`}
+                          >
+                            <Plus className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </td>
+                      <td
                         className="px-2 py-2 text-right"
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -504,7 +555,7 @@ export function CandidatesPage() {
                             strike: c.strike,
                             expiry: c.expiry,
                             premium: c.bid,
-                            contracts: 1,
+                            contracts: getContracts(c),
                           }}
                           onCreated={() => {
                             qc.invalidateQueries({ queryKey: getListPositionsQueryKey() });
@@ -515,7 +566,7 @@ export function CandidatesPage() {
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7 text-muted-foreground hover:text-primary"
-                              title={`Log ${c.ticker} ${c.strike}P ${c.expiry}`}
+                              title={`Log ${getContracts(c)} × ${c.ticker} ${c.strike}P ${c.expiry}`}
                               data-testid={`button-log-trade-${c.ticker}-${i}`}
                             >
                               <PlusCircle className="h-4 w-4" />

@@ -226,26 +226,35 @@ export function AppShell({ title, breadcrumbs, actions, children }: AppShellProp
               </SheetContent>
             </Sheet>
           <div className="flex min-w-0 flex-col">
-            {breadcrumbs && breadcrumbs.length > 0 && (
-              <Breadcrumb>
-                <BreadcrumbList>
-                  {breadcrumbs.map((c, i) => (
-                    <span key={`${c.label}-${i}`} className="contents">
-                      <BreadcrumbItem>
-                        {i === breadcrumbs.length - 1 || !c.href ? (
-                          <BreadcrumbPage className="text-xs">{c.label}</BreadcrumbPage>
-                        ) : (
-                          <BreadcrumbLink asChild className="text-xs">
-                            <Link href={c.href}>{c.label}</Link>
-                          </BreadcrumbLink>
-                        )}
-                      </BreadcrumbItem>
-                      {i < breadcrumbs.length - 1 && <BreadcrumbSeparator />}
-                    </span>
-                  ))}
-                </BreadcrumbList>
-              </Breadcrumb>
-            )}
+            {(() => {
+              const lastMatchesTitle =
+                breadcrumbs &&
+                breadcrumbs.length > 0 &&
+                breadcrumbs[breadcrumbs.length - 1].label === title;
+              const crumbsToShow = lastMatchesTitle
+                ? breadcrumbs!.slice(0, -1)
+                : breadcrumbs ?? [];
+              return crumbsToShow.length > 0 ? (
+                <Breadcrumb>
+                  <BreadcrumbList>
+                    {crumbsToShow.map((c, i) => (
+                      <span key={`${c.label}-${i}`} className="contents">
+                        <BreadcrumbItem>
+                          {i === crumbsToShow.length - 1 || !c.href ? (
+                            <BreadcrumbPage className="text-xs">{c.label}</BreadcrumbPage>
+                          ) : (
+                            <BreadcrumbLink asChild className="text-xs">
+                              <Link href={c.href}>{c.label}</Link>
+                            </BreadcrumbLink>
+                          )}
+                        </BreadcrumbItem>
+                        {i < crumbsToShow.length - 1 && <BreadcrumbSeparator />}
+                      </span>
+                    ))}
+                  </BreadcrumbList>
+                </Breadcrumb>
+              ) : null;
+            })()}
             <h1 className="truncate text-base font-semibold tracking-tight" data-testid="text-page-title">
               {title}
             </h1>
