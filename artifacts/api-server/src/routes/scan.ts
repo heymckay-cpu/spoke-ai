@@ -98,6 +98,11 @@ router.post("/scan", async (req, res): Promise<void> => {
 });
 
 router.get("/scan/latest", async (_req, res): Promise<void> => {
+  // Honor the same TTL as POST /scan: a stale cached snapshot must not be
+  // served indefinitely or the freshness indicator becomes a lie.
+  if (cachedScan && Date.now() >= cachedScan.expiresAt) {
+    cachedScan = null;
+  }
   if (cachedScan) {
     res.json(GetLatestScanResponse.parse({ ...cachedScan.result, cached: true }));
     return;
@@ -114,6 +119,9 @@ function median(arr: number[]): number {
 }
 
 router.get("/scan/summary", async (_req, res): Promise<void> => {
+  if (cachedScan && Date.now() >= cachedScan.expiresAt) {
+    cachedScan = null;
+  }
   const latest = cachedScan?.result ?? (await loadLatestFromDb());
   const cands = latest.candidates;
   const annualized = cands.map((c) => c.annualizedPct);

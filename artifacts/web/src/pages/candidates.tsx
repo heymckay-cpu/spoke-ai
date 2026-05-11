@@ -19,6 +19,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -204,6 +205,13 @@ export function CandidatesPage() {
   };
 
   const isLoading = latest.isLoading;
+  const isError = latest.isError || summary.isError;
+  const errorMessage =
+    latest.error instanceof Error
+      ? latest.error.message
+      : summary.error instanceof Error
+        ? summary.error.message
+        : "Could not load scan results.";
   const hasData = (latest.data?.candidates.length ?? 0) > 0;
 
   return (
@@ -303,7 +311,26 @@ export function CandidatesPage() {
 
         {/* Table */}
         <Card className="overflow-hidden border-card-border">
-          {isLoading ? (
+          {isError ? (
+            <Empty className="py-16" data-testid="state-candidates-error">
+              <EmptyHeader>
+                <EmptyTitle>Couldn't load candidates</EmptyTitle>
+                <EmptyDescription>{errorMessage}</EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    void latest.refetch();
+                    void summary.refetch();
+                  }}
+                  data-testid="button-retry-candidates"
+                >
+                  Retry
+                </Button>
+              </EmptyContent>
+            </Empty>
+          ) : isLoading ? (
             <div className="space-y-2 p-4">
               {Array.from({ length: 8 }).map((_, i) => (
                 <Skeleton key={i} className="h-9 w-full" />

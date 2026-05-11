@@ -340,6 +340,34 @@ export function ChainPage() {
       >
         {!ticker ? (
           <TickerPicker />
+        ) : quote.isError || expirations.isError || chain.isError ? (
+          <Card className="border-card-border">
+            <CardContent className="space-y-4 p-8 text-center">
+              <h3 className="text-base font-semibold">Couldn't load {ticker}</h3>
+              <p className="text-sm text-muted-foreground">
+                {(quote.error instanceof Error && quote.error.message) ||
+                  (expirations.error instanceof Error && expirations.error.message) ||
+                  (chain.error instanceof Error && chain.error.message) ||
+                  "The ticker may not exist or Yahoo Finance is unavailable."}
+              </p>
+              <div className="flex justify-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    void quote.refetch();
+                    void expirations.refetch();
+                    void chain.refetch();
+                  }}
+                  data-testid="button-retry-chain"
+                >
+                  Retry
+                </Button>
+                <Button asChild variant="ghost">
+                  <Link href="/chain">Pick another ticker</Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         ) : (
           <>
             <Card className="border-card-border">
