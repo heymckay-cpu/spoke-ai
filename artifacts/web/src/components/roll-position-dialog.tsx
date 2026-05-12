@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw, Sparkles } from "lucide-react";
+import { SpokeSpinner } from "@/components/spoke-spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   getGetRollQuoteQueryKey,
   getGetRollSuggestionQueryKey,
@@ -7,6 +9,7 @@ import {
   useGetRollSuggestion,
   useRollPosition,
   type Position,
+  type RollQuote,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { fmtMoney } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 function addDaysIso(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00Z`);
@@ -128,6 +132,7 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
     Number.isFinite(debouncedStrikeNum) && debouncedStrikeNum > 0;
   const liveQuoteEnabled =
     open && debouncedExpiryValid && debouncedStrikeValid;
+  const previousQuoteRef = useRef<RollQuote | undefined>(undefined);
   const liveQuote = useGetRollQuote(
     position.id,
     liveQuoteEnabled ? debouncedExpiry : "",
@@ -146,6 +151,22 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
       },
     },
   );
+
+  // Track the last successfully loaded quote so refetches can keep showing
+  // the prior numbers (dimmed) instead of flashing to empty.
+  useEffect(() => {
+    if (liveQuote.data) {
+      previousQuoteRef.current = liveQuote.data;
+    }
+  }, [liveQuote.data]);
+  useEffect(() => {
+    if (!open) {
+      previousQuoteRef.current = undefined;
+    }
+  }, [open]);
+  const displayedQuote = liveQuote.data ?? previousQuoteRef.current;
+  const showSkeleton = liveQuote.isFetching && !displayedQuote;
+  const showStaleQuote = liveQuote.isFetching && !!displayedQuote;
 
   // Net credit and breakeven update from whatever the user has currently
   // entered (not the debounced values) so the math feels reactive even while
@@ -428,44 +449,71 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
               className="space-y-1 rounded-md bg-muted/40 px-3 py-2 text-xs"
               data-testid="roll-live-quote"
             >
-              <div className="flex items-center justify-between text-muted-foreground">
+              <div className="flex items-center justify-between gap-2 text-muted-foreground">
                 <span className="font-medium uppercase tracking-wider text-[10px]">
                   Live quote
                 </span>
-                {liveQuote.isFetching ? (
-                  <span className="text-[10px]">Refreshing…</span>
-                ) : liveQuote.data ? (
-                  <span className="text-[10px] tabular-nums">
-                    {liveQuote.data.expiry} · {fmtMoney(liveQuote.data.strike)}P
-                    {Math.abs(liveQuote.data.strike - (Number(debouncedStrike) || 0)) > 0.0001
-                      ? ` (snapped from ${fmtMoney(Number(debouncedStrike) || 0)})`
-                      : ""}
-                  </span>
-                ) : null}
+                <div className="flex items-center gap-2">
+                  {displayedQuote ? (
+                    <span
+                      className={cn(
+                        "text-[10px] tabular-nums transition-opacity",
+                        showStaleQuote && "opacity-60",
+                      )}
+                      data-testid="roll-live-quote-meta"
+                    >
+                      {displayedQuote.expiry} · {fmtMoney(displayedQuote.strike)}P
+                      {displayedQuote.requestedStrike != null &&
+                      Math.abs(displayedQuote.strike - displayedQuote.requestedStrike) > 0.0001
+                        ? ` (snapped from ${fmtMoney(displayedQuote.requestedStrike)})`
+                        : ""}
+                    </span>
+                  ) : null}
+                  {liveQuote.isFetching ? (
+                    <SpokeSpinner size={12} label="Refreshing live quote" />
+                  ) : null}
+                </div>
               </div>
-              {liveQuote.data ? (
-                <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
+              {showSkeleton ? (
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  {["bid", "mid", "last"].map((cell) => (
+                    <Skeleton
+                      key={cell}
+                      data-testid="roll-live-quote-skeleton"
+                      className="h-4 w-16"
+                    />
+                  ))}
+                </div>
+              ) : displayedQuote ? (
+                <div
+                  className={cn(
+                    "flex flex-wrap gap-x-4 gap-y-1 tabular-nums transition-opacity",
+                    showStaleQuote && "opacity-60",
+                  )}
+                >
                   <span>
                     <span className="text-muted-foreground">Bid </span>
                     <span data-testid="roll-live-quote-bid">
-                      {liveQuote.data.bid > 0 ? fmtMoney(liveQuote.data.bid) : "—"}
+                      {displayedQuote.bid > 0 ? fmtMoney(displayedQuote.bid) : "—"}
                     </span>
                   </span>
                   <span>
                     <span className="text-muted-foreground">Mid </span>
                     <span data-testid="roll-live-quote-mid">
-                      {liveQuote.data.mid > 0 ? fmtMoney(liveQuote.data.mid) : "—"}
+                      {displayedQuote.mid > 0 ? fmtMoney(displayedQuote.mid) : "—"}
                     </span>
                   </span>
                   <span>
                     <span className="text-muted-foreground">Last </span>
                     <span data-testid="roll-live-quote-last">
-                      {liveQuote.data.lastPrice > 0
-                        ? fmtMoney(liveQuote.data.lastPrice)
+                      {displayedQuote.lastPrice > 0
+                        ? fmtMoney(displayedQuote.lastPrice)
                         : "—"}
                     </span>
                   </span>
-                  {liveQuote.data.premium > 0 &&
+                  {!showStaleQuote &&
+                  liveQuote.data &&
+                  liveQuote.data.premium > 0 &&
                   Math.abs(liveQuote.data.premium - premiumNum) > 0.0001 ? (
                     <button
                       type="button"

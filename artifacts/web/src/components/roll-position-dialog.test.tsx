@@ -293,4 +293,75 @@ describe("<RollPositionDialog /> live quote panel", () => {
     // Breakeven = strike - (premium - closePrice) = 145 - (3.20 - 1.00) = 142.80.
     expect(screen.getByTestId("roll-breakeven")).toHaveTextContent("$142.80");
   });
+
+  it("renders skeleton cells and a Spoke spinner on the first fetch when no prior quote exists", async () => {
+    mockUseGetRollQuote.mockReturnValue({
+      data: undefined,
+      isFetching: true,
+      error: null,
+    });
+
+    render(<RollPositionDialog position={liveQuotePosition} onRolled={() => {}} />);
+    fireEvent.click(
+      screen.getByTestId(`button-roll-position-${liveQuotePosition.id}`),
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("roll-live-quote-skeleton")).toHaveLength(3);
+    });
+    const spinner = screen.getByTestId("roll-live-quote-spinner");
+    expect(spinner).toHaveAttribute("role", "status");
+    expect(spinner).toHaveTextContent("Refreshing live quote");
+  });
+
+  it("keeps the prior quote visible (dimmed) and shows the spinner during a refetch", async () => {
+    const priorQuote = {
+      ticker: "AAPL",
+      expiry: "2026-07-17",
+      strike: 144.5,
+      requestedStrike: 145,
+      bid: 3.2,
+      ask: 3.6,
+      mid: 3.4,
+      lastPrice: 3.3,
+      premium: 3.2,
+      spot: 152,
+      fetchedAt: "2026-05-11T12:00:00Z",
+    };
+
+    let isFetching = false;
+    mockUseGetRollQuote.mockImplementation(() => ({
+      data: priorQuote,
+      isFetching,
+      error: null,
+    }));
+
+    const { rerender } = render(
+      <RollPositionDialog position={liveQuotePosition} onRolled={() => {}} />,
+    );
+    fireEvent.click(
+      screen.getByTestId(`button-roll-position-${liveQuotePosition.id}`),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("roll-live-quote-bid")).toHaveTextContent("$3.20");
+    });
+
+    // Simulate the user changing the strike → react-query enters a refetch.
+    isFetching = true;
+    rerender(<RollPositionDialog position={liveQuotePosition} onRolled={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("roll-live-quote-spinner")).toBeInTheDocument();
+    });
+    // Prior quote stays on screen.
+    expect(screen.getByTestId("roll-live-quote-bid")).toHaveTextContent("$3.20");
+    expect(screen.getByTestId("roll-live-quote-mid")).toHaveTextContent("$3.40");
+    expect(screen.getByTestId("roll-live-quote-last")).toHaveTextContent("$3.30");
+    // Snapped-from header text reflects the prior (displayed) quote, not the
+    // in-flight strike, so it can never lie about which numbers we're showing.
+    expect(screen.getByTestId("roll-live-quote-meta")).toHaveTextContent(
+      "2026-07-17 · $144.50P (snapped from $145.00)",
+    );
+  });
 });
