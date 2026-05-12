@@ -4,23 +4,41 @@ import userEvent from "@testing-library/user-event";
 
 // Mock the generated react-query hooks before importing the component so the
 // dialog uses our controllable stubs instead of hitting the network.
-const mockRollMutate = vi.fn(async () => ({}));
+const mockRollMutate = vi.fn(async () => ({
+  closed: { id: 100 },
+  opened: { id: 101 },
+}));
+const mockUndoRollMutate = vi.fn(async () => ({
+  reopened: { id: 100 },
+  deletedId: 101,
+}));
 const mockUseGetRollQuote = vi.fn();
 const mockUseGetRollSuggestion = vi.fn();
 const useRollPositionMock = vi.fn();
+const useUndoRollMock = vi.fn();
 
 vi.mock("@workspace/api-client-react", () => ({
   useGetRollQuote: (...args: unknown[]) => mockUseGetRollQuote(...args),
   useGetRollSuggestion: (...args: unknown[]) => mockUseGetRollSuggestion(...args),
   useRollPosition: (...args: unknown[]) => useRollPositionMock(...args),
+  useUndoRoll: (...args: unknown[]) => useUndoRollMock(...args),
   getGetRollQuoteQueryKey: (id: number, expiry: string, strike: number) =>
     [`/api/positions/${id}/roll-quote/${expiry}/${strike}`] as const,
   getGetRollSuggestionQueryKey: (id: number) =>
     [`/api/positions/${id}/roll-suggestion`] as const,
 }));
 
+// Capture toast calls so the undo test can pull the action element back out
+// and invoke it (the dialog renders no Toaster of its own under test).
+const toastCalls: Array<Record<string, unknown>> = [];
+const toastDismissMock = vi.fn();
 vi.mock("@/hooks/use-toast", () => ({
-  useToast: () => ({ toast: vi.fn() }),
+  useToast: () => ({
+    toast: (props: Record<string, unknown>) => {
+      toastCalls.push(props);
+      return { id: String(toastCalls.length), dismiss: toastDismissMock, update: vi.fn() };
+    },
+  }),
 }));
 
 import { RollPositionDialog } from "./roll-position-dialog";
@@ -114,6 +132,14 @@ beforeEach(() => {
     mutateAsync: mockRollMutate,
     isPending: false,
   });
+  mockUndoRollMutate.mockClear();
+  useUndoRollMock.mockReset();
+  useUndoRollMock.mockReturnValue({
+    mutateAsync: mockUndoRollMutate,
+    isPending: false,
+  });
+  toastCalls.length = 0;
+  toastDismissMock.mockClear();
 
   // Default: live-quote panel returns nothing so suggestion-focused tests
   // aren't affected by an unrelated quote panel render.
@@ -363,5 +389,72 @@ describe("<RollPositionDialog /> live quote panel", () => {
     expect(screen.getByTestId("roll-live-quote-meta")).toHaveTextContent(
       "2026-07-17 · $144.50P (snapped from $145.00)",
     );
+  });
+});
+
+describe("<RollPositionDialog /> undo action", () => {
+  beforeEach(() => {
+    mockUseGetRollSuggestion.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: null,
+    });
+    mockRollMutate.mockReset();
+    mockRollMutate.mockResolvedValue({
+      closed: { id: 555 },
+      opened: { id: 777 },
+    });
+  });
+
+  async function submitRoll() {
+    render(<RollPositionDialog position={liveQuotePosition} onRolled={() => {}} />);
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByTestId(`button-roll-position-${liveQuotePosition.id}`),
+    );
+    // Default values from the dialog effect are valid; just click confirm.
+    await user.click(await screen.findByTestId("button-confirm-roll"));
+    await waitFor(() => {
+      expect(mockRollMutate).toHaveBeenCalledTimes(1);
+    });
+  }
+
+  it("offers a 10s Undo toast carrying the closed/opened ids from the roll response", async () => {
+    await submitRoll();
+    const success = toastCalls.find((t) => t["title"] === "Position rolled");
+    expect(success).toBeDefined();
+    expect(success!["duration"]).toBe(10_000);
+    // The action element must be a clickable Undo button wired to the
+    // freshly-returned ids; renders as a child via toast.action prop.
+    expect(success!["action"]).toBeDefined();
+  });
+
+  it("calls undoRoll with the right ids when the user clicks Undo", async () => {
+    await submitRoll();
+    const success = toastCalls.find((t) => t["title"] === "Position rolled");
+    const action = success!["action"] as React.ReactElement<{
+      onClick: () => Promise<void>;
+    }>;
+    await action.props.onClick();
+    expect(mockUndoRollMutate).toHaveBeenCalledWith({
+      data: { closedId: 555, openedId: 777 },
+    });
+    expect(toastDismissMock).toHaveBeenCalled();
+    // A confirmation toast follows.
+    expect(toastCalls.some((t) => t["title"] === "Roll undone")).toBe(true);
+  });
+
+  it("shows a destructive toast when undo fails", async () => {
+    mockUndoRollMutate.mockRejectedValueOnce(new Error("link broken"));
+    await submitRoll();
+    const success = toastCalls.find((t) => t["title"] === "Position rolled");
+    const action = success!["action"] as React.ReactElement<{
+      onClick: () => Promise<void>;
+    }>;
+    await action.props.onClick();
+    const failure = toastCalls.find((t) => t["title"] === "Couldn't undo roll");
+    expect(failure).toBeDefined();
+    expect(failure!["variant"]).toBe("destructive");
+    expect(failure!["description"]).toBe("link broken");
   });
 });

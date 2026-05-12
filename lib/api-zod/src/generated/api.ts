@@ -1234,6 +1234,102 @@ export const RollPositionResponse = zod.object({
 });
 
 /**
+ * Reverses a roll that was just performed. In a single database
+transaction this deletes the freshly-opened replacement leg and
+re-opens the previously-closed leg (clearing its closedAt and
+closePrice so it returns to the open positions list at its
+original premium). The opened leg must still be linked to the
+closed leg via rolledFromId or the request is rejected.
+
+ * @summary Undo a roll — delete the freshly-opened leg and re-open the closed one
+ */
+export const UndoRollBody = zod
+  .object({
+    closedId: zod
+      .number()
+      .describe(
+        "Id of the leg that was closed by the roll (will be re-opened).",
+      ),
+    openedId: zod
+      .number()
+      .describe("Id of the freshly-opened replacement leg (will be deleted)."),
+  })
+  .describe(
+    "References to the two legs produced by a recent roll: the leg that\nwas closed and the freshly-opened replacement. The server validates\nthe link between them before reversing the roll.\n",
+  );
+
+export const UndoRollResponse = zod.object({
+  reopened: zod.object({
+    id: zod.number(),
+    ticker: zod.string(),
+    strike: zod.number(),
+    expiry: zod.string(),
+    premium: zod.number(),
+    contracts: zod.number(),
+    openedAt: zod.string(),
+    closedAt: zod.string().nullish(),
+    closePrice: zod.number().nullish(),
+    notes: zod.string().nullish(),
+    status: zod.enum(["open", "closed"]),
+    dte: zod.number().describe("Days to expiration (negative when expired)"),
+    spot: zod.number().nullish().describe("Current underlying price"),
+    currentBid: zod
+      .number()
+      .nullish()
+      .describe("Current put bid at this strike for this expiry"),
+    unrealizedPnl: zod
+      .number()
+      .nullish()
+      .describe(
+        "(premium - currentBid) \* 100 \* contracts; null when bid unavailable",
+      ),
+    realizedPnl: zod
+      .number()
+      .nullish()
+      .describe("(premium - closePrice) \* 100 \* contracts; null when open"),
+    assignmentRisk: zod
+      .boolean()
+      .optional()
+      .describe("Open position where spot has fallen below strike"),
+    expiringSoon: zod
+      .boolean()
+      .optional()
+      .describe("Open position with DTE <= 7"),
+    rolledFromId: zod
+      .number()
+      .nullish()
+      .describe("Id of the closed position this one was rolled from, if any."),
+    rolledFrom: zod
+      .object({
+        id: zod.number(),
+        ticker: zod.string(),
+        strike: zod.number(),
+        expiry: zod.string(),
+      })
+      .nullish()
+      .describe(
+        "Summary of the position this one was rolled from (parent leg).",
+      ),
+    rolledTo: zod
+      .object({
+        id: zod.number(),
+        ticker: zod.string(),
+        strike: zod.number(),
+        expiry: zod.string(),
+      })
+      .nullish()
+      .describe(
+        "Summary of the position this one was rolled into (child leg).",
+      ),
+  }),
+  deletedId: zod
+    .number()
+    .describe(
+      "Id of the leg that was deleted (the freshly-opened replacement).",
+    ),
+});
+
+/**
  * Suggests a roll target for an open position: the next standard
 monthly expiry (third Friday) on or after the current expiry +21
 days, plus live bid/mid premium for both the same strike and a

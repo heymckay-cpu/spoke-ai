@@ -8,9 +8,11 @@ import {
   useGetRollQuote,
   useGetRollSuggestion,
   useRollPosition,
+  useUndoRoll,
   type Position,
   type RollQuote,
 } from "@workspace/api-client-react";
+import { ToastAction } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -57,6 +59,7 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
   const [touched, setTouched] = useState(false);
   const { toast } = useToast();
   const roll = useRollPosition();
+  const undoRoll = useUndoRoll();
   const suggestion = useGetRollSuggestion(position.id, {
     query: {
       enabled: open,
@@ -238,7 +241,7 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
     try {
       // Single atomic server call — close + open happen inside one DB
       // transaction, so a network drop can never leave us half-rolled.
-      await roll.mutateAsync({
+      const result = await roll.mutateAsync({
         id: position.id,
         data: {
           closePrice: closeNum,
@@ -249,9 +252,43 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
         },
       });
 
-      toast({
+      const closedId = result.closed.id;
+      const openedId = result.opened.id;
+      const description = `${position.ticker} ${fmtMoney(position.strike)}P ${position.expiry} → ${fmtMoney(strikeNum)}P ${newExpiry}`;
+      const { dismiss } = toast({
         title: "Position rolled",
-        description: `${position.ticker} ${fmtMoney(position.strike)}P ${position.expiry} → ${fmtMoney(strikeNum)}P ${newExpiry}`,
+        description,
+        // Auto-dismiss after ~10s so the undo affordance doesn't linger.
+        duration: 10_000,
+        action: (
+          <ToastAction
+            altText="Undo roll"
+            data-testid="button-undo-roll"
+            onClick={async () => {
+              dismiss();
+              try {
+                await undoRoll.mutateAsync({
+                  data: { closedId, openedId },
+                });
+                toast({
+                  title: "Roll undone",
+                  description,
+                  duration: 5_000,
+                });
+                onRolled();
+              } catch (err) {
+                toast({
+                  variant: "destructive",
+                  title: "Couldn't undo roll",
+                  description:
+                    err instanceof Error ? err.message : "Unknown error",
+                });
+              }
+            }}
+          >
+            Undo
+          </ToastAction>
+        ),
       });
       setOpen(false);
       onRolled();

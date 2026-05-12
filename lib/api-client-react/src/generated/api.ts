@@ -47,6 +47,10 @@ import type {
   ScanSummary,
   Settings,
   SettingsInput,
+  UndoRoll404,
+  UndoRoll409,
+  UndoRollInput,
+  UndoRollResult,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -1721,6 +1725,99 @@ export const useRollPosition = <
   TContext
 > => {
   return useMutation(getRollPositionMutationOptions(options));
+};
+
+/**
+ * Reverses a roll that was just performed. In a single database
+transaction this deletes the freshly-opened replacement leg and
+re-opens the previously-closed leg (clearing its closedAt and
+closePrice so it returns to the open positions list at its
+original premium). The opened leg must still be linked to the
+closed leg via rolledFromId or the request is rejected.
+
+ * @summary Undo a roll — delete the freshly-opened leg and re-open the closed one
+ */
+export const getUndoRollUrl = () => {
+  return `/api/positions/roll/undo`;
+};
+
+export const undoRoll = async (
+  undoRollInput: UndoRollInput,
+  options?: RequestInit,
+): Promise<UndoRollResult> => {
+  return customFetch<UndoRollResult>(getUndoRollUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(undoRollInput),
+  });
+};
+
+export const getUndoRollMutationOptions = <
+  TError = ErrorType<UndoRoll404 | UndoRoll409>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof undoRoll>>,
+    TError,
+    { data: BodyType<UndoRollInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof undoRoll>>,
+  TError,
+  { data: BodyType<UndoRollInput> },
+  TContext
+> => {
+  const mutationKey = ["undoRoll"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof undoRoll>>,
+    { data: BodyType<UndoRollInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return undoRoll(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UndoRollMutationResult = NonNullable<
+  Awaited<ReturnType<typeof undoRoll>>
+>;
+export type UndoRollMutationBody = BodyType<UndoRollInput>;
+export type UndoRollMutationError = ErrorType<UndoRoll404 | UndoRoll409>;
+
+/**
+ * @summary Undo a roll — delete the freshly-opened leg and re-open the closed one
+ */
+export const useUndoRoll = <
+  TError = ErrorType<UndoRoll404 | UndoRoll409>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof undoRoll>>,
+    TError,
+    { data: BodyType<UndoRollInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof undoRoll>>,
+  TError,
+  { data: BodyType<UndoRollInput> },
+  TContext
+> => {
+  return useMutation(getUndoRollMutationOptions(options));
 };
 
 /**

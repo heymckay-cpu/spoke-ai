@@ -385,6 +385,50 @@ paths:
               schema:
                 $ref: "#/components/schemas/RollPositionResult"
 
+  /positions/roll/undo:
+    post:
+      operationId: undoRoll
+      tags: [positions]
+      summary: Undo a roll — delete the freshly-opened leg and re-open the closed one
+      description: |
+        Reverses a roll that was just performed. In a single database
+        transaction this deletes the freshly-opened replacement leg and
+        re-opens the previously-closed leg (clearing its closedAt and
+        closePrice so it returns to the open positions list at its
+        original premium). The opened leg must still be linked to the
+        closed leg via rolledFromId or the request is rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UndoRollInput"
+      responses:
+        "200":
+          description: Roll reversed; the previously-closed leg is now open again.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UndoRollResult"
+        "404":
+          description: Either leg no longer exists.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error: { type: string }
+        "409":
+          description: Legs are no longer in the expected post-roll shape (link broken, opened leg already rolled again, etc).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error: { type: string }
+
   /positions/{id}/roll-suggestion:
     get:
       operationId: getRollSuggestion
@@ -852,6 +896,31 @@ components:
           $ref: "#/components/schemas/Position"
         opened:
           $ref: "#/components/schemas/Position"
+
+    UndoRollInput:
+      type: object
+      required: [closedId, openedId]
+      description: |
+        References to the two legs produced by a recent roll: the leg that
+        was closed and the freshly-opened replacement. The server validates
+        the link between them before reversing the roll.
+      properties:
+        closedId:
+          type: integer
+          description: Id of the leg that was closed by the roll (will be re-opened).
+        openedId:
+          type: integer
+          description: Id of the freshly-opened replacement leg (will be deleted).
+
+    UndoRollResult:
+      type: object
+      required: [reopened, deletedId]
+      properties:
+        reopened:
+          $ref: "#/components/schemas/Position"
+        deletedId:
+          type: integer
+          description: Id of the leg that was deleted (the freshly-opened replacement).
 
     PositionUpdate:
       type: object

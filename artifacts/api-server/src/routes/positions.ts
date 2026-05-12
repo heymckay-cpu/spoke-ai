@@ -14,6 +14,8 @@ import {
   RollPositionBody,
   RollPositionParams,
   RollPositionResponse,
+  UndoRollBody,
+  UndoRollResponse,
   GetRollSuggestionParams,
   GetRollSuggestionResponse,
   GetRollQuoteParams,
@@ -636,6 +638,102 @@ router.post("/positions/:id/roll", async (req, res): Promise<void> => {
       opened: openedEnriched,
     }),
   );
+});
+
+router.post("/positions/roll/undo", async (req, res): Promise<void> => {
+  const parsed = UndoRollBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const { closedId, openedId } = parsed.data;
+  if (closedId === openedId) {
+    res.status(400).json({ error: "closedId and openedId must differ" });
+    return;
+  }
+
+  let reopenedRow: typeof positionsTable.$inferSelect;
+  try {
+    reopenedRow = await db.transaction(async (tx) => {
+      const rows = await tx
+        .select()
+        .from(positionsTable)
+        .where(inArray(positionsTable.id, [closedId, openedId]));
+      const closed = rows.find((r) => r.id === closedId);
+      const opened = rows.find((r) => r.id === openedId);
+      if (!closed || !opened) {
+        throw new RollError(404, "Roll legs not found");
+      }
+      // The opened leg must still link back to the closed one — guards against
+      // races (e.g. someone rolled it again) and against arbitrary id pairs.
+      if (opened.rolledFromId !== closed.id) {
+        throw new RollError(
+          409,
+          "Opened leg is not linked to the closed leg via rolledFromId",
+        );
+      }
+      // If the opened leg has itself been rolled into a child, undoing would
+      // orphan that child — refuse rather than silently break the chain.
+      const children = await tx
+        .select({ id: positionsTable.id })
+        .from(positionsTable)
+        .where(eq(positionsTable.rolledFromId, opened.id));
+      if (children.length > 0) {
+        throw new RollError(
+          409,
+          "Opened leg has already been rolled again; undo is no longer safe",
+        );
+      }
+      if (closed.closedAt == null) {
+        throw new RollError(409, "Closed leg is already open");
+      }
+      // Constrain undo to the immediate-post-roll state — the opened leg
+      // should still be open. If it has been closed/rolled separately, the
+      // user is past the point where undo is the right tool.
+      if (opened.closedAt != null) {
+        throw new RollError(409, "Opened leg has already been closed");
+      }
+
+      // Notifications carry no FK so we must clean them up explicitly before
+      // deleting the row to avoid orphaned alerts referencing a missing id.
+      // Pass tx so the cleanup participates in the same transaction.
+      await deleteNotificationsForPosition(opened.id, tx);
+      const deleted = await tx
+        .delete(positionsTable)
+        .where(eq(positionsTable.id, opened.id))
+        .returning({ id: positionsTable.id });
+      if (deleted.length === 0) {
+        throw new RollError(500, "Failed to delete opened leg");
+      }
+
+      const [reopened] = await tx
+        .update(positionsTable)
+        .set({ closedAt: null, closePrice: null })
+        .where(eq(positionsTable.id, closed.id))
+        .returning();
+      if (!reopened) {
+        throw new RollError(500, "Failed to re-open closed leg");
+      }
+      return reopened;
+    });
+  } catch (err) {
+    if (err instanceof RollError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+
+  // Re-opening should reset alert markers so a future ITM/expiring-soon
+  // crossing alerts fresh — same behavior as PATCH-reopen.
+  try {
+    await clearAlertMarkers(reopenedRow.id);
+  } catch {
+    /* ignore */
+  }
+
+  const enriched = await enrichOne(reopenedRow);
+  res.json(UndoRollResponse.parse({ reopened: enriched, deletedId: openedId }));
 });
 
 router.get("/positions/:id/roll-suggestion", async (req, res): Promise<void> => {

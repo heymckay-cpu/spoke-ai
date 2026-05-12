@@ -424,6 +424,25 @@ export interface RollPositionResult {
   opened: Position;
 }
 
+/**
+ * References to the two legs produced by a recent roll: the leg that
+was closed and the freshly-opened replacement. The server validates
+the link between them before reversing the roll.
+
+ */
+export interface UndoRollInput {
+  /** Id of the leg that was closed by the roll (will be re-opened). */
+  closedId: number;
+  /** Id of the freshly-opened replacement leg (will be deleted). */
+  openedId: number;
+}
+
+export interface UndoRollResult {
+  reopened: Position;
+  /** Id of the leg that was deleted (the freshly-opened replacement). */
+  deletedId: number;
+}
+
 export interface PositionUpdate {
   /**
    * Per-share buy-to-close price; null to re-open
@@ -794,6 +813,14 @@ export interface AlertScanResult {
   itmAlerts: number;
   expiringAlerts: number;
 }
+
+export type UndoRoll404 = {
+  error: string;
+};
+
+export type UndoRoll409 = {
+  error: string;
+};
 
 export type GetRollSuggestion404 = {
   error: string;

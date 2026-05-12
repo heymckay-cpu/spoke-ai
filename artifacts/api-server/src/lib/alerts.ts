@@ -178,8 +178,15 @@ export async function clearAlertMarkers(positionId: number): Promise<void> {
     .where(eq(positionsTable.id, positionId));
 }
 
-export async function deleteNotificationsForPosition(positionId: number): Promise<void> {
-  await db.delete(notificationsTable).where(eq(notificationsTable.positionId, positionId));
+// Accepts an optional Drizzle transaction handle so callers running inside a
+// db.transaction(...) can opt in to atomic cleanup. Default is the global db
+// for backward compatibility with non-transactional call sites.
+type DbExecutor = Pick<typeof db, "delete">;
+export async function deleteNotificationsForPosition(
+  positionId: number,
+  executor: DbExecutor = db,
+): Promise<void> {
+  await executor.delete(notificationsTable).where(eq(notificationsTable.positionId, positionId));
 }
 
 export { and, isNull };
