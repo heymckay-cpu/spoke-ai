@@ -6,6 +6,7 @@ import {
   CalendarClock,
   CircleDollarSign,
   Layers,
+  Link2,
   RefreshCw,
   Trash2,
   TrendingDown,
@@ -15,6 +16,7 @@ import {
 import {
   getGetPositionsStatsQueryKey,
   getListPositionsQueryKey,
+  useGetPositionsStats,
   useListPositions,
   useUpdatePosition,
   useDeletePosition,
@@ -273,6 +275,9 @@ export function PositionsPage() {
   const { data, isLoading, isError, error, refetch } = useListPositions({
     query: { refetchInterval: 60_000, queryKey: getListPositionsQueryKey() },
   });
+  const { data: stats } = useGetPositionsStats({
+    query: { refetchInterval: 60_000, queryKey: getGetPositionsStatsQueryKey() },
+  });
   const reopen = useUpdatePosition();
   const remove = useDeletePosition();
   const [filter, setFilter] = useState<"all" | "open" | "closed">("open");
@@ -290,6 +295,24 @@ export function PositionsPage() {
   );
 
   const totals = data?.totals;
+  const chainTotals = useMemo(() => {
+    const chains = stats?.rollChains ?? [];
+    if (chains.length === 0) return null;
+    let activeChains = 0;
+    let totalPremium = 0;
+    let totalRealized = 0;
+    for (const c of chains) {
+      if (c.latestStatus === "open") activeChains += 1;
+      totalPremium += c.totalPremiumCollected;
+      totalRealized += c.totalRealizedPnl;
+    }
+    return {
+      chainCount: chains.length,
+      activeChains,
+      totalPremium,
+      totalRealized,
+    };
+  }, [stats?.rollChains]);
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: getListPositionsQueryKey() });
     qc.invalidateQueries({ queryKey: getGetPositionsStatsQueryKey() });
@@ -332,7 +355,7 @@ export function PositionsPage() {
         transition={{ duration: 0.25 }}
         className="space-y-6"
       >
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-4">
           <Kpi
             label="Open"
             value={totals ? fmtInt(totals.openCount) : "—"}
@@ -366,6 +389,31 @@ export function PositionsPage() {
             hint="Closed trades"
             icon={totals && totals.closedRealizedPnl >= 0 ? TrendingUp : TrendingDown}
             accent={totals && totals.closedRealizedPnl >= 0 ? "success" : "danger"}
+          />
+          <Kpi
+            label="Active Chains"
+            value={chainTotals ? fmtInt(chainTotals.activeChains) : "—"}
+            hint={
+              chainTotals
+                ? `${chainTotals.chainCount} total ${chainTotals.chainCount === 1 ? "chain" : "chains"}`
+                : "No rolls yet"
+            }
+            icon={Link2}
+            accent="primary"
+          />
+          <Kpi
+            label="Chain Premium"
+            value={chainTotals ? fmtCompactMoney(chainTotals.totalPremium) : "—"}
+            hint="Across all chains"
+            icon={CircleDollarSign}
+            accent="success"
+          />
+          <Kpi
+            label="Chain Realized P/L"
+            value={chainTotals ? fmtCompactMoney(chainTotals.totalRealized) : "—"}
+            hint="Closed legs in chains"
+            icon={chainTotals && chainTotals.totalRealized >= 0 ? TrendingUp : TrendingDown}
+            accent={chainTotals && chainTotals.totalRealized >= 0 ? "success" : "danger"}
           />
         </div>
 
