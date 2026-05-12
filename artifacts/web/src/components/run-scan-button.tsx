@@ -6,6 +6,7 @@ import {
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
+import { SpokeSpinner } from "@/components/spoke-spinner";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -58,7 +59,11 @@ export function RunScanButton({
       className={cn("gap-2", className)}
       data-testid="button-run-scan"
     >
-      <RefreshCw className={cn("h-4 w-4", runScan.isPending && "animate-spin")} />
+      {runScan.isPending ? (
+        <SpokeSpinner size={14} label="Scanning" />
+      ) : (
+        <RefreshCw className="h-4 w-4" />
+      )}
       {runScan.isPending ? "Scanning…" : label}
     </Button>
   );

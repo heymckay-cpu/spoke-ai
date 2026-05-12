@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { SpokeSpinner } from "@/components/spoke-spinner";
 import { IvRankPill } from "@/components/iv-rank-pill";
 import { EarningsFlag } from "@/components/earnings-flag";
 import { AddPositionDialog } from "@/components/add-position-dialog";
@@ -375,8 +376,9 @@ export function CandidateDetailDrawer({
                 Open put legs in {candidate.ticker}
               </div>
               {positionsQuery.isLoading ? (
-                <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
-                  Loading positions…
+                <div className="flex items-center gap-2 rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
+                  <SpokeSpinner size={14} label="Loading positions" />
+                  <span aria-hidden="true">Loading positions…</span>
                 </div>
               ) : openInTicker.length === 0 ? (
                 <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">

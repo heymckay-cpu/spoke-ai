@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SpokeSpinner } from "@/components/spoke-spinner";
 import { Slider } from "@/components/ui/slider";
 import {
   Form,
@@ -528,11 +529,19 @@ export function SettingsPage() {
                   disabled={update.isPending || rescan.isPending}
                   data-testid="button-save-settings"
                 >
-                  {update.isPending
-                    ? "Saving…"
-                    : rescan.isPending
-                      ? "Re-scanning…"
-                      : "Save & re-scan"}
+                  {update.isPending || rescan.isPending ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <SpokeSpinner
+                        size={12}
+                        label={update.isPending ? "Saving" : "Re-scanning"}
+                      />
+                      <span aria-hidden="true">
+                        {update.isPending ? "Saving…" : "Re-scanning…"}
+                      </span>
+                    </span>
+                  ) : (
+                    "Save & re-scan"
+                  )}
                 </Button>
               </div>
             </form>

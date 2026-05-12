@@ -6,6 +6,7 @@ import { Plus } from "lucide-react";
 import { useCreateHolding } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SpokeSpinner } from "@/components/spoke-spinner";
 import {
   Form,
   FormControl,
@@ -239,7 +240,14 @@ export function AddHoldingDialog({
                 disabled={create.isPending}
                 data-testid="button-save-holding"
               >
-                {create.isPending ? "Saving…" : "Save"}
+                {create.isPending ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <SpokeSpinner size={12} label="Saving holding" />
+                    <span aria-hidden="true">Saving…</span>
+                  </span>
+                ) : (
+                  "Save"
+                )}
               </Button>
             </DialogFooter>
           </form>

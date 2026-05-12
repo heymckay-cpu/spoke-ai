@@ -23,6 +23,7 @@ import { AddHoldingDialog } from "@/components/add-holding-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SpokeSpinner } from "@/components/spoke-spinner";
 import {
   Empty,
   EmptyContent,
@@ -190,7 +191,11 @@ export function HoldingsPage() {
               disabled={runCalls.isPending}
               data-testid="button-scan-covered-calls"
             >
-              <Phone className="mr-2 h-4 w-4" />
+              {runCalls.isPending ? (
+                <SpokeSpinner size={14} className="mr-2" label="Scanning covered calls" />
+              ) : (
+                <Phone className="mr-2 h-4 w-4" />
+              )}
               {runCalls.isPending ? "Scanning…" : "Scan covered calls"}
             </Button>
           )}

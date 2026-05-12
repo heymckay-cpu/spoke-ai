@@ -335,8 +335,9 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
                 Open new
               </div>
               {suggestion.isLoading ? (
-                <div className="text-[11px] text-muted-foreground">
-                  Loading suggestion…
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <SpokeSpinner size={12} label="Loading suggestion" />
+                  <span aria-hidden="true">Loading suggestion…</span>
                 </div>
               ) : suggestion.data ? (
                 <div className="text-[11px] tabular-nums text-muted-foreground">
@@ -544,7 +545,10 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
                   Enter a strike and expiry to see a live quote.
                 </div>
               ) : (
-                <div className="text-muted-foreground">Loading…</div>
+                <div className="flex items-center gap-1.5 text-muted-foreground">
+                  <SpokeSpinner size={12} label="Loading live quote" />
+                  <span aria-hidden="true">Loading…</span>
+                </div>
               )}
               <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border/50 pt-1 tabular-nums">
                 <span>
@@ -599,7 +603,14 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
             disabled={submitting || !valid}
             data-testid="button-confirm-roll"
           >
-            {submitting ? "Rolling…" : "Confirm roll"}
+            {submitting ? (
+              <span className="inline-flex items-center gap-1.5">
+                <SpokeSpinner size={12} label="Rolling position" />
+                <span aria-hidden="true">Rolling…</span>
+              </span>
+            ) : (
+              "Confirm roll"
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

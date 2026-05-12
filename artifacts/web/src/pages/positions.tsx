@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SpokeSpinner } from "@/components/spoke-spinner";
 import {
   Empty,
   EmptyContent,
@@ -251,7 +252,14 @@ function ClosePositionDialog({ position, onClosed }: ClosePositionDialogProps) {
             disabled={update.isPending}
             data-testid="button-confirm-close"
           >
-            {update.isPending ? "Closing…" : "Confirm close"}
+            {update.isPending ? (
+              <span className="inline-flex items-center gap-1.5">
+                <SpokeSpinner size={12} label="Closing position" />
+                <span aria-hidden="true">Closing…</span>
+              </span>
+            ) : (
+              "Confirm close"
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>
