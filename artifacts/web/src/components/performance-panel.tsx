@@ -28,6 +28,7 @@ import {
   type PositionsStats,
   type RollChain,
 } from "@workspace/api-client-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -198,6 +199,104 @@ function RollChainRow({ chain }: { chain: RollChain }) {
               </li>
             ))}
           </ol>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type RollStatusFilter = "all" | "open" | "closed";
+
+function RollChainsSection({ chains }: { chains: RollChain[] }) {
+  const [tickerFilter, setTickerFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<RollStatusFilter>("all");
+
+  const tickers = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of chains) set.add(c.ticker);
+    return Array.from(set).sort();
+  }, [chains]);
+
+  const filtered = useMemo(
+    () =>
+      chains.filter((c) => {
+        if (tickerFilter !== "all" && c.ticker !== tickerFilter) return false;
+        if (statusFilter !== "all" && c.latestStatus !== statusFilter) return false;
+        return true;
+      }),
+    [chains, tickerFilter, statusFilter],
+  );
+
+  const statusOptions: { value: RollStatusFilter; label: string }[] = [
+    { value: "all", label: "All" },
+    { value: "open", label: "Open" },
+    { value: "closed", label: "Closed" },
+  ];
+
+  return (
+    <div data-testid="roll-chains-section">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          Roll chains
+        </span>
+        <span
+          className="text-[11px] tabular-nums text-muted-foreground"
+          data-testid="roll-chains-count"
+        >
+          {filtered.length} of {chains.length}{" "}
+          {chains.length === 1 ? "chain" : "chains"}
+        </span>
+      </div>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          Ticker
+          <select
+            value={tickerFilter}
+            onChange={(e) => setTickerFilter(e.target.value)}
+            data-testid="roll-chains-filter-ticker"
+            className="h-7 rounded-md border border-border/60 bg-background px-2 text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <option value="all">All</option>
+            {tickers.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div
+          className="inline-flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5"
+          role="group"
+          aria-label="Status filter"
+        >
+          {statusOptions.map((opt) => (
+            <Button
+              key={opt.value}
+              type="button"
+              size="sm"
+              variant={statusFilter === opt.value ? "secondary" : "ghost"}
+              onClick={() => setStatusFilter(opt.value)}
+              aria-pressed={statusFilter === opt.value}
+              data-testid={`roll-chains-filter-status-${opt.value}`}
+              className="h-6 px-2 text-[11px]"
+            >
+              {opt.label}
+            </Button>
+          ))}
+        </div>
+      </div>
+      {filtered.length === 0 ? (
+        <div
+          className="rounded-md border border-dashed border-border/60 bg-card/40 px-3 py-6 text-center text-xs text-muted-foreground"
+          data-testid="roll-chains-empty"
+        >
+          No roll chains match these filters.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map((c) => (
+            <RollChainRow key={c.rootId} chain={c} />
+          ))}
         </div>
       )}
     </div>
@@ -488,21 +587,7 @@ export function PerformancePanel() {
         )}
 
         {rollChains.length > 0 && (
-          <div data-testid="roll-chains-section">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                Roll chains
-              </span>
-              <span className="text-[11px] tabular-nums text-muted-foreground">
-                {rollChains.length} {rollChains.length === 1 ? "chain" : "chains"}
-              </span>
-            </div>
-            <div className="space-y-2">
-              {rollChains.map((c) => (
-                <RollChainRow key={c.rootId} chain={c} />
-              ))}
-            </div>
-          </div>
+          <RollChainsSection chains={rollChains} />
         )}
       </CardContent>
     </Card>
