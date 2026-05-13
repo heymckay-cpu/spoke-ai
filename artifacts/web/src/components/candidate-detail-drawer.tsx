@@ -34,6 +34,7 @@ import { IvHistorySparkline } from "@/components/iv-history-sparkline";
 import { EarningsFlag } from "@/components/earnings-flag";
 import { AddPositionDialog } from "@/components/add-position-dialog";
 import { RollPositionDialog } from "@/components/roll-position-dialog";
+import { AiCandidateExplanation } from "@/components/ai-candidate-explanation";
 import {
   fmtCompactMoney,
   fmtDate,
@@ -322,6 +323,11 @@ export function CandidateDetailDrawer({
                   )}
                 </div>
               </div>
+            </div>
+
+            {/* Claude-generated long-form rationale */}
+            <div className="mt-4">
+              <AiCandidateExplanation candidate={candidate} variant="full" />
             </div>
 
             {/* Holdings (long stock) */}

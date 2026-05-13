@@ -124,6 +124,40 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScanSummary"
 
+  /scan/explain:
+    post:
+      operationId: explainCandidate
+      tags: [scan]
+      summary: Plain-English AI rationale for a single screener candidate
+      description: |
+        Generates (or returns the cached) AI explanation for one candidate
+        identified by ticker + strike + expiry against the current scan
+        snapshot. Falls back to a deterministic non-LLM summary when the
+        caller's tier lacks the AI explainer capability or the upstream
+        Anthropic call errors / rate-limits.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExplainCandidateInput"
+      responses:
+        "200":
+          description: Explanation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CandidateExplanation"
+        "404":
+          description: No matching candidate in the latest scan snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error: { type: string }
+
   /scan/calls:
     post:
       operationId: runCallScan
@@ -1478,6 +1512,49 @@ components:
         earningsDate: { type: ["string", "null"] }
         earningsInWindow: { type: boolean }
         aboveBasis: { type: boolean, description: "True when strike > avgCost (assignment would still realize a gain on the shares)" }
+
+    ExplainCandidateInput:
+      type: object
+      required: [ticker, strike, expiry]
+      properties:
+        ticker: { type: string, minLength: 1 }
+        strike: { type: number, exclusiveMinimum: 0 }
+        expiry: { type: string, description: "ISO date YYYY-MM-DD" }
+        regenerate:
+          type: boolean
+          description: When true, bypass the cache and ask the model for a fresh explanation.
+
+    CandidateExplanation:
+      type: object
+      required: [verdict, summary, bullets, source, model, generatedAt, ticker, strike, expiry]
+      properties:
+        ticker: { type: string }
+        strike: { type: number }
+        expiry: { type: string }
+        verdict:
+          type: string
+          enum: [good_fit, mixed, avoid]
+          description: Headline judgment used to color the badge.
+        summary:
+          type: string
+          description: 2–4 sentence plain-English rationale suitable for inline display.
+        bullets:
+          type: array
+          description: Short bullet points expanding on the summary (yield, IV, earnings, delta, concentration).
+          items: { type: string }
+        source:
+          type: string
+          enum: [llm, cache, fallback]
+          description: Where the explanation came from. `cache` is a re-served LLM response; `fallback` is the deterministic non-AI summary.
+        model:
+          type: string
+          description: Model identifier when `source` is `llm`/`cache`; "fallback" otherwise.
+        generatedAt:
+          type: string
+          description: ISO timestamp when the explanation was originally produced.
+        cached:
+          type: boolean
+          description: True when the response was served from the cache without re-calling the model.
 
     CallScanResult:
       type: object

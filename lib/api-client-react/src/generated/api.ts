@@ -20,9 +20,12 @@ import type {
   AckAllResult,
   AlertScanResult,
   CallScanResult,
+  CandidateExplanation,
   Chain,
   ChainExpirations,
   DeleteResult,
+  ExplainCandidate404,
+  ExplainCandidateInput,
   GetQaConversation404,
   GetRollQuote404,
   GetRollSuggestion404,
@@ -552,6 +555,98 @@ export function useGetScanSummary<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Generates (or returns the cached) AI explanation for one candidate
+identified by ticker + strike + expiry against the current scan
+snapshot. Falls back to a deterministic non-LLM summary when the
+caller's tier lacks the AI explainer capability or the upstream
+Anthropic call errors / rate-limits.
+
+ * @summary Plain-English AI rationale for a single screener candidate
+ */
+export const getExplainCandidateUrl = () => {
+  return `/api/scan/explain`;
+};
+
+export const explainCandidate = async (
+  explainCandidateInput: ExplainCandidateInput,
+  options?: RequestInit,
+): Promise<CandidateExplanation> => {
+  return customFetch<CandidateExplanation>(getExplainCandidateUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(explainCandidateInput),
+  });
+};
+
+export const getExplainCandidateMutationOptions = <
+  TError = ErrorType<ExplainCandidate404>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof explainCandidate>>,
+    TError,
+    { data: BodyType<ExplainCandidateInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof explainCandidate>>,
+  TError,
+  { data: BodyType<ExplainCandidateInput> },
+  TContext
+> => {
+  const mutationKey = ["explainCandidate"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof explainCandidate>>,
+    { data: BodyType<ExplainCandidateInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return explainCandidate(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ExplainCandidateMutationResult = NonNullable<
+  Awaited<ReturnType<typeof explainCandidate>>
+>;
+export type ExplainCandidateMutationBody = BodyType<ExplainCandidateInput>;
+export type ExplainCandidateMutationError = ErrorType<ExplainCandidate404>;
+
+/**
+ * @summary Plain-English AI rationale for a single screener candidate
+ */
+export const useExplainCandidate = <
+  TError = ErrorType<ExplainCandidate404>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof explainCandidate>>,
+    TError,
+    { data: BodyType<ExplainCandidateInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof explainCandidate>>,
+  TError,
+  { data: BodyType<ExplainCandidateInput> },
+  TContext
+> => {
+  return useMutation(getExplainCandidateMutationOptions(options));
+};
 
 /**
  * Mirrors the short-put screener but for covered calls. Scans every

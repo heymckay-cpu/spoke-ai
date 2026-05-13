@@ -813,6 +813,61 @@ export interface CallCandidate {
   aboveBasis: boolean;
 }
 
+export interface ExplainCandidateInput {
+  /** @minLength 1 */
+  ticker: string;
+  /** @exclusiveMinimum 0 */
+  strike: number;
+  /** ISO date YYYY-MM-DD */
+  expiry: string;
+  /** When true, bypass the cache and ask the model for a fresh explanation. */
+  regenerate?: boolean;
+}
+
+/**
+ * Headline judgment used to color the badge.
+ */
+export type CandidateExplanationVerdict =
+  (typeof CandidateExplanationVerdict)[keyof typeof CandidateExplanationVerdict];
+
+export const CandidateExplanationVerdict = {
+  good_fit: "good_fit",
+  mixed: "mixed",
+  avoid: "avoid",
+} as const;
+
+/**
+ * Where the explanation came from. `cache` is a re-served LLM response; `fallback` is the deterministic non-AI summary.
+ */
+export type CandidateExplanationSource =
+  (typeof CandidateExplanationSource)[keyof typeof CandidateExplanationSource];
+
+export const CandidateExplanationSource = {
+  llm: "llm",
+  cache: "cache",
+  fallback: "fallback",
+} as const;
+
+export interface CandidateExplanation {
+  ticker: string;
+  strike: number;
+  expiry: string;
+  /** Headline judgment used to color the badge. */
+  verdict: CandidateExplanationVerdict;
+  /** 2–4 sentence plain-English rationale suitable for inline display. */
+  summary: string;
+  /** Short bullet points expanding on the summary (yield, IV, earnings, delta, concentration). */
+  bullets: string[];
+  /** Where the explanation came from. `cache` is a re-served LLM response; `fallback` is the deterministic non-AI summary. */
+  source: CandidateExplanationSource;
+  /** Model identifier when `source` is `llm`/`cache`; "fallback" otherwise. */
+  model: string;
+  /** ISO timestamp when the explanation was originally produced. */
+  generatedAt: string;
+  /** True when the response was served from the cache without re-calling the model. */
+  cached?: boolean;
+}
+
 export interface CallScanResult {
   scannedAt: string;
   candidates: CallCandidate[];
@@ -1093,6 +1148,10 @@ export interface QaUnavailable {
   error: string;
   code: QaUnavailableCode;
 }
+
+export type ExplainCandidate404 = {
+  error: string;
+};
 
 export type UndoRoll404 = {
   error: string;

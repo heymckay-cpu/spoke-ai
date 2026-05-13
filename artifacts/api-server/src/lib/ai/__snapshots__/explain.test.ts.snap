@@ -1,0 +1,29 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildExplainerPrompt > snapshots a candidate with no existing exposure > system 1`] = `
+"You are Spoke AI, an options-selling coach focused on the wheel strategy.
+Given a single short-put candidate and the trader's existing portfolio, return a JSON
+object that judges whether this is a good wheel trade.
+
+Schema (return ONLY this JSON, no prose, no code fences):
+{ "verdict": "good_fit" | "mixed" | "avoid",
+  "summary": string (2-4 sentences, plain English, no markdown),
+  "bullets": string[] (3-5 short bullets, each <= 90 chars) }
+
+Cover yield quality, IV-rank context, earnings-window risk, delta / assignment risk,
+and any concentration overlap with the trader's open positions or share holdings.
+Be specific with numbers from the candidate, not generic. Never invent fields."
+`;
+
+exports[`buildExplainerPrompt > snapshots a candidate with no existing exposure > user-no-exposure 1`] = `
+"Candidate: AAPL $190.00P expiring 2025-06-20 (30 DTE)
+Spot: $200.00 · Bid: $2.50 · Premium/contract: $250.00
+Collateral/contract: $19000.00
+Static return: 1.32% · Annualized: 16.1%
+Delta: -0.25 · IV: 32.0% · IV Rank: 55 (real) · IV Percentile: 60
+Breakeven: $187.50 · OTM cushion: 5.0% · OI: 4500
+No earnings before expiry.
+
+Trader portfolio context:
+- No existing exposure to AAPL."
+`;

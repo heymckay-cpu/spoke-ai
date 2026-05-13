@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import {
@@ -36,6 +36,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/app-shell";
 import { AddPositionDialog } from "@/components/add-position-dialog";
 import { CandidateDetailDrawer } from "@/components/candidate-detail-drawer";
+import { AiCandidateExplanation } from "@/components/ai-candidate-explanation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -217,6 +218,15 @@ export function CandidatesPage() {
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<Candidate | null>(null);
   const [contractsByRow, setContractsByRow] = useState<Record<string, number>>({});
+  const [explainOpen, setExplainOpen] = useState<Set<string>>(new Set());
+  const toggleExplain = (key: string) => {
+    setExplainOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
   // Mirror the persisted setting locally so the segmented control reflects
   // pending changes immediately even before the save round-trips. We only
   // overwrite from the server when the server value actually differs from
@@ -541,9 +551,12 @@ export function CandidatesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pageRows.map((c, i) => (
+                  {pageRows.map((c, i) => {
+                    const key = rowKey(c);
+                    const isExplainOpen = explainOpen.has(key);
+                    return (
+                    <Fragment key={`${c.ticker}-${c.expiry}-${c.strike}-${i}`}>
                     <tr
-                      key={`${c.ticker}-${c.expiry}-${c.strike}-${i}`}
                       onClick={() => setSelected(c)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
@@ -705,9 +718,43 @@ export function CandidatesPage() {
                             </Button>
                           }
                         />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className={cn(
+                            "ml-1 h-7 w-7 text-muted-foreground hover:text-primary",
+                            isExplainOpen && "text-primary",
+                          )}
+                          title={isExplainOpen ? "Hide AI explanation" : "Explain with Claude"}
+                          aria-expanded={isExplainOpen}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleExplain(key);
+                          }}
+                          data-testid={`button-explain-${c.ticker}-${i}`}
+                        >
+                          <Sparkles className="h-4 w-4" />
+                          <span className="sr-only">Explain with Claude</span>
+                        </Button>
                       </td>
                     </tr>
-                  ))}
+                    {isExplainOpen && (
+                      <tr
+                        className={cn(
+                          "border-b border-border/60",
+                          i % 2 === 1 && "bg-muted/30",
+                        )}
+                        data-testid={`row-explain-${c.ticker}-${i}`}
+                      >
+                        <td colSpan={20} className="px-3 py-2">
+                          <AiCandidateExplanation candidate={c} variant="inline" />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

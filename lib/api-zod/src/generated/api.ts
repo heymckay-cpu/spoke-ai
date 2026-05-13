@@ -539,6 +539,68 @@ export const GetScanSummaryResponse = zod.object({
 });
 
 /**
+ * Generates (or returns the cached) AI explanation for one candidate
+identified by ticker + strike + expiry against the current scan
+snapshot. Falls back to a deterministic non-LLM summary when the
+caller's tier lacks the AI explainer capability or the upstream
+Anthropic call errors / rate-limits.
+
+ * @summary Plain-English AI rationale for a single screener candidate
+ */
+
+export const explainCandidateBodyStrikeExclusiveMin = 0;
+
+export const ExplainCandidateBody = zod.object({
+  ticker: zod.string().min(1),
+  strike: zod.number().gt(explainCandidateBodyStrikeExclusiveMin),
+  expiry: zod.string().describe("ISO date YYYY-MM-DD"),
+  regenerate: zod
+    .boolean()
+    .optional()
+    .describe(
+      "When true, bypass the cache and ask the model for a fresh explanation.",
+    ),
+});
+
+export const ExplainCandidateResponse = zod.object({
+  ticker: zod.string(),
+  strike: zod.number(),
+  expiry: zod.string(),
+  verdict: zod
+    .enum(["good_fit", "mixed", "avoid"])
+    .describe("Headline judgment used to color the badge."),
+  summary: zod
+    .string()
+    .describe(
+      "2–4 sentence plain-English rationale suitable for inline display.",
+    ),
+  bullets: zod
+    .array(zod.string())
+    .describe(
+      "Short bullet points expanding on the summary (yield, IV, earnings, delta, concentration).",
+    ),
+  source: zod
+    .enum(["llm", "cache", "fallback"])
+    .describe(
+      "Where the explanation came from. `cache` is a re-served LLM response; `fallback` is the deterministic non-AI summary.",
+    ),
+  model: zod
+    .string()
+    .describe(
+      'Model identifier when `source` is `llm`\/`cache`; \"fallback\" otherwise.',
+    ),
+  generatedAt: zod
+    .string()
+    .describe("ISO timestamp when the explanation was originally produced."),
+  cached: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True when the response was served from the cache without re-calling the model.",
+    ),
+});
+
+/**
  * Mirrors the short-put screener but for covered calls. Scans every
 holding with >= 100 shares, filtering to OTM strikes above
 max(spot, avgCost) so a covered call can never lock in a loss on
