@@ -46,10 +46,10 @@ export async function getSettings(userId: string): Promise<ScreenerSettings> {
   const rows = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId));
   const row = rows[0];
   if (!row) {
-    // Lazy-seed the user's row with defaults on first read.
     await db
       .insert(settingsTable)
-      .values({ userId, ...flatten(DEFAULT_SETTINGS), tier: defaultTier() });
+      .values({ userId, ...flatten(DEFAULT_SETTINGS), tier: defaultTier() })
+      .onConflictDoNothing();
     setCacheTtlMinutes(DEFAULT_SETTINGS.cacheTtlMinutes);
     return DEFAULT_SETTINGS;
   }

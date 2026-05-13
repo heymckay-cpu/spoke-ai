@@ -151,6 +151,7 @@ async function enrichPosition(
 
 async function buildRollContexts(
   rows: ReadonlyArray<typeof positionsTable.$inferSelect>,
+  userId: string,
 ): Promise<Map<number, RollContext>> {
   const result = new Map<number, RollContext>();
   if (rows.length === 0) return result;
@@ -158,8 +159,6 @@ async function buildRollContexts(
   const byId = new Map<number, typeof positionsTable.$inferSelect>();
   for (const r of rows) byId.set(r.id, r);
 
-  // Find any parent rows that aren't already in the working set so we can
-  // describe rolledFrom for newly-fetched single rows (e.g. POST/PATCH).
   const missingParentIds = new Set<number>();
   for (const r of rows) {
     if (r.rolledFromId != null && !byId.has(r.rolledFromId)) {
@@ -170,16 +169,15 @@ async function buildRollContexts(
     const parents = await db
       .select()
       .from(positionsTable)
-      .where(inArray(positionsTable.id, Array.from(missingParentIds)));
+      .where(and(eq(positionsTable.userId, userId), inArray(positionsTable.id, Array.from(missingParentIds))));
     for (const p of parents) byId.set(p.id, p);
   }
 
-  // For child lookups, we need every position that points at one of our rows.
   const ourIds = rows.map((r) => r.id);
   const children = await db
     .select()
     .from(positionsTable)
-    .where(inArray(positionsTable.rolledFromId, ourIds));
+    .where(and(eq(positionsTable.userId, userId), inArray(positionsTable.rolledFromId, ourIds)));
   const childByParentId = new Map<number, typeof positionsTable.$inferSelect>();
   for (const c of children) {
     if (c.rolledFromId != null) childByParentId.set(c.rolledFromId, c);
@@ -196,8 +194,8 @@ async function buildRollContexts(
   return result;
 }
 
-async function enrichOne(row: typeof positionsTable.$inferSelect): Promise<EnrichedPosition> {
-  const ctxMap = await buildRollContexts([row]);
+async function enrichOne(row: typeof positionsTable.$inferSelect, userId: string): Promise<EnrichedPosition> {
+  const ctxMap = await buildRollContexts([row], userId);
   return enrichPosition(row, ctxMap.get(row.id) ?? {});
 }
 
@@ -209,7 +207,7 @@ router.get("/positions", async (req, res): Promise<void> => {
     .where(eq(positionsTable.userId, userId))
     .orderBy(desc(positionsTable.openedAt));
 
-  const ctxMap = await buildRollContexts(rows);
+  const ctxMap = await buildRollContexts(rows, userId);
   const enriched = await Promise.all(
     rows.map((r) => enrichPosition(r, ctxMap.get(r.id) ?? {})),
   );
@@ -460,7 +458,7 @@ router.post("/positions", async (req, res): Promise<void> => {
     res.status(500).json({ error: "failed to insert" });
     return;
   }
-  const enriched = await enrichOne(inserted);
+  const enriched = await enrichOne(inserted, userId);
   res.json(CreatePositionResponse.parse(enriched));
 });
 
@@ -504,7 +502,7 @@ router.patch("/positions/:id", async (req, res): Promise<void> => {
   if ("closePrice" in v) {
     await clearAlertMarkers(updated.id);
   }
-  const enriched = await enrichOne(updated);
+  const enriched = await enrichOne(updated, userId);
   res.json(UpdatePositionResponse.parse(enriched));
 });
 
@@ -605,7 +603,7 @@ router.post("/positions/:id/roll", async (req, res): Promise<void> => {
     /* ignore */
   }
 
-  const ctxMap = await buildRollContexts([closedRow, openedRow]);
+  const ctxMap = await buildRollContexts([closedRow, openedRow], userId);
   const [closedEnriched, openedEnriched] = await Promise.all([
     enrichPosition(closedRow, ctxMap.get(closedRow.id) ?? {}),
     enrichPosition(openedRow, ctxMap.get(openedRow.id) ?? {}),
@@ -712,7 +710,7 @@ router.post("/positions/roll/undo", async (req, res): Promise<void> => {
     /* ignore */
   }
 
-  const enriched = await enrichOne(reopenedRow);
+  const enriched = await enrichOne(reopenedRow, userId);
   res.json(UndoRollResponse.parse({ reopened: enriched, deletedId: openedId }));
 });
 

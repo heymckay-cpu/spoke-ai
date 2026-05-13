@@ -22,11 +22,6 @@ const positionsStore: { rows: PositionRow[] } = { rows: [] };
 const deletedNotificationsFor: number[] = [];
 const clearedAlertMarkersFor: number[] = [];
 
-// A small chainable builder that interprets the route's drizzle calls. The
-// undo route uses: select().from(table).where(inArray(...)) and select({id})
-// .from(table).where(eq(table.rolledFromId, n)); update().set().where(eq).returning;
-// delete().where(eq).returning. We model just enough to drive the undo logic
-// against an in-memory store.
 function buildDb() {
   const select = (cols?: Record<string, unknown>) => {
     let mode: "all" | "byIds" | "byParent" = "all";

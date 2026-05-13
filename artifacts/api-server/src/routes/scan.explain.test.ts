@@ -43,9 +43,6 @@ vi.mock("../middlewares/auth", () => ({
 }));
 
 vi.mock("@workspace/db", () => {
-  // Tiny chainable query builder that ignores filter/order arguments and
-  // resolves to the table's underlying row array. The route applies its own
-  // post-query filtering for candidate matching, so stripping `where` is fine.
   function makeBuilder<T>(rows: T[]) {
     const builder: {
       where: (..._: unknown[]) => typeof builder;

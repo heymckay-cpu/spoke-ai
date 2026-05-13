@@ -122,6 +122,7 @@ function annualizedYield(premium: number, strike: number, dte: number): number {
  */
 async function loadChainLegs(
   current: PositionRow,
+  userId: string,
 ): Promise<PositionRow[]> {
   const rows: PositionRow[] = [current];
   const seen = new Set<number>([current.id]);
@@ -131,7 +132,7 @@ async function loadChainLegs(
     const [parent] = await db
       .select()
       .from(positionsTable)
-      .where(eq(positionsTable.id, parentId));
+      .where(and(eq(positionsTable.id, parentId), eq(positionsTable.userId, userId)));
     if (!parent) break;
     rows.unshift(parent);
     parentId = parent.rolledFromId;
@@ -162,7 +163,7 @@ export async function buildAdvisorContext(
     .where(and(eq(positionsTable.id, positionId), eq(positionsTable.userId, userId)));
   if (!row) return null;
 
-  const chainRows = await loadChainLegs(row);
+  const chainRows = await loadChainLegs(row, userId);
 
   // Cost basis = sum of (premium received - close cost) per share across every
   // leg, weighted by contracts. We track per-share so the LLM can reason in
