@@ -206,10 +206,24 @@ function RollChainRow({ chain }: { chain: RollChain }) {
 }
 
 type RollStatusFilter = "all" | "open" | "closed";
+type RollSortOption = "recent" | "pnl" | "premium";
+
+function chainRecency(c: RollChain): number {
+  let max = 0;
+  for (const leg of c.legs) {
+    const opened = leg.openedAt ? new Date(leg.openedAt).getTime() : 0;
+    const closed = leg.closedAt ? new Date(leg.closedAt).getTime() : 0;
+    if (opened > max) max = opened;
+    if (closed > max) max = closed;
+  }
+  if (max === 0 && c.openedAt) max = new Date(c.openedAt).getTime();
+  return max;
+}
 
 function RollChainsSection({ chains }: { chains: RollChain[] }) {
   const [tickerFilter, setTickerFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<RollStatusFilter>("all");
+  const [sortBy, setSortBy] = useState<RollSortOption>("recent");
 
   const tickers = useMemo(() => {
     const set = new Set<string>();
@@ -217,20 +231,33 @@ function RollChainsSection({ chains }: { chains: RollChain[] }) {
     return Array.from(set).sort();
   }, [chains]);
 
-  const filtered = useMemo(
-    () =>
-      chains.filter((c) => {
-        if (tickerFilter !== "all" && c.ticker !== tickerFilter) return false;
-        if (statusFilter !== "all" && c.latestStatus !== statusFilter) return false;
-        return true;
-      }),
-    [chains, tickerFilter, statusFilter],
-  );
+  const filtered = useMemo(() => {
+    const result = chains.filter((c) => {
+      if (tickerFilter !== "all" && c.ticker !== tickerFilter) return false;
+      if (statusFilter !== "all" && c.latestStatus !== statusFilter) return false;
+      return true;
+    });
+    const sorted = [...result];
+    if (sortBy === "recent") {
+      sorted.sort((a, b) => chainRecency(b) - chainRecency(a));
+    } else if (sortBy === "pnl") {
+      sorted.sort((a, b) => b.totalRealizedPnl - a.totalRealizedPnl);
+    } else if (sortBy === "premium") {
+      sorted.sort((a, b) => b.totalPremiumCollected - a.totalPremiumCollected);
+    }
+    return sorted;
+  }, [chains, tickerFilter, statusFilter, sortBy]);
 
   const statusOptions: { value: RollStatusFilter; label: string }[] = [
     { value: "all", label: "All" },
     { value: "open", label: "Open" },
     { value: "closed", label: "Closed" },
+  ];
+
+  const sortOptions: { value: RollSortOption; label: string }[] = [
+    { value: "recent", label: "Most recent" },
+    { value: "pnl", label: "Largest P/L" },
+    { value: "premium", label: "Largest premium" },
   ];
 
   return (
@@ -284,6 +311,21 @@ function RollChainsSection({ chains }: { chains: RollChain[] }) {
             </Button>
           ))}
         </div>
+        <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          Sort
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as RollSortOption)}
+            data-testid="roll-chains-sort"
+            className="h-7 rounded-md border border-border/60 bg-background px-2 text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            {sortOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
       {filtered.length === 0 ? (
         <div
