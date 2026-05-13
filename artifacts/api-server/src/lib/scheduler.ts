@@ -19,19 +19,15 @@ function refreshMinutes(): number {
 
 export function startScanScheduler(): void {
   if (timer) return;
-  if (process.env.SCAN_REFRESH_DISABLED === "1") {
-    logger.info("scan scheduler disabled via SCAN_REFRESH_DISABLED");
-    return;
-  }
+  // Per-user auth means there is no single "system" user to scan for.
+  // Scans are now on-demand: each user triggers POST /scan from the UI.
+  // Per-user results are cached in memory (cacheByUser) and persisted to
+  // scanSnapshotTable so the last result survives server restarts.
+  // The background timer is therefore intentionally not started.
   logger.info(
     { refreshMinutes: refreshMinutes() },
-    "alert scheduler started",
+    "scan scheduler: per-user mode — background sweep disabled, scans are user-triggered",
   );
-  // No-op tick: with multi-user auth scans are user-triggered only.
-  timer = setInterval(() => {
-    // intentionally empty — per-user scans are triggered via POST /scan
-  }, 60 * 1000);
-  if (typeof timer.unref === "function") timer.unref();
 }
 
 export function stopScanScheduler(): void {

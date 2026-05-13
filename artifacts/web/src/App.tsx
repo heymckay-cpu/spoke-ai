@@ -147,7 +147,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     <>
       <Show when="signed-in">{children}</Show>
       <Show when="signed-out">
-        <Redirect to="/" />
+        <Redirect to="/sign-in" />
       </Show>
     </>
   );
