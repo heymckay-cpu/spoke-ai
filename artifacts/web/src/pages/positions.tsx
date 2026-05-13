@@ -48,6 +48,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { PerformancePanel } from "@/components/performance-panel";
+import { StalenessDot } from "@/components/staleness-dot";
 import { useToast } from "@/hooks/use-toast";
 import { fmtCompactMoney, fmtDate, fmtMoney, fmtInt } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -532,14 +533,19 @@ export function PositionsPage() {
                       <td className="px-3 py-2 text-right tabular-nums">{fmtMoney(p.premium)}</td>
                       <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                         {p.spot != null ? fmtMoney(p.spot) : "—"}
+                        {p.spot != null && <StalenessDot label="Spot" />}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                         {p.currentBid != null ? fmtMoney(p.currentBid) : "—"}
+                        {p.currentBid != null && <StalenessDot label="Bid" />}
                       </td>
                       <td className="px-3 py-2 text-right">
                         <PnlCell
                           value={p.status === "closed" ? p.realizedPnl : p.unrealizedPnl}
                         />
+                        {p.status !== "closed" && p.unrealizedPnl != null && (
+                          <StalenessDot label="P/L" />
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         <StatusBadge position={p} />

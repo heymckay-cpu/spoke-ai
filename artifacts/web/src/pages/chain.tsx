@@ -26,6 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { EarningsFlag } from "@/components/earnings-flag";
+import { StalenessDot } from "@/components/staleness-dot";
 import {
   Empty,
   EmptyContent,
@@ -211,11 +212,18 @@ function ChainTable({ side, rows, spot, onPickStrike, selectedStrike }: ChainTab
                 <td className="px-2 py-1.5 text-left tabular-nums font-medium">
                   {fmtMoney(row.strike)}
                 </td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{fmtMoney(row.bid)}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums">
+                  {fmtMoney(row.bid)}
+                  <StalenessDot label="Bid" />
+                </td>
                 <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
                   {fmtMoney(row.ask)}
+                  <StalenessDot label="Ask" />
                 </td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{fmtMoney(row.lastPrice)}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums">
+                  {fmtMoney(row.lastPrice)}
+                  <StalenessDot label="Last" />
+                </td>
                 <td className="px-2 py-1.5 text-right tabular-nums">
                   {fmtFractionPct(row.iv, 1)}
                 </td>
@@ -512,7 +520,10 @@ export function ChainPage() {
                       {quote.isLoading ? (
                         <Skeleton className="h-7 w-20" />
                       ) : (
-                        fmtMoney(quote.data?.spot ?? 0)
+                        <>
+                          {fmtMoney(quote.data?.spot ?? 0)}
+                          <StalenessDot label="Spot price" />
+                        </>
                       )}
                     </div>
                   </div>
