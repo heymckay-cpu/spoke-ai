@@ -44,14 +44,20 @@ const DEFAULT_SETTINGS: ScreenerSettings = {
 
 export async function getSettings(userId: string): Promise<ScreenerSettings> {
   const rows = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId));
-  const row = rows[0];
+  let row = rows[0];
   if (!row) {
     await db
       .insert(settingsTable)
       .values({ userId, ...flatten(DEFAULT_SETTINGS), tier: defaultTier() })
       .onConflictDoNothing();
-    setCacheTtlMinutes(DEFAULT_SETTINGS.cacheTtlMinutes);
-    return DEFAULT_SETTINGS;
+    // Re-read after the insert so a concurrent first-request race doesn't
+    // return stale defaults — the winning insert's row is what we serve.
+    const [seeded] = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId));
+    if (!seeded) {
+      setCacheTtlMinutes(DEFAULT_SETTINGS.cacheTtlMinutes);
+      return DEFAULT_SETTINGS;
+    }
+    row = seeded;
   }
   const settings: ScreenerSettings = {
     tickers: row.tickers,
