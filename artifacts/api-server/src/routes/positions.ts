@@ -678,7 +678,7 @@ router.post("/positions/roll/undo", async (req, res): Promise<void> => {
       await deleteNotificationsForPosition(opened.id, tx);
       const deleted = await tx
         .delete(positionsTable)
-        .where(eq(positionsTable.id, opened.id))
+        .where(and(eq(positionsTable.id, opened.id), eq(positionsTable.userId, userId)))
         .returning({ id: positionsTable.id });
       if (deleted.length === 0) {
         throw new RollError(500, "Failed to delete opened leg");
@@ -687,7 +687,7 @@ router.post("/positions/roll/undo", async (req, res): Promise<void> => {
       const [reopened] = await tx
         .update(positionsTable)
         .set({ closedAt: null, closePrice: null })
-        .where(eq(positionsTable.id, closed.id))
+        .where(and(eq(positionsTable.id, closed.id), eq(positionsTable.userId, userId)))
         .returning();
       if (!reopened) {
         throw new RollError(500, "Failed to re-open closed leg");
