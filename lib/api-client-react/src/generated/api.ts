@@ -26,6 +26,7 @@ import type {
   DeleteResult,
   ExplainCandidate404,
   ExplainCandidateInput,
+  GetPositionAdvisor404,
   GetQaConversation404,
   GetRollQuote404,
   GetRollSuggestion404,
@@ -38,6 +39,7 @@ import type {
   Notification,
   NotificationsList,
   Position,
+  PositionAdvisor,
   PositionInput,
   PositionUpdate,
   PositionsList,
@@ -2211,6 +2213,101 @@ export function useGetRollQuote<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetRollQuoteQueryOptions(id, expiry, strike, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Builds the full decision context for a position (chain history, cost
+basis, latest quote, top roll candidates and concentration) and asks
+an LLM advisor for one of three verdicts: roll, assign or close.
+Recommendations are cached per (positionId, latest quote timestamp)
+so refreshes are cheap. When the LLM is unavailable, the response
+still returns the raw decision numbers with `available: false` so
+the UI can render a graceful fallback panel.
+
+ * @summary Roll vs. assignment vs. close recommendation for an open position
+ */
+export const getGetPositionAdvisorUrl = (id: number) => {
+  return `/api/positions/${id}/advisor`;
+};
+
+export const getPositionAdvisor = async (
+  id: number,
+  options?: RequestInit,
+): Promise<PositionAdvisor> => {
+  return customFetch<PositionAdvisor>(getGetPositionAdvisorUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPositionAdvisorQueryKey = (id: number) => {
+  return [`/api/positions/${id}/advisor`] as const;
+};
+
+export const getGetPositionAdvisorQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPositionAdvisor>>,
+  TError = ErrorType<GetPositionAdvisor404>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPositionAdvisor>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPositionAdvisorQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPositionAdvisor>>
+  > = ({ signal }) => getPositionAdvisor(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPositionAdvisor>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPositionAdvisorQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPositionAdvisor>>
+>;
+export type GetPositionAdvisorQueryError = ErrorType<GetPositionAdvisor404>;
+
+/**
+ * @summary Roll vs. assignment vs. close recommendation for an open position
+ */
+
+export function useGetPositionAdvisor<
+  TData = Awaited<ReturnType<typeof getPositionAdvisor>>,
+  TError = ErrorType<GetPositionAdvisor404>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPositionAdvisor>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPositionAdvisorQueryOptions(id, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

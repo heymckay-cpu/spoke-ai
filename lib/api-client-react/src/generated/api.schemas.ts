@@ -761,6 +761,140 @@ export interface RollSuggestion {
   options: RollSuggestionStrike[];
 }
 
+export type PositionAdvisorChainLegStatus =
+  (typeof PositionAdvisorChainLegStatus)[keyof typeof PositionAdvisorChainLegStatus];
+
+export const PositionAdvisorChainLegStatus = {
+  open: "open",
+  closed: "closed",
+} as const;
+
+export interface PositionAdvisorChainLeg {
+  id: number;
+  strike: number;
+  expiry: string;
+  premium: number;
+  contracts: number;
+  /** @nullable */
+  closePrice: number | null;
+  status: PositionAdvisorChainLegStatus;
+}
+
+export interface PositionAdvisorRollTarget {
+  /** YYYY-MM-DD */
+  expiry: string;
+  strike: number;
+  /** Per-share premium for the new leg */
+  premium: number;
+  /** (newPremium - currentBuyToClose) * 100 * contracts; net dollars added by the roll */
+  netCredit: number;
+  /** (premium / strike) * (365 / dte); decimal yield (0.18 = 18%) */
+  newAnnualizedYield: number;
+  dteFromNow: number;
+}
+
+export type PositionAdvisorContextPosition = {
+  id: number;
+  ticker: string;
+  strike: number;
+  expiry: string;
+  premium: number;
+  contracts: number;
+  dte: number;
+};
+
+export type PositionAdvisorContextQuote = {
+  /** @nullable */
+  spot: number | null;
+  /** @nullable */
+  currentBid: number | null;
+  /**
+   * max(strike - spot, 0); per share
+   * @nullable
+   */
+  intrinsic: number | null;
+  /**
+   * max(currentBid - intrinsic, 0); per share
+   * @nullable
+   */
+  extrinsic: number | null;
+  /** @nullable */
+  fetchedAt: string | null;
+};
+
+export type PositionAdvisorContextConcentration = {
+  totalCar: number;
+  tickerCar: number;
+  /** tickerCar / totalCar (0..1) */
+  tickerPct: number;
+  sector: string;
+  sectorCar: number;
+  /** sectorCar / totalCar (0..1) */
+  sectorPct: number;
+  openPositionsInTicker: number;
+};
+
+export interface PositionAdvisorContext {
+  position: PositionAdvisorContextPosition;
+  /** Effective per-share cost basis if assigned: strike - netPremiumPerShare. E.g. a 200-strike put with $2.50 net premium collected gives $197.50. */
+  costBasisPerShare: number;
+  /** Net premium per share (premium received - close cost) summed across every leg in the chain. The raw offset before subtracting from strike. */
+  netPremiumPerShare: number;
+  /** Total premium dollars across every leg in the chain (after close costs). */
+  totalPremiumCollected: number;
+  chainLegs: PositionAdvisorChainLeg[];
+  quote: PositionAdvisorContextQuote;
+  /** Top 3 candidate roll targets (same / -5% / -10% strike on the next monthly expiry). */
+  rollTargets: PositionAdvisorRollTarget[];
+  concentration: PositionAdvisorContextConcentration;
+  /** Strike (per share) — what the trader pays if assigned */
+  assignmentCostPerShare: number;
+  /** strike * 100 * contracts */
+  assignmentCostTotal: number;
+}
+
+export type PositionAdvisorVerdictVerdict =
+  (typeof PositionAdvisorVerdictVerdict)[keyof typeof PositionAdvisorVerdictVerdict];
+
+export const PositionAdvisorVerdictVerdict = {
+  roll: "roll",
+  assign: "assign",
+  close: "close",
+} as const;
+
+/**
+ * Present only when verdict is "roll".
+ */
+export type PositionAdvisorVerdictRecommendedRoll = {
+  expiry: string;
+  strike: number;
+};
+
+export interface PositionAdvisorVerdict {
+  verdict: PositionAdvisorVerdictVerdict;
+  /** 1-sentence headline rationale */
+  summary: string;
+  /**
+   * 2-4 short bullets citing concrete numbers from the context.
+   * @minItems 1
+   */
+  bullets: string[];
+  /** Present only when verdict is "roll". */
+  recommendedRoll?: PositionAdvisorVerdictRecommendedRoll;
+}
+
+export interface PositionAdvisor {
+  /** True when an LLM verdict was produced; false on graceful fallback. */
+  available: boolean;
+  context: PositionAdvisorContext;
+  /** The LLM recommendation, or null when AI is unavailable. */
+  verdict: PositionAdvisorVerdict | null;
+  /** Why the verdict is null (only present when available=false). */
+  unavailableReason?: string;
+  /** ISO timestamp when this response was assembled. */
+  generatedAt: string;
+}
+
 export interface DeleteResult {
   ok: boolean;
 }
@@ -1166,6 +1300,10 @@ export type GetRollSuggestion404 = {
 };
 
 export type GetRollQuote404 = {
+  error: string;
+};
+
+export type GetPositionAdvisor404 = {
   error: string;
 };
 

@@ -1655,6 +1655,143 @@ export const GetRollQuoteResponse = zod.object({
 });
 
 /**
+ * Builds the full decision context for a position (chain history, cost
+basis, latest quote, top roll candidates and concentration) and asks
+an LLM advisor for one of three verdicts: roll, assign or close.
+Recommendations are cached per (positionId, latest quote timestamp)
+so refreshes are cheap. When the LLM is unavailable, the response
+still returns the raw decision numbers with `available: false` so
+the UI can render a graceful fallback panel.
+
+ * @summary Roll vs. assignment vs. close recommendation for an open position
+ */
+export const GetPositionAdvisorParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetPositionAdvisorResponse = zod.object({
+  available: zod
+    .boolean()
+    .describe(
+      "True when an LLM verdict was produced; false on graceful fallback.",
+    ),
+  context: zod.object({
+    position: zod.object({
+      id: zod.number(),
+      ticker: zod.string(),
+      strike: zod.number(),
+      expiry: zod.string(),
+      premium: zod.number(),
+      contracts: zod.number(),
+      dte: zod.number(),
+    }),
+    costBasisPerShare: zod
+      .number()
+      .describe(
+        "Effective per-share cost basis if assigned: strike - netPremiumPerShare. E.g. a 200-strike put with $2.50 net premium collected gives $197.50.",
+      ),
+    netPremiumPerShare: zod
+      .number()
+      .describe(
+        "Net premium per share (premium received - close cost) summed across every leg in the chain. The raw offset before subtracting from strike.",
+      ),
+    totalPremiumCollected: zod
+      .number()
+      .describe(
+        "Total premium dollars across every leg in the chain (after close costs).",
+      ),
+    chainLegs: zod.array(
+      zod.object({
+        id: zod.number(),
+        strike: zod.number(),
+        expiry: zod.string(),
+        premium: zod.number(),
+        contracts: zod.number(),
+        closePrice: zod.number().nullable(),
+        status: zod.enum(["open", "closed"]),
+      }),
+    ),
+    quote: zod.object({
+      spot: zod.number().nullable(),
+      currentBid: zod.number().nullable(),
+      intrinsic: zod
+        .number()
+        .nullable()
+        .describe("max(strike - spot, 0); per share"),
+      extrinsic: zod
+        .number()
+        .nullable()
+        .describe("max(currentBid - intrinsic, 0); per share"),
+      fetchedAt: zod.string().nullable(),
+    }),
+    rollTargets: zod
+      .array(
+        zod.object({
+          expiry: zod.string().describe("YYYY-MM-DD"),
+          strike: zod.number(),
+          premium: zod.number().describe("Per-share premium for the new leg"),
+          netCredit: zod
+            .number()
+            .describe(
+              "(newPremium - currentBuyToClose) \* 100 \* contracts; net dollars added by the roll",
+            ),
+          newAnnualizedYield: zod
+            .number()
+            .describe(
+              "(premium \/ strike) \* (365 \/ dte); decimal yield (0.18 = 18%)",
+            ),
+          dteFromNow: zod.number(),
+        }),
+      )
+      .describe(
+        "Top 3 candidate roll targets (same \/ -5% \/ -10% strike on the next monthly expiry).",
+      ),
+    concentration: zod.object({
+      totalCar: zod.number(),
+      tickerCar: zod.number(),
+      tickerPct: zod.number().describe("tickerCar \/ totalCar (0..1)"),
+      sector: zod.string(),
+      sectorCar: zod.number(),
+      sectorPct: zod.number().describe("sectorCar \/ totalCar (0..1)"),
+      openPositionsInTicker: zod.number(),
+    }),
+    assignmentCostPerShare: zod
+      .number()
+      .describe("Strike (per share) — what the trader pays if assigned"),
+    assignmentCostTotal: zod.number().describe("strike \* 100 \* contracts"),
+  }),
+  verdict: zod
+    .union([
+      zod.object({
+        verdict: zod.enum(["roll", "assign", "close"]),
+        summary: zod.string().describe("1-sentence headline rationale"),
+        bullets: zod
+          .array(zod.string())
+          .min(1)
+          .describe(
+            "2-4 short bullets citing concrete numbers from the context.",
+          ),
+        recommendedRoll: zod
+          .object({
+            expiry: zod.string(),
+            strike: zod.number(),
+          })
+          .optional()
+          .describe('Present only when verdict is \"roll\".'),
+      }),
+      zod.null(),
+    ])
+    .describe("The LLM recommendation, or null when AI is unavailable."),
+  unavailableReason: zod
+    .string()
+    .optional()
+    .describe("Why the verdict is null (only present when available=false)."),
+  generatedAt: zod
+    .string()
+    .describe("ISO timestamp when this response was assembled."),
+});
+
+/**
  * @summary List recent position alerts (assignment risk / near-expiry)
  */
 export const ListNotificationsResponse = zod.object({

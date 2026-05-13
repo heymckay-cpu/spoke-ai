@@ -25,6 +25,7 @@ import {
 import { AppShell } from "@/components/app-shell";
 import { AddPositionDialog } from "@/components/add-position-dialog";
 import { RollPositionDialog } from "@/components/roll-position-dialog";
+import { PositionAdvisorPanel } from "@/components/position-advisor-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -497,7 +498,10 @@ export function PositionsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {visible.map((p, i) => (
+                  {visible.flatMap((p, i) => {
+                    const showAdvisor =
+                      p.status === "open" && (p.assignmentRisk || p.expiringSoon);
+                    return [
                     <tr
                       key={p.id}
                       className={cn(
@@ -568,8 +572,28 @@ export function PositionsPage() {
                           </Button>
                         </div>
                       </td>
-                    </tr>
-                  ))}
+                    </tr>,
+                    showAdvisor ? (
+                      <tr
+                        key={`${p.id}-advisor`}
+                        className={cn(
+                          "border-b border-border/60",
+                          i % 2 === 1 && "bg-muted/30",
+                          p.assignmentRisk && "bg-rose-500/5",
+                          p.expiringSoon && !p.assignmentRisk && "bg-amber-500/5",
+                        )}
+                        data-testid={`row-position-advisor-${p.id}`}
+                      >
+                        <td colSpan={11} className="px-3 py-2">
+                          <PositionAdvisorPanel
+                            position={p}
+                            onRolled={invalidate}
+                          />
+                        </td>
+                      </tr>
+                    ) : null,
+                  ];
+                  })}
                 </tbody>
               </table>
             </div>

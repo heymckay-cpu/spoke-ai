@@ -569,6 +569,41 @@ paths:
                 properties:
                   error: { type: string }
 
+  /positions/{id}/advisor:
+    get:
+      operationId: getPositionAdvisor
+      tags: [positions]
+      summary: Roll vs. assignment vs. close recommendation for an open position
+      description: |
+        Builds the full decision context for a position (chain history, cost
+        basis, latest quote, top roll candidates and concentration) and asks
+        an LLM advisor for one of three verdicts: roll, assign or close.
+        Recommendations are cached per (positionId, latest quote timestamp)
+        so refreshes are cheap. When the LLM is unavailable, the response
+        still returns the raw decision numbers with `available: false` so
+        the UI can render a graceful fallback panel.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Advisor recommendation (or fallback when AI is unavailable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PositionAdvisor"
+        "404":
+          description: Position not found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error: { type: string }
+
   /notifications:
     get:
       operationId: listNotifications
@@ -1452,6 +1487,160 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/RollSuggestionStrike"
+
+    PositionAdvisorChainLeg:
+      type: object
+      required: [id, strike, expiry, premium, contracts, status, closePrice]
+      properties:
+        id: { type: integer }
+        strike: { type: number }
+        expiry: { type: string }
+        premium: { type: number }
+        contracts: { type: integer }
+        closePrice: { type: ["number", "null"] }
+        status:
+          type: string
+          enum: [open, closed]
+
+    PositionAdvisorRollTarget:
+      type: object
+      required: [expiry, strike, premium, netCredit, newAnnualizedYield, dteFromNow]
+      properties:
+        expiry: { type: string, description: "YYYY-MM-DD" }
+        strike: { type: number }
+        premium: { type: number, description: "Per-share premium for the new leg" }
+        netCredit:
+          type: number
+          description: "(newPremium - currentBuyToClose) * 100 * contracts; net dollars added by the roll"
+        newAnnualizedYield:
+          type: number
+          description: "(premium / strike) * (365 / dte); decimal yield (0.18 = 18%)"
+        dteFromNow: { type: integer }
+
+    PositionAdvisorContext:
+      type: object
+      required:
+        - position
+        - costBasisPerShare
+        - netPremiumPerShare
+        - totalPremiumCollected
+        - chainLegs
+        - quote
+        - rollTargets
+        - concentration
+        - assignmentCostPerShare
+        - assignmentCostTotal
+      properties:
+        position:
+          type: object
+          required: [id, ticker, strike, expiry, premium, contracts, dte]
+          properties:
+            id: { type: integer }
+            ticker: { type: string }
+            strike: { type: number }
+            expiry: { type: string }
+            premium: { type: number }
+            contracts: { type: integer }
+            dte: { type: integer }
+        costBasisPerShare:
+          type: number
+          description: "Effective per-share cost basis if assigned: strike - netPremiumPerShare. E.g. a 200-strike put with $2.50 net premium collected gives $197.50."
+        netPremiumPerShare:
+          type: number
+          description: "Net premium per share (premium received - close cost) summed across every leg in the chain. The raw offset before subtracting from strike."
+        totalPremiumCollected:
+          type: number
+          description: "Total premium dollars across every leg in the chain (after close costs)."
+        chainLegs:
+          type: array
+          items:
+            $ref: "#/components/schemas/PositionAdvisorChainLeg"
+        quote:
+          type: object
+          required: [spot, currentBid, intrinsic, extrinsic, fetchedAt]
+          properties:
+            spot: { type: ["number", "null"] }
+            currentBid: { type: ["number", "null"] }
+            intrinsic:
+              type: ["number", "null"]
+              description: "max(strike - spot, 0); per share"
+            extrinsic:
+              type: ["number", "null"]
+              description: "max(currentBid - intrinsic, 0); per share"
+            fetchedAt: { type: ["string", "null"] }
+        rollTargets:
+          type: array
+          description: Top 3 candidate roll targets (same / -5% / -10% strike on the next monthly expiry).
+          items:
+            $ref: "#/components/schemas/PositionAdvisorRollTarget"
+        concentration:
+          type: object
+          required:
+            - totalCar
+            - tickerCar
+            - tickerPct
+            - sector
+            - sectorCar
+            - sectorPct
+            - openPositionsInTicker
+          properties:
+            totalCar: { type: number }
+            tickerCar: { type: number }
+            tickerPct: { type: number, description: "tickerCar / totalCar (0..1)" }
+            sector: { type: string }
+            sectorCar: { type: number }
+            sectorPct: { type: number, description: "sectorCar / totalCar (0..1)" }
+            openPositionsInTicker: { type: integer }
+        assignmentCostPerShare:
+          type: number
+          description: "Strike (per share) — what the trader pays if assigned"
+        assignmentCostTotal:
+          type: number
+          description: "strike * 100 * contracts"
+
+    PositionAdvisorVerdict:
+      type: object
+      required: [verdict, summary, bullets]
+      properties:
+        verdict:
+          type: string
+          enum: [roll, assign, close]
+        summary:
+          type: string
+          description: 1-sentence headline rationale
+        bullets:
+          type: array
+          minItems: 1
+          items: { type: string }
+          description: 2-4 short bullets citing concrete numbers from the context.
+        recommendedRoll:
+          type: object
+          required: [expiry, strike]
+          description: Present only when verdict is "roll".
+          properties:
+            expiry: { type: string }
+            strike: { type: number }
+
+    PositionAdvisor:
+      type: object
+      required: [available, context, verdict, generatedAt]
+      properties:
+        available:
+          type: boolean
+          description: True when an LLM verdict was produced; false on graceful fallback.
+        context:
+          $ref: "#/components/schemas/PositionAdvisorContext"
+        verdict:
+          oneOf:
+            - $ref: "#/components/schemas/PositionAdvisorVerdict"
+            - type: "null"
+          description: The LLM recommendation, or null when AI is unavailable.
+        unavailableReason:
+          type: string
+          description: Why the verdict is null (only present when available=false).
+        generatedAt:
+          type: string
+          description: ISO timestamp when this response was assembled.
 
     DeleteResult:
       type: object

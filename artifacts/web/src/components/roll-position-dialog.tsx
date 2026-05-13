@@ -42,10 +42,31 @@ function addDaysIso(iso: string, days: number): string {
 export interface RollPositionDialogProps {
   position: Position;
   onRolled: () => void;
+  /** Controlled-open state. When provided, the trigger button is hidden. */
+  open?: boolean;
+  /** Called when the dialog wants to change its open state (controlled mode). */
+  onOpenChange?: (open: boolean) => void;
+  /** Strike to prefill on open (overrides the auto-suggested same-strike). */
+  initialStrike?: number;
+  /** Expiry (YYYY-MM-DD) to prefill on open (overrides the auto-suggestion). */
+  initialExpiry?: string;
 }
 
-export function RollPositionDialog({ position, onRolled }: RollPositionDialogProps) {
-  const [open, setOpen] = useState(false);
+export function RollPositionDialog({
+  position,
+  onRolled,
+  open: controlledOpen,
+  onOpenChange,
+  initialStrike,
+  initialExpiry,
+}: RollPositionDialogProps) {
+  const isControlled = controlledOpen !== undefined;
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = (next: boolean) => {
+    if (!isControlled) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const [closePrice, setClosePrice] = useState<string>("");
   const [newExpiry, setNewExpiry] = useState<string>("");
   const [newStrike, setNewStrike] = useState<string>("");
@@ -74,14 +95,19 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
       setClosePrice(
         position.currentBid != null ? position.currentBid.toFixed(2) : "0",
       );
-      setNewExpiry(addDaysIso(position.expiry, 30));
-      setNewStrike(String(position.strike));
+      setNewExpiry(initialExpiry ?? addDaysIso(position.expiry, 30));
+      setNewStrike(
+        initialStrike != null ? String(initialStrike) : String(position.strike),
+      );
       setNewPremium(position.premium.toFixed(2));
       setNewContracts(String(position.contracts));
       setSubmitting(false);
-      setTouched(false);
+      // When the caller deep-links a strike+expiry (e.g. from the advisor),
+      // mark the form as already-touched so the auto-suggestion effect below
+      // won't clobber the values they asked us to use.
+      setTouched(initialStrike != null || initialExpiry != null);
     }
-  }, [open, position]);
+  }, [open, position, initialStrike, initialExpiry]);
 
   // Auto-apply the suggestion's expiry + same-strike premium when it arrives,
   // but only if the user hasn't started editing yet.
@@ -305,16 +331,18 @@ export function RollPositionDialog({ position, onRolled }: RollPositionDialogPro
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          data-testid={`button-roll-position-${position.id}`}
-        >
-          <RefreshCw className="mr-1 h-3.5 w-3.5" />
-          Roll
-        </Button>
-      </DialogTrigger>
+      {!isControlled ? (
+        <DialogTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            data-testid={`button-roll-position-${position.id}`}
+          >
+            <RefreshCw className="mr-1 h-3.5 w-3.5" />
+            Roll
+          </Button>
+        </DialogTrigger>
+      ) : null}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>

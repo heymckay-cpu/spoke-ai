@@ -23,6 +23,8 @@ import {
 } from "@workspace/api-zod";
 import { getExpirations, getOptionChain, getSpot } from "../lib/market";
 import { clearAlertMarkers, deleteNotificationsForPosition } from "../lib/alerts";
+import { getAdvisor } from "../lib/advisor";
+import { GetPositionAdvisorParams, GetPositionAdvisorResponse } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
@@ -507,45 +509,17 @@ class RollError extends Error {
   }
 }
 
-// Returns the next standard monthly equity-options expiry (third Friday of
-// the month) on or after the given ISO date. Used as the smart default for
-// rolling a sold put — most liquidity sits on standard monthlies.
-export function nextThirdFridayOnOrAfter(iso: string): string {
-  const start = new Date(`${iso}T00:00:00Z`);
-  if (Number.isNaN(start.getTime())) {
-    throw new Error(`invalid date: ${iso}`);
-  }
-  // Search up to 24 months forward — generous bound, monthlies are guaranteed.
-  for (let i = 0; i < 24; i++) {
-    const year = start.getUTCFullYear();
-    const month = start.getUTCMonth() + i;
-    const first = new Date(Date.UTC(year, month, 1));
-    // First Friday: dayOfWeek 5. Then add 14 days for the third Friday.
-    const dow = first.getUTCDay();
-    const offset = (5 - dow + 7) % 7;
-    const thirdFriday = new Date(first);
-    thirdFriday.setUTCDate(1 + offset + 14);
-    if (thirdFriday.getTime() >= start.getTime()) {
-      return thirdFriday.toISOString().slice(0, 10);
-    }
-  }
-  // Fallback that should never realistically be hit.
-  return iso;
-}
+// Roll-suggestion math (next-monthly + same/-5% strikes) lives in
+// ./lib/roll-suggestion so the advisor can reuse the exact same candidate
+// set the user sees in the smart-roll dialog.
+import {
+  computeRollSuggestion,
+  nextThirdFridayOnOrAfter,
+  RollSuggestionUnavailable,
+  snapToNearestStrike,
+} from "../lib/roll-suggestion";
 
-export function snapToNearestStrike(target: number, strikes: number[]): number | null {
-  if (strikes.length === 0) return null;
-  let best = strikes[0]!;
-  let bestDist = Math.abs(best - target);
-  for (const s of strikes) {
-    const d = Math.abs(s - target);
-    if (d < bestDist) {
-      best = s;
-      bestDist = d;
-    }
-  }
-  return best;
-}
+export { nextThirdFridayOnOrAfter, snapToNearestStrike };
 
 router.post("/positions/:id/roll", async (req, res): Promise<void> => {
   const params = RollPositionParams.safeParse(req.params);
@@ -751,103 +725,16 @@ router.get("/positions/:id/roll-suggestion", async (req, res): Promise<void> => 
     return;
   }
 
-  // Anchor the search at currentExpiry + 21 days so the suggested roll has
-  // meaningful additional duration regardless of how far out the current
-  // contract sits.
-  const anchor = new Date(`${row.expiry}T00:00:00Z`);
-  if (Number.isNaN(anchor.getTime())) {
-    res.status(400).json({ error: "Position has invalid expiry" });
-    return;
+  try {
+    const suggestion = await computeRollSuggestion(row);
+    res.json(GetRollSuggestionResponse.parse(suggestion));
+  } catch (err) {
+    if (err instanceof RollSuggestionUnavailable) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    throw err;
   }
-  anchor.setUTCDate(anchor.getUTCDate() + 21);
-  const anchorIso = anchor.toISOString().slice(0, 10);
-  const idealMonthly = nextThirdFridayOnOrAfter(anchorIso);
-
-  // Find the available expiry that best matches our ideal monthly. We snap
-  // forward to the closest listed expiry on or after the ideal, falling back
-  // to the nearest available one if nothing later is listed.
-  const expirationsRaw = await getExpirations(row.ticker);
-  if (expirationsRaw.length === 0) {
-    res.status(404).json({ error: "No expirations available for ticker" });
-    return;
-  }
-  // Sort once so both the "on-or-after ideal" pick and the last-resort
-  // fallback are deterministic regardless of provider ordering.
-  const expirations = [...expirationsRaw].sort((a, b) => a.localeCompare(b));
-  const onOrAfter = expirations.filter((e) => e >= idealMonthly);
-  const suggestedExpiry = onOrAfter[0] ?? expirations[expirations.length - 1]!;
-
-  const chain = await getOptionChain(row.ticker, suggestedExpiry);
-  if (!chain) {
-    res.status(404).json({ error: "Option chain unavailable for suggested expiry" });
-    return;
-  }
-
-  const strikes = chain.puts.map((p) => p.strike).sort((a, b) => a - b);
-  const sameTarget = row.strike;
-  const downTarget = row.strike * 0.95;
-  const sameStrike = snapToNearestStrike(sameTarget, strikes);
-  const downStrike = snapToNearestStrike(downTarget, strikes);
-
-  const buildOption = (
-    kind: "same" | "down5",
-    strike: number | null,
-  ): {
-    kind: "same" | "down5";
-    strike: number;
-    premium: number;
-    bid: number;
-    ask: number;
-    mid: number;
-    lastPrice: number;
-  } | null => {
-    if (strike == null) return null;
-    const r = chain.puts.find((p) => Math.abs(p.strike - strike) < 0.0001);
-    if (!r) return null;
-    const bid = r.bid > 0 ? r.bid : 0;
-    const ask = r.ask > 0 ? r.ask : 0;
-    // Midpoint when both sides are quoted; when only ask is quoted (common
-    // after-hours when the bid zeroes out), fall back to the ask alone so
-    // the bid → mid → lastPrice chain has a usable middle rung.
-    const mid = bid > 0 && ask > 0 ? (bid + ask) / 2 : ask > 0 ? ask : 0;
-    const lastPrice = r.lastPrice > 0 ? r.lastPrice : 0;
-    const premium = bid > 0 ? bid : mid > 0 ? mid : lastPrice;
-    return { kind, strike, premium, bid, ask, mid, lastPrice };
-  };
-
-  const options: Array<ReturnType<typeof buildOption>> = [];
-  const same = buildOption("same", sameStrike);
-  const down = buildOption("down5", downStrike);
-  if (same) options.push(same);
-  // Only include the −5% strike when it's actually a different strike than
-  // "same" (avoids a duplicate row when the chain has very wide spacing).
-  if (down && (!same || Math.abs(down.strike - same.strike) > 0.0001)) {
-    options.push(down);
-  }
-
-  const dteFromNow = Math.round(
-    (new Date(`${suggestedExpiry}T00:00:00Z`).getTime() - Date.now()) /
-      (24 * 60 * 60 * 1000),
-  );
-  const dteFromCurrent = Math.round(
-    (new Date(`${suggestedExpiry}T00:00:00Z`).getTime() -
-      new Date(`${row.expiry}T00:00:00Z`).getTime()) /
-      (24 * 60 * 60 * 1000),
-  );
-
-  res.json(
-    GetRollSuggestionResponse.parse({
-      ticker: row.ticker,
-      currentExpiry: row.expiry,
-      currentStrike: row.strike,
-      suggestedExpiry,
-      dteFromNow,
-      dteFromCurrent,
-      spot: chain.spot,
-      fetchedAt: chain.fetchedAt,
-      options: options.filter((o): o is NonNullable<typeof o> => o != null),
-    }),
-  );
 });
 
 router.get(
@@ -913,6 +800,20 @@ router.get(
     );
   },
 );
+
+router.get("/positions/:id/advisor", async (req, res): Promise<void> => {
+  const params = GetPositionAdvisorParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const advisor = await getAdvisor(params.data.id);
+  if (!advisor) {
+    res.status(404).json({ error: "Position not found" });
+    return;
+  }
+  res.json(GetPositionAdvisorResponse.parse(advisor));
+});
 
 router.delete("/positions/:id", async (req, res): Promise<void> => {
   const params = DeletePositionParams.safeParse(req.params);
