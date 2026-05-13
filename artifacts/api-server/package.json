@@ -11,6 +11,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@clerk/express": "^2.1.15",
+    "@clerk/shared": "^4.10.2",
     "@workspace/api-zod": "workspace:*",
     "@workspace/data": "workspace:*",
     "@workspace/db": "workspace:*",
@@ -21,6 +23,7 @@
     "cors": "^2",
     "drizzle-orm": "catalog:",
     "express": "^5",
+    "http-proxy-middleware": "^4.0.0",
     "openid-client": "^6.8.4",
     "pino": "^9",
     "pino-http": "^10",
