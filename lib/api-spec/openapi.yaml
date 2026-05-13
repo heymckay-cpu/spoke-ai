@@ -24,6 +24,8 @@ tags:
     description: Position alerts (assignment risk, near-expiry)
   - name: tier
     description: Subscription tier and capability gating
+  - name: qa
+    description: Natural-language portfolio Q&A
 paths:
   /healthz:
     get:
@@ -632,6 +634,92 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TierStatus"
+
+  /qa/conversations:
+    post:
+      operationId: createQaConversation
+      tags: [qa]
+      summary: Create a new Q&A conversation
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QaConversationInput"
+      responses:
+        "200":
+          description: Created conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QaConversation"
+
+  /qa/conversations/{id}:
+    get:
+      operationId: getQaConversation
+      tags: [qa]
+      summary: Load a conversation with its full message history
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Conversation with messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QaConversationWithMessages"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error: { type: string }
+
+  /qa/messages:
+    post:
+      operationId: sendQaMessage
+      tags: [qa]
+      summary: Send a user message and get the assistant's reply
+      description: |
+        Runs the read-only tool-use agent loop with Claude over the user's
+        live portfolio data. Persists both the user message and the
+        assistant's reply (with any structured attachments) to the
+        conversation. Returns 503 with `code` describing the failure when
+        the AI provider is unavailable (auth, rate limit, etc).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QaSendMessageInput"
+      responses:
+        "200":
+          description: Assistant reply persisted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QaSendMessageResult"
+        "404":
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error: { type: string }
+        "503":
+          description: AI provider unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QaUnavailable"
 
 components:
   schemas:
@@ -1547,3 +1635,101 @@ components:
         capability: { $ref: "#/components/schemas/Capability" }
         required: { $ref: "#/components/schemas/Tier" }
         current: { $ref: "#/components/schemas/Tier" }
+
+    QaConversationInput:
+      type: object
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+
+    QaConversation:
+      type: object
+      required: [id, title, createdAt]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        createdAt: { type: string }
+
+    QaAttachment:
+      type: object
+      description: |
+        A structured renderable attached to an assistant message. Today we
+        only emit `table` attachments, but the discriminator gives us room
+        to add charts later without re-shaping persisted history.
+      required: [type, title, columns, rows]
+      properties:
+        type:
+          type: string
+          enum: [table]
+        title: { type: string }
+        columns:
+          type: array
+          items:
+            type: object
+            required: [key, label]
+            properties:
+              key: { type: string }
+              label: { type: string }
+              align:
+                type: string
+                enum: [left, right]
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        deepLinkColumn:
+          type: ["string", "null"]
+          description: |
+            When set, the cell in this column is rendered as an in-app link.
+            Each row may include a `${key}Href` field with the destination.
+
+    QaMessage:
+      type: object
+      required: [id, conversationId, role, content, attachments, createdAt]
+      properties:
+        id: { type: integer }
+        conversationId: { type: integer }
+        role:
+          type: string
+          enum: [user, assistant]
+        content: { type: string }
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/QaAttachment"
+        createdAt: { type: string }
+
+    QaConversationWithMessages:
+      type: object
+      required: [id, title, createdAt, messages]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        createdAt: { type: string }
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/QaMessage"
+
+    QaSendMessageInput:
+      type: object
+      required: [conversationId, content]
+      properties:
+        conversationId: { type: integer }
+        content: { type: string, minLength: 1, maxLength: 4000 }
+
+    QaSendMessageResult:
+      type: object
+      required: [userMessage, assistantMessage]
+      properties:
+        userMessage: { $ref: "#/components/schemas/QaMessage" }
+        assistantMessage: { $ref: "#/components/schemas/QaMessage" }
+
+    QaUnavailable:
+      type: object
+      required: [error, code]
+      properties:
+        error: { type: string }
+        code:
+          type: string
+          enum: [unavailable, rate_limit, auth, timeout, unknown]

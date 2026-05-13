@@ -1717,3 +1717,145 @@ export const SetTierResponse = zod.object({
     }),
   ),
 });
+
+/**
+ * @summary Create a new Q&A conversation
+ */
+export const createQaConversationBodyTitleMax = 200;
+
+export const CreateQaConversationBody = zod.object({
+  title: zod.string().min(1).max(createQaConversationBodyTitleMax).optional(),
+});
+
+export const CreateQaConversationResponse = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  createdAt: zod.string(),
+});
+
+/**
+ * @summary Load a conversation with its full message history
+ */
+export const GetQaConversationParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetQaConversationResponse = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  createdAt: zod.string(),
+  messages: zod.array(
+    zod.object({
+      id: zod.number(),
+      conversationId: zod.number(),
+      role: zod.enum(["user", "assistant"]),
+      content: zod.string(),
+      attachments: zod.array(
+        zod
+          .object({
+            type: zod.enum(["table"]),
+            title: zod.string(),
+            columns: zod.array(
+              zod.object({
+                key: zod.string(),
+                label: zod.string(),
+                align: zod.enum(["left", "right"]).optional(),
+              }),
+            ),
+            rows: zod.array(zod.record(zod.string(), zod.unknown())),
+            deepLinkColumn: zod
+              .string()
+              .nullish()
+              .describe(
+                "When set, the cell in this column is rendered as an in-app link.\nEach row may include a `${key}Href` field with the destination.\n",
+              ),
+          })
+          .describe(
+            "A structured renderable attached to an assistant message. Today we\nonly emit `table` attachments, but the discriminator gives us room\nto add charts later without re-shaping persisted history.\n",
+          ),
+      ),
+      createdAt: zod.string(),
+    }),
+  ),
+});
+
+/**
+ * Runs the read-only tool-use agent loop with Claude over the user's
+live portfolio data. Persists both the user message and the
+assistant's reply (with any structured attachments) to the
+conversation. Returns 503 with `code` describing the failure when
+the AI provider is unavailable (auth, rate limit, etc).
+
+ * @summary Send a user message and get the assistant's reply
+ */
+export const sendQaMessageBodyContentMax = 4000;
+
+export const SendQaMessageBody = zod.object({
+  conversationId: zod.number(),
+  content: zod.string().min(1).max(sendQaMessageBodyContentMax),
+});
+
+export const SendQaMessageResponse = zod.object({
+  userMessage: zod.object({
+    id: zod.number(),
+    conversationId: zod.number(),
+    role: zod.enum(["user", "assistant"]),
+    content: zod.string(),
+    attachments: zod.array(
+      zod
+        .object({
+          type: zod.enum(["table"]),
+          title: zod.string(),
+          columns: zod.array(
+            zod.object({
+              key: zod.string(),
+              label: zod.string(),
+              align: zod.enum(["left", "right"]).optional(),
+            }),
+          ),
+          rows: zod.array(zod.record(zod.string(), zod.unknown())),
+          deepLinkColumn: zod
+            .string()
+            .nullish()
+            .describe(
+              "When set, the cell in this column is rendered as an in-app link.\nEach row may include a `${key}Href` field with the destination.\n",
+            ),
+        })
+        .describe(
+          "A structured renderable attached to an assistant message. Today we\nonly emit `table` attachments, but the discriminator gives us room\nto add charts later without re-shaping persisted history.\n",
+        ),
+    ),
+    createdAt: zod.string(),
+  }),
+  assistantMessage: zod.object({
+    id: zod.number(),
+    conversationId: zod.number(),
+    role: zod.enum(["user", "assistant"]),
+    content: zod.string(),
+    attachments: zod.array(
+      zod
+        .object({
+          type: zod.enum(["table"]),
+          title: zod.string(),
+          columns: zod.array(
+            zod.object({
+              key: zod.string(),
+              label: zod.string(),
+              align: zod.enum(["left", "right"]).optional(),
+            }),
+          ),
+          rows: zod.array(zod.record(zod.string(), zod.unknown())),
+          deepLinkColumn: zod
+            .string()
+            .nullish()
+            .describe(
+              "When set, the cell in this column is rendered as an in-app link.\nEach row may include a `${key}Href` field with the destination.\n",
+            ),
+        })
+        .describe(
+          "A structured renderable attached to an assistant message. Today we\nonly emit `table` attachments, but the discriminator gives us room\nto add charts later without re-shaping persisted history.\n",
+        ),
+    ),
+    createdAt: zod.string(),
+  }),
+});

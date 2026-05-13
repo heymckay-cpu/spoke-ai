@@ -23,6 +23,7 @@ import type {
   Chain,
   ChainExpirations,
   DeleteResult,
+  GetQaConversation404,
   GetRollQuote404,
   GetRollSuggestion404,
   HealthStatus,
@@ -38,6 +39,12 @@ import type {
   PositionUpdate,
   PositionsList,
   PositionsStats,
+  QaConversation,
+  QaConversationInput,
+  QaConversationWithMessages,
+  QaSendMessageInput,
+  QaSendMessageResult,
+  QaUnavailable,
   Quote,
   RollPositionInput,
   RollPositionResult,
@@ -46,6 +53,7 @@ import type {
   ScanInput,
   ScanResult,
   ScanSummary,
+  SendQaMessage404,
   Settings,
   SettingsInput,
   TierBlocked,
@@ -2593,4 +2601,271 @@ export const useSetTier = <
   TContext
 > => {
   return useMutation(getSetTierMutationOptions(options));
+};
+
+/**
+ * @summary Create a new Q&A conversation
+ */
+export const getCreateQaConversationUrl = () => {
+  return `/api/qa/conversations`;
+};
+
+export const createQaConversation = async (
+  qaConversationInput?: QaConversationInput,
+  options?: RequestInit,
+): Promise<QaConversation> => {
+  return customFetch<QaConversation>(getCreateQaConversationUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(qaConversationInput),
+  });
+};
+
+export const getCreateQaConversationMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createQaConversation>>,
+    TError,
+    { data: BodyType<QaConversationInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createQaConversation>>,
+  TError,
+  { data: BodyType<QaConversationInput> },
+  TContext
+> => {
+  const mutationKey = ["createQaConversation"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createQaConversation>>,
+    { data: BodyType<QaConversationInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createQaConversation(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateQaConversationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createQaConversation>>
+>;
+export type CreateQaConversationMutationBody = BodyType<QaConversationInput>;
+export type CreateQaConversationMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create a new Q&A conversation
+ */
+export const useCreateQaConversation = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createQaConversation>>,
+    TError,
+    { data: BodyType<QaConversationInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createQaConversation>>,
+  TError,
+  { data: BodyType<QaConversationInput> },
+  TContext
+> => {
+  return useMutation(getCreateQaConversationMutationOptions(options));
+};
+
+/**
+ * @summary Load a conversation with its full message history
+ */
+export const getGetQaConversationUrl = (id: number) => {
+  return `/api/qa/conversations/${id}`;
+};
+
+export const getQaConversation = async (
+  id: number,
+  options?: RequestInit,
+): Promise<QaConversationWithMessages> => {
+  return customFetch<QaConversationWithMessages>(getGetQaConversationUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetQaConversationQueryKey = (id: number) => {
+  return [`/api/qa/conversations/${id}`] as const;
+};
+
+export const getGetQaConversationQueryOptions = <
+  TData = Awaited<ReturnType<typeof getQaConversation>>,
+  TError = ErrorType<GetQaConversation404>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getQaConversation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetQaConversationQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getQaConversation>>
+  > = ({ signal }) => getQaConversation(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getQaConversation>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetQaConversationQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getQaConversation>>
+>;
+export type GetQaConversationQueryError = ErrorType<GetQaConversation404>;
+
+/**
+ * @summary Load a conversation with its full message history
+ */
+
+export function useGetQaConversation<
+  TData = Awaited<ReturnType<typeof getQaConversation>>,
+  TError = ErrorType<GetQaConversation404>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getQaConversation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetQaConversationQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Runs the read-only tool-use agent loop with Claude over the user's
+live portfolio data. Persists both the user message and the
+assistant's reply (with any structured attachments) to the
+conversation. Returns 503 with `code` describing the failure when
+the AI provider is unavailable (auth, rate limit, etc).
+
+ * @summary Send a user message and get the assistant's reply
+ */
+export const getSendQaMessageUrl = () => {
+  return `/api/qa/messages`;
+};
+
+export const sendQaMessage = async (
+  qaSendMessageInput: QaSendMessageInput,
+  options?: RequestInit,
+): Promise<QaSendMessageResult> => {
+  return customFetch<QaSendMessageResult>(getSendQaMessageUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(qaSendMessageInput),
+  });
+};
+
+export const getSendQaMessageMutationOptions = <
+  TError = ErrorType<SendQaMessage404 | QaUnavailable>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendQaMessage>>,
+    TError,
+    { data: BodyType<QaSendMessageInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendQaMessage>>,
+  TError,
+  { data: BodyType<QaSendMessageInput> },
+  TContext
+> => {
+  const mutationKey = ["sendQaMessage"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendQaMessage>>,
+    { data: BodyType<QaSendMessageInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return sendQaMessage(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendQaMessageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendQaMessage>>
+>;
+export type SendQaMessageMutationBody = BodyType<QaSendMessageInput>;
+export type SendQaMessageMutationError = ErrorType<
+  SendQaMessage404 | QaUnavailable
+>;
+
+/**
+ * @summary Send a user message and get the assistant's reply
+ */
+export const useSendQaMessage = <
+  TError = ErrorType<SendQaMessage404 | QaUnavailable>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendQaMessage>>,
+    TError,
+    { data: BodyType<QaSendMessageInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendQaMessage>>,
+  TError,
+  { data: BodyType<QaSendMessageInput> },
+  TContext
+> => {
+  return useMutation(getSendQaMessageMutationOptions(options));
 };

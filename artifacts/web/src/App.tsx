@@ -9,6 +9,7 @@ import { ChainPage } from "@/pages/chain";
 import { PositionsPage } from "@/pages/positions";
 import { HoldingsPage } from "@/pages/holdings";
 import { SettingsPage } from "@/pages/settings";
+import { AskPage } from "@/pages/ask";
 import NotFound from "@/pages/not-found";
 
 const apiBaseUrl = (import.meta.env.VITE_API_URL ?? "").trim();
@@ -33,6 +34,7 @@ function Router() {
       <Route path="/positions" component={PositionsPage} />
       <Route path="/holdings" component={HoldingsPage} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/ask" component={AskPage} />
       <Route component={NotFound} />
     </Switch>
   );

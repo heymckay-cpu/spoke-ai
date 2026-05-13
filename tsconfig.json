@@ -20,6 +20,9 @@
     },
     {
       "path": "./lib/tiers"
+    },
+    {
+      "path": "./lib/integrations-anthropic-ai"
     }
   ]
 }

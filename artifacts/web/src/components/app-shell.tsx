@@ -1,6 +1,6 @@
 import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Briefcase, LayoutGrid, LineChart, Menu, Settings as SettingsIcon, Moon, Sun, Wallet } from "lucide-react";
+import { Briefcase, LayoutGrid, LineChart, Menu, MessageSquare, Settings as SettingsIcon, Moon, Sun, Wallet } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -61,6 +61,12 @@ const NAV: NavItem[] = [
     label: "Holdings",
     icon: Briefcase,
     match: (l) => l.startsWith("/holdings"),
+  },
+  {
+    href: "/ask",
+    label: "Ask",
+    icon: MessageSquare,
+    match: (l) => l.startsWith("/ask"),
   },
   {
     href: "/settings",

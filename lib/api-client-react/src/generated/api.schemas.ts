@@ -984,6 +984,116 @@ export interface TierBlocked {
   current: Tier;
 }
 
+export interface QaConversationInput {
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  title?: string;
+}
+
+export interface QaConversation {
+  id: number;
+  title: string;
+  createdAt: string;
+}
+
+export type QaAttachmentType =
+  (typeof QaAttachmentType)[keyof typeof QaAttachmentType];
+
+export const QaAttachmentType = {
+  table: "table",
+} as const;
+
+export type QaAttachmentColumnsItemAlign =
+  (typeof QaAttachmentColumnsItemAlign)[keyof typeof QaAttachmentColumnsItemAlign];
+
+export const QaAttachmentColumnsItemAlign = {
+  left: "left",
+  right: "right",
+} as const;
+
+export type QaAttachmentColumnsItem = {
+  key: string;
+  label: string;
+  align?: QaAttachmentColumnsItemAlign;
+};
+
+export type QaAttachmentRowsItem = { [key: string]: unknown };
+
+/**
+ * A structured renderable attached to an assistant message. Today we
+only emit `table` attachments, but the discriminator gives us room
+to add charts later without re-shaping persisted history.
+
+ */
+export interface QaAttachment {
+  type: QaAttachmentType;
+  title: string;
+  columns: QaAttachmentColumnsItem[];
+  rows: QaAttachmentRowsItem[];
+  /**
+   * When set, the cell in this column is rendered as an in-app link.
+Each row may include a `${key}Href` field with the destination.
+
+   * @nullable
+   */
+  deepLinkColumn?: string | null;
+}
+
+export type QaMessageRole = (typeof QaMessageRole)[keyof typeof QaMessageRole];
+
+export const QaMessageRole = {
+  user: "user",
+  assistant: "assistant",
+} as const;
+
+export interface QaMessage {
+  id: number;
+  conversationId: number;
+  role: QaMessageRole;
+  content: string;
+  attachments: QaAttachment[];
+  createdAt: string;
+}
+
+export interface QaConversationWithMessages {
+  id: number;
+  title: string;
+  createdAt: string;
+  messages: QaMessage[];
+}
+
+export interface QaSendMessageInput {
+  conversationId: number;
+  /**
+   * @minLength 1
+   * @maxLength 4000
+   */
+  content: string;
+}
+
+export interface QaSendMessageResult {
+  userMessage: QaMessage;
+  assistantMessage: QaMessage;
+}
+
+export type QaUnavailableCode =
+  (typeof QaUnavailableCode)[keyof typeof QaUnavailableCode];
+
+export const QaUnavailableCode = {
+  unavailable: "unavailable",
+  rate_limit: "rate_limit",
+  auth: "auth",
+  timeout: "timeout",
+  unknown: "unknown",
+} as const;
+
+export interface QaUnavailable {
+  error: string;
+  code: QaUnavailableCode;
+}
+
 export type UndoRoll404 = {
   error: string;
 };
@@ -997,5 +1107,13 @@ export type GetRollSuggestion404 = {
 };
 
 export type GetRollQuote404 = {
+  error: string;
+};
+
+export type GetQaConversation404 = {
+  error: string;
+};
+
+export type SendQaMessage404 = {
   error: string;
 };
