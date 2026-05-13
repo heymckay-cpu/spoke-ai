@@ -585,7 +585,7 @@ export function CandidatesPage() {
                       <td className="px-3 py-2">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <Link
-                            href={`/chain/${c.ticker}`}
+                            href={`/dashboard/chain/${c.ticker}`}
                             onClick={(e) => e.stopPropagation()}
                             className="font-semibold tracking-tight text-foreground hover:text-primary"
                             data-testid={`link-ticker-${c.ticker}`}

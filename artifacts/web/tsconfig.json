@@ -23,6 +23,9 @@
     },
     {
       "path": "../../lib/portfolio"
+    },
+    {
+      "path": "../../lib/replit-auth-web"
     }
   ]
 }

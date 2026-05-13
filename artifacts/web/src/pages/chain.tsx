@@ -326,7 +326,7 @@ function TickerPicker() {
     e.preventDefault();
     const t = draft.trim().toUpperCase();
     if (!t) return;
-    navigate(`/chain/${t}`);
+    navigate(`/dashboard/chain/${t}`);
   };
 
   return (
@@ -363,7 +363,7 @@ function TickerPicker() {
               {suggestions.map((t) => (
                 <Link
                   key={t}
-                  href={`/chain/${t}`}
+                  href={`/dashboard/chain/${t}`}
                   className="rounded-md border border-border px-2 py-0.5 text-xs tabular-nums hover:bg-accent/40"
                   data-testid={`suggestion-${t}`}
                 >
@@ -428,8 +428,8 @@ export function ChainPage() {
     <AppShell
       title={ticker || "Chain"}
       breadcrumbs={[
-        { label: "Candidates", href: "/" },
-        { label: "Chain", href: "/chain" },
+        { label: "Candidates", href: "/dashboard" },
+        { label: "Chain", href: "/dashboard/chain" },
         ...(ticker ? [{ label: ticker }] : []),
       ]}
     >
@@ -464,7 +464,7 @@ export function ChainPage() {
                   Retry
                 </Button>
                 <Button asChild variant="ghost">
-                  <Link href="/chain">Pick another ticker</Link>
+                  <Link href="/dashboard/chain">Pick another ticker</Link>
                 </Button>
               </div>
             </CardContent>
@@ -475,7 +475,7 @@ export function ChainPage() {
               <CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-end md:justify-between">
                 <div className="flex items-center gap-4">
                   <Button asChild variant="ghost" size="icon" className="md:hidden">
-                    <Link href="/chain">
+                    <Link href="/dashboard/chain">
                       <ChevronLeft className="h-4 w-4" />
                     </Link>
                   </Button>

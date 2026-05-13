@@ -1,6 +1,7 @@
 import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Briefcase, LayoutGrid, LineChart, Menu, MessageSquare, Settings as SettingsIcon, Moon, Sun, Wallet } from "lucide-react";
+import { Briefcase, LayoutGrid, LineChart, LogOut, Menu, MessageSquare, Settings as SettingsIcon, Moon, Sun, Wallet } from "lucide-react";
+import { useAuth } from "@workspace/replit-auth-web";
 import {
   Sheet,
   SheetContent,
@@ -39,40 +40,40 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   {
-    href: "/",
+    href: "/dashboard",
     label: "Candidates",
     icon: LayoutGrid,
-    match: (l) => l === "/" || l === "",
+    match: (l) => l === "/dashboard" || l === "/dashboard/",
   },
   {
-    href: "/chain",
+    href: "/dashboard/chain",
     label: "Chain",
     icon: LineChart,
-    match: (l) => l.startsWith("/chain"),
+    match: (l) => l.startsWith("/dashboard/chain"),
   },
   {
-    href: "/positions",
+    href: "/dashboard/positions",
     label: "Positions",
     icon: Wallet,
-    match: (l) => l.startsWith("/positions"),
+    match: (l) => l.startsWith("/dashboard/positions"),
   },
   {
-    href: "/holdings",
+    href: "/dashboard/holdings",
     label: "Holdings",
     icon: Briefcase,
-    match: (l) => l.startsWith("/holdings"),
+    match: (l) => l.startsWith("/dashboard/holdings"),
   },
   {
-    href: "/ask",
+    href: "/dashboard/ask",
     label: "Ask",
     icon: MessageSquare,
-    match: (l) => l.startsWith("/ask"),
+    match: (l) => l.startsWith("/dashboard/ask"),
   },
   {
-    href: "/settings",
+    href: "/dashboard/settings",
     label: "Settings",
     icon: SettingsIcon,
-    match: (l) => l.startsWith("/settings"),
+    match: (l) => l.startsWith("/dashboard/settings"),
   },
 ];
 
@@ -92,6 +93,18 @@ export function AppShell({ title, breadcrumbs, actions, children }: AppShellProp
   const [location] = useLocation();
   const { theme, toggle } = useTheme();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const { user, logout } = useAuth();
+  const initials =
+    [user?.firstName?.[0], user?.lastName?.[0]]
+      .filter(Boolean)
+      .join("")
+      .toUpperCase() ||
+    user?.email?.[0]?.toUpperCase() ||
+    "U";
+  const displayName =
+    [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
+    user?.email ||
+    "Account";
   const latest = useGetLatestScan({
     query: { staleTime: 30_000, queryKey: getGetLatestScanQueryKey() },
   });
@@ -306,6 +319,38 @@ export function AppShell({ title, breadcrumbs, actions, children }: AppShellProp
             >
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
+            {user && (
+              <div className="flex items-center gap-2 rounded-full border border-border bg-card px-1 py-1 pr-2">
+                {user.profileImageUrl ? (
+                  <img
+                    src={user.profileImageUrl}
+                    alt=""
+                    className="h-6 w-6 rounded-full object-cover"
+                  />
+                ) : (
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
+                    {initials}
+                  </span>
+                )}
+                <span
+                  className="hidden max-w-[10rem] truncate text-xs font-medium md:inline"
+                  data-testid="text-user-name"
+                  title={displayName}
+                >
+                  {displayName}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => logout()}
+                  aria-label="Sign out"
+                  data-testid="button-sign-out"
+                  className="h-6 w-6"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
           </div>
         </header>
 

@@ -270,7 +270,7 @@ export function CandidateDetailDrawer({
               <div className="flex items-center justify-between gap-3">
                 <SheetTitle className="text-2xl font-semibold tracking-tight">
                   <Link
-                    href={`/chain/${candidate.ticker}`}
+                    href={`/dashboard/chain/${candidate.ticker}`}
                     className="hover:text-primary"
                     onClick={onClose}
                   >
@@ -545,7 +545,7 @@ export function CandidateDetailDrawer({
             {/* Actions */}
             <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
               <Button asChild variant="outline" onClick={onClose}>
-                <Link href={`/chain/${candidate.ticker}`}>View chain</Link>
+                <Link href={`/dashboard/chain/${candidate.ticker}`}>View chain</Link>
               </Button>
               <AddPositionDialog
                 defaultExpiry={candidate.expiry}

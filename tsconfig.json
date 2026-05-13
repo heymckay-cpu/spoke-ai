@@ -23,6 +23,9 @@
     },
     {
       "path": "./lib/integrations-anthropic-ai"
+    },
+    {
+      "path": "./lib/replit-auth-web"
     }
   ]
 }

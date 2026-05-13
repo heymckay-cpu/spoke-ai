@@ -18,10 +18,10 @@ export default function NotFound() {
         </p>
         <div className="mt-6 flex items-center gap-2">
           <Button asChild data-testid="link-not-found-candidates">
-            <Link href="/">Candidates</Link>
+            <Link href="/dashboard">Candidates</Link>
           </Button>
           <Button asChild variant="outline" data-testid="link-not-found-chain">
-            <Link href="/chain">Chain Explorer</Link>
+            <Link href="/dashboard/chain">Chain Explorer</Link>
           </Button>
         </div>
       </div>

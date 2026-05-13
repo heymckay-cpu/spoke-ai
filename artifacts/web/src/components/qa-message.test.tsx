@@ -53,7 +53,7 @@ describe("QaMessageBubble", () => {
                 { key: "pnl", label: "P/L", align: "right" },
               ],
               rows: [
-                { ticker: "PLTR", tickerHref: "/chain/PLTR", pnl: -432.1 },
+                { ticker: "PLTR", tickerHref: "/dashboard/chain/PLTR", pnl: -432.1 },
               ],
               deepLinkColumn: "ticker",
             },
@@ -64,7 +64,7 @@ describe("QaMessageBubble", () => {
     expect(screen.getByText("Worst trades")).toBeInTheDocument();
     const link = screen.getByTestId("qa-attachment-link");
     expect(link).toHaveTextContent("PLTR");
-    expect(link).toHaveAttribute("href", "/chain/PLTR");
+    expect(link).toHaveAttribute("href", "/dashboard/chain/PLTR");
   });
 
   it("formats numeric cells with localised separators", () => {
