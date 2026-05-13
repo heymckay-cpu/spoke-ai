@@ -1,7 +1,9 @@
 import { db, positionsTable, notificationsTable } from "@workspace/db";
 import { and, eq, isNull } from "drizzle-orm";
+import { hasCapability } from "@workspace/tiers";
 import { getSpot } from "./market";
 import { logger } from "./logger";
+import { getCurrentTierForRequest } from "./tierStore";
 
 export const EXPIRING_SOON_DTE = 3;
 
@@ -139,6 +141,17 @@ export function startAlertScheduler(intervalMinutes = 15): void {
 
   const run = async () => {
     try {
+      // Email-style alert delivery is gated behind `alerts.email` (Pro+).
+      // Free-tier installs still see the in-app notifications produced by
+      // the manual route on demand, but the scheduler — which is what
+      // would feed an SMTP/Resend integration once added — is silenced
+      // until the tier qualifies. This keeps the scheduler honest now
+      // even though the actual email transport hasn't shipped yet.
+      const tier = await getCurrentTierForRequest();
+      if (!hasCapability(tier, "alerts.email")) {
+        logger.debug({ tier }, "alert scheduler: skipped (tier below alerts.email)");
+        return;
+      }
       const result = await scanPositionsForAlerts();
       if (result.itmAlerts > 0 || result.expiringAlerts > 0) {
         logger.info(

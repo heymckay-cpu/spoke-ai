@@ -1,0 +1,17 @@
+{
+  "name": "@workspace/tiers",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@vitest/expect": "^4.1.5",
+    "vitest": "^4.1.5"
+  }
+}

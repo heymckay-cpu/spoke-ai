@@ -1641,10 +1641,79 @@ export const AckAllNotificationsResponse = zod.object({
 });
 
 /**
+ * Gated capability `alerts.email`. Returns 403 with a TierBlocked
+payload when the current user's tier is below the requirement.
+
  * @summary Force an immediate alert scan over open positions
  */
 export const ScanForAlertsResponse = zod.object({
   scanned: zod.number(),
   itmAlerts: zod.number(),
   expiringAlerts: zod.number(),
+});
+
+/**
+ * @summary Get the current user's subscription tier and capability map
+ */
+export const GetTierResponse = zod.object({
+  tier: zod.enum(["free", "pro", "ultra"]),
+  capabilities: zod.array(
+    zod.object({
+      capability: zod
+        .enum([
+          "ai.explainer",
+          "ai.advisor",
+          "ai.qa",
+          "alerts.email",
+          "screener.fullUniverse",
+          "data.realtime",
+        ])
+        .describe(
+          "Stable identifier for a gateable feature. See lib\/tiers for the canonical list.",
+        ),
+      label: zod.string(),
+      description: zod.string(),
+      requiredTier: zod.enum(["free", "pro", "ultra"]),
+      available: zod
+        .boolean()
+        .describe("True when the current tier satisfies requiredTier."),
+    }),
+  ),
+});
+
+/**
+ * Intended for the dev-only switcher in Settings. In production this is
+replaced by a real billing flow; the route is left in place so the
+same UI can be reused once Stripe lands.
+
+ * @summary (Dev only) Update the current user's tier — for local testing
+ */
+export const SetTierBody = zod.object({
+  tier: zod.enum(["free", "pro", "ultra"]),
+});
+
+export const SetTierResponse = zod.object({
+  tier: zod.enum(["free", "pro", "ultra"]),
+  capabilities: zod.array(
+    zod.object({
+      capability: zod
+        .enum([
+          "ai.explainer",
+          "ai.advisor",
+          "ai.qa",
+          "alerts.email",
+          "screener.fullUniverse",
+          "data.realtime",
+        ])
+        .describe(
+          "Stable identifier for a gateable feature. See lib\/tiers for the canonical list.",
+        ),
+      label: zod.string(),
+      description: zod.string(),
+      requiredTier: zod.enum(["free", "pro", "ultra"]),
+      available: zod
+        .boolean()
+        .describe("True when the current tier satisfies requiredTier."),
+    }),
+  ),
 });

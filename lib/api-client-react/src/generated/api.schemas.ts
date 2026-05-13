@@ -930,6 +930,60 @@ export interface AlertScanResult {
   expiringAlerts: number;
 }
 
+export type Tier = (typeof Tier)[keyof typeof Tier];
+
+export const Tier = {
+  free: "free",
+  pro: "pro",
+  ultra: "ultra",
+} as const;
+
+/**
+ * Stable identifier for a gateable feature. See lib/tiers for the canonical list.
+ */
+export type Capability = (typeof Capability)[keyof typeof Capability];
+
+export const Capability = {
+  aiexplainer: "ai.explainer",
+  aiadvisor: "ai.advisor",
+  aiqa: "ai.qa",
+  alertsemail: "alerts.email",
+  screenerfullUniverse: "screener.fullUniverse",
+  datarealtime: "data.realtime",
+} as const;
+
+export interface CapabilityEntry {
+  capability: Capability;
+  label: string;
+  description: string;
+  requiredTier: Tier;
+  /** True when the current tier satisfies requiredTier. */
+  available: boolean;
+}
+
+export interface TierStatus {
+  tier: Tier;
+  capabilities: CapabilityEntry[];
+}
+
+export interface TierUpdate {
+  tier: Tier;
+}
+
+export type TierBlockedCode =
+  (typeof TierBlockedCode)[keyof typeof TierBlockedCode];
+
+export const TierBlockedCode = {
+  tier_required: "tier_required",
+} as const;
+
+export interface TierBlocked {
+  code: TierBlockedCode;
+  capability: Capability;
+  required: Tier;
+  current: Tier;
+}
+
 export type UndoRoll404 = {
   error: string;
 };

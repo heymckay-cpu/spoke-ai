@@ -20,6 +20,10 @@ export const settingsTable = pgTable("settings", {
   // Default "hide" because earnings inside the DTE window is the single
   // biggest avoidable source of assignment surprise on wheel trades.
   earningsInWindow: text("earnings_in_window").notNull().default("hide"),
+  // Subscription tier — gates AI features, email alerts, full screener, etc.
+  // Stored as plain text rather than a pg enum so adding a new tier later is a
+  // schema-free deploy. Validated by `lib/tiers` (`isTier`) before reads.
+  tier: text("tier").notNull().default("ultra"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
 

@@ -48,6 +48,9 @@ import type {
   ScanSummary,
   Settings,
   SettingsInput,
+  TierBlocked,
+  TierStatus,
+  TierUpdate,
   UndoRoll404,
   UndoRoll409,
   UndoRollInput,
@@ -2354,6 +2357,9 @@ export const useAckAllNotifications = <
 };
 
 /**
+ * Gated capability `alerts.email`. Returns 403 with a TierBlocked
+payload when the current user's tier is below the requirement.
+
  * @summary Force an immediate alert scan over open positions
  */
 export const getScanForAlertsUrl = () => {
@@ -2370,7 +2376,7 @@ export const scanForAlerts = async (
 };
 
 export const getScanForAlertsMutationOptions = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<TierBlocked>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -2409,13 +2415,13 @@ export type ScanForAlertsMutationResult = NonNullable<
   Awaited<ReturnType<typeof scanForAlerts>>
 >;
 
-export type ScanForAlertsMutationError = ErrorType<unknown>;
+export type ScanForAlertsMutationError = ErrorType<TierBlocked>;
 
 /**
  * @summary Force an immediate alert scan over open positions
  */
 export const useScanForAlerts = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<TierBlocked>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -2432,4 +2438,159 @@ export const useScanForAlerts = <
   TContext
 > => {
   return useMutation(getScanForAlertsMutationOptions(options));
+};
+
+/**
+ * @summary Get the current user's subscription tier and capability map
+ */
+export const getGetTierUrl = () => {
+  return `/api/tier`;
+};
+
+export const getTier = async (options?: RequestInit): Promise<TierStatus> => {
+  return customFetch<TierStatus>(getGetTierUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetTierQueryKey = () => {
+  return [`/api/tier`] as const;
+};
+
+export const getGetTierQueryOptions = <
+  TData = Awaited<ReturnType<typeof getTier>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof getTier>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetTierQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getTier>>> = ({
+    signal,
+  }) => getTier({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getTier>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetTierQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getTier>>
+>;
+export type GetTierQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get the current user's subscription tier and capability map
+ */
+
+export function useGetTier<
+  TData = Awaited<ReturnType<typeof getTier>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof getTier>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetTierQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Intended for the dev-only switcher in Settings. In production this is
+replaced by a real billing flow; the route is left in place so the
+same UI can be reused once Stripe lands.
+
+ * @summary (Dev only) Update the current user's tier — for local testing
+ */
+export const getSetTierUrl = () => {
+  return `/api/tier`;
+};
+
+export const setTier = async (
+  tierUpdate: TierUpdate,
+  options?: RequestInit,
+): Promise<TierStatus> => {
+  return customFetch<TierStatus>(getSetTierUrl(), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(tierUpdate),
+  });
+};
+
+export const getSetTierMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setTier>>,
+    TError,
+    { data: BodyType<TierUpdate> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setTier>>,
+  TError,
+  { data: BodyType<TierUpdate> },
+  TContext
+> => {
+  const mutationKey = ["setTier"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setTier>>,
+    { data: BodyType<TierUpdate> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return setTier(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetTierMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setTier>>
+>;
+export type SetTierMutationBody = BodyType<TierUpdate>;
+export type SetTierMutationError = ErrorType<unknown>;
+
+/**
+ * @summary (Dev only) Update the current user's tier — for local testing
+ */
+export const useSetTier = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setTier>>,
+    TError,
+    { data: BodyType<TierUpdate> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof setTier>>,
+  TError,
+  { data: BodyType<TierUpdate> },
+  TContext
+> => {
+  return useMutation(getSetTierMutationOptions(options));
 };

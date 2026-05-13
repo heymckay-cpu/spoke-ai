@@ -22,6 +22,8 @@ tags:
     description: Sold-put position tracker
   - name: notifications
     description: Position alerts (assignment risk, near-expiry)
+  - name: tier
+    description: Subscription tier and capability gating
 paths:
   /healthz:
     get:
@@ -580,6 +582,9 @@ paths:
       operationId: scanForAlerts
       tags: [notifications]
       summary: Force an immediate alert scan over open positions
+      description: |
+        Gated capability `alerts.email`. Returns 403 with a TierBlocked
+        payload when the current user's tier is below the requirement.
       responses:
         "200":
           description: Scan stats
@@ -587,6 +592,46 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AlertScanResult"
+        "403":
+          description: Tier required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TierBlocked"
+
+  /tier:
+    get:
+      operationId: getTier
+      tags: [tier]
+      summary: Get the current user's subscription tier and capability map
+      responses:
+        "200":
+          description: Current tier and capabilities
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TierStatus"
+    put:
+      operationId: setTier
+      tags: [tier]
+      summary: (Dev only) Update the current user's tier — for local testing
+      description: |
+        Intended for the dev-only switcher in Settings. In production this is
+        replaced by a real billing flow; the route is left in place so the
+        same UI can be reused once Stripe lands.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TierUpdate"
+      responses:
+        "200":
+          description: Updated tier
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TierStatus"
 
 components:
   schemas:
@@ -1448,3 +1493,57 @@ components:
         scanned: { type: integer }
         itmAlerts: { type: integer }
         expiringAlerts: { type: integer }
+
+    Tier:
+      type: string
+      enum: [free, pro, ultra]
+
+    Capability:
+      type: string
+      description: Stable identifier for a gateable feature. See lib/tiers for the canonical list.
+      enum:
+        - ai.explainer
+        - ai.advisor
+        - ai.qa
+        - alerts.email
+        - screener.fullUniverse
+        - data.realtime
+
+    CapabilityEntry:
+      type: object
+      required: [capability, label, description, requiredTier, available]
+      properties:
+        capability: { $ref: "#/components/schemas/Capability" }
+        label: { type: string }
+        description: { type: string }
+        requiredTier: { $ref: "#/components/schemas/Tier" }
+        available:
+          type: boolean
+          description: True when the current tier satisfies requiredTier.
+
+    TierStatus:
+      type: object
+      required: [tier, capabilities]
+      properties:
+        tier: { $ref: "#/components/schemas/Tier" }
+        capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/CapabilityEntry"
+
+    TierUpdate:
+      type: object
+      required: [tier]
+      properties:
+        tier: { $ref: "#/components/schemas/Tier" }
+
+    TierBlocked:
+      type: object
+      required: [code, capability, required, current]
+      properties:
+        code:
+          type: string
+          enum: [tier_required]
+        capability: { $ref: "#/components/schemas/Capability" }
+        required: { $ref: "#/components/schemas/Tier" }
+        current: { $ref: "#/components/schemas/Tier" }

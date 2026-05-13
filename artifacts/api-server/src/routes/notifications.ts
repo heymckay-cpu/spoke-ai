@@ -9,6 +9,7 @@ import {
   ScanForAlertsResponse,
 } from "@workspace/api-zod";
 import { scanPositionsForAlerts } from "../lib/alerts";
+import { requireCapability } from "../middlewares/tier";
 
 const router: IRouter = Router();
 
@@ -69,7 +70,7 @@ router.post("/notifications/ack-all", async (_req, res): Promise<void> => {
 
 // Manual trigger — useful for testing & for users who want to force a re-check
 // without waiting for the next scheduled scan.
-router.post("/notifications/scan", async (_req, res): Promise<void> => {
+router.post("/notifications/scan", requireCapability("alerts.email"), async (_req, res): Promise<void> => {
   const result = await scanPositionsForAlerts();
   res.json(ScanForAlertsResponse.parse(result));
 });

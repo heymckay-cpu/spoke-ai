@@ -26,7 +26,15 @@ _Populate as you build — short repo map plus pointers to the source-of-truth f
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Tier gating lives in `lib/tiers` (Free / Pro / Ultra). Server middleware
+  `requireCapability(cap)` returns `403 { code: "tier_required", required, current, capability }`. The web side uses `useCapability()` /
+  `<GatedFeature capability="…">` to render an inline upgrade prompt instead
+  of breaking the layout. The current tier is stored on the singleton
+  `settings` row (`settings.tier`); defaults to `ultra` in dev and `free` in
+  production. **Billing is not yet wired up** — the dev-only switcher in
+  Settings → Plan flips the tier locally so gated features can be tested
+  end-to-end. Replace with Stripe in a future task; the `/tier` endpoints
+  and capability map will not need to change.
 
 ## Product
 

@@ -13,6 +13,8 @@ import {
   useUpdateSettings,
 } from "@workspace/api-client-react";
 import { AppShell } from "@/components/app-shell";
+import { PlanSection } from "@/components/plan-section";
+import { EmailAlertsCard } from "@/components/email-alerts-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -234,7 +236,10 @@ export function SettingsPage() {
             <Skeleton className="h-64 w-full" />
           </div>
         ) : (
-          <Form {...form}>
+          <div className="space-y-6">
+            <PlanSection />
+            <EmailAlertsCard />
+            <Form {...form}>
             <form
               onSubmit={form.handleSubmit(onSubmit)}
               className="space-y-6"
@@ -673,7 +678,8 @@ export function SettingsPage() {
                 </Button>
               </div>
             </form>
-          </Form>
+            </Form>
+          </div>
         )}
       </motion.div>
     </AppShell>

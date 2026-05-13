@@ -2,6 +2,7 @@ import { db, settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import type { ScreenerSettings } from "./screener";
 import { setCacheTtlMinutes, clearMarketCache } from "./market";
+import { defaultTier } from "./tierStore";
 
 // Listeners notified whenever settings are saved. The /scan route registers
 // here to drop its in-memory cached snapshot so the next call rebuilds with
@@ -48,7 +49,12 @@ export async function getSettings(): Promise<ScreenerSettings> {
   const rows = await db.select().from(settingsTable).where(eq(settingsTable.id, 1));
   const row = rows[0];
   if (!row) {
-    await db.insert(settingsTable).values({ id: 1, ...flatten(DEFAULT_SETTINGS) });
+    // Seed the singleton row with both the screener defaults and an
+    // env-aware tier so production never silently provisions Ultra and
+    // dev gets Ultra so every gated feature is testable.
+    await db
+      .insert(settingsTable)
+      .values({ id: 1, ...flatten(DEFAULT_SETTINGS), tier: defaultTier() });
     setCacheTtlMinutes(DEFAULT_SETTINGS.cacheTtlMinutes);
     return DEFAULT_SETTINGS;
   }
@@ -88,10 +94,14 @@ function flatten(s: ScreenerSettings) {
 }
 
 export async function saveSettings(s: ScreenerSettings): Promise<ScreenerSettings> {
+  // First-write path must seed the env-aware tier so a save before any
+  // /tier read in production cannot leave the row at the schema default
+  // for dev (or vice-versa). On UPDATE we deliberately do NOT touch tier
+  // — that lives behind the dedicated /tier endpoint.
   const flat = flatten(s);
   await db
     .insert(settingsTable)
-    .values({ id: 1, ...flat })
+    .values({ id: 1, ...flat, tier: defaultTier() })
     .onConflictDoUpdate({
       target: settingsTable.id,
       set: { ...flat, updatedAt: new Date() },

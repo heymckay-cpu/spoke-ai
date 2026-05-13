@@ -17,6 +17,9 @@
     },
     {
       "path": "./lib/portfolio"
+    },
+    {
+      "path": "./lib/tiers"
     }
   ]
 }
