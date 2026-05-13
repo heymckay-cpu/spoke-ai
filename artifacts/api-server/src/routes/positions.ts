@@ -655,7 +655,7 @@ router.post("/positions/roll/undo", async (req, res): Promise<void> => {
       const children = await tx
         .select({ id: positionsTable.id })
         .from(positionsTable)
-        .where(eq(positionsTable.rolledFromId, opened.id));
+        .where(and(eq(positionsTable.rolledFromId, opened.id), eq(positionsTable.userId, userId)));
       if (children.length > 0) {
         throw new RollError(
           409,
