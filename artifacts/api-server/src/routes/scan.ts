@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, scanSnapshotTable, holdingsTable } from "@workspace/db";
-import { desc } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import {
   RunScanBody,
   RunScanResponse,
@@ -13,17 +13,19 @@ import { runScreener, type CandidateOut, type ScanError, type ScanResultOut } fr
 import { runCallScreener } from "../lib/callScreener";
 import { clearMarketCache } from "../lib/market";
 import {
-  getCachedScan,
-  setCachedScan,
-  invalidateCachedScan,
+  getCachedScanForUser,
+  setCachedScanForUser,
+  invalidateCachedScanForUser,
 } from "../lib/scanRunner";
+import { getUserId } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
-async function loadLatestFromDb(): Promise<ScanResultOut> {
+async function loadLatestFromDb(userId: string): Promise<ScanResultOut> {
   const [row] = await db
     .select()
     .from(scanSnapshotTable)
+    .where(eq(scanSnapshotTable.userId, userId))
     .orderBy(desc(scanSnapshotTable.scannedAt))
     .limit(1);
   if (!row) {
@@ -38,16 +40,9 @@ async function loadLatestFromDb(): Promise<ScanResultOut> {
       hiddenByEarningsCount: 0,
     };
   }
-  // Mirror the in-memory cache TTL when serving DB-backed snapshots: if the
-  // stored snapshot is older than `cacheTtlMinutes`, treat it as stale (the
-  // scannedAt timestamp still flows through so the UI's freshness indicator
-  // is honest).
-  const settings = await getSettings();
+  const settings = await getSettings(userId);
   const ageMs = Date.now() - row.scannedAt.getTime();
   const isStale = ageMs > settings.cacheTtlMinutes * 60 * 1000;
-  // Backward-compatible normalization: snapshots persisted before the
-  // ivRankBasis / ivPercentile fields existed are missing those keys.
-  // Default them so the response schema parse keeps working.
   const rawCandidates = (row.candidates as Array<Record<string, unknown>>) ?? [];
   const candidates = rawCandidates.map((c) => ({
     ivRankBasis: "provisional",
@@ -67,13 +62,14 @@ async function loadLatestFromDb(): Promise<ScanResultOut> {
 }
 
 router.post("/scan", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const parsed = RunScanBody.safeParse(req.body ?? {});
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
   const overrides = parsed.data;
-  const baseSettings = await getSettings();
+  const baseSettings = await getSettings(userId);
   const cfg = {
     ...baseSettings,
     ...(overrides.tickers ? { tickers: overrides.tickers.map((t) => t.toUpperCase()) } : {}),
@@ -92,7 +88,6 @@ router.post("/scan", async (req, res): Promise<void> => {
       : {}),
   };
 
-  // Cross-field invariants when overrides are supplied.
   if (cfg.minDte > cfg.maxDte) {
     res.status(400).json({ error: "minDte must be <= maxDte" });
     return;
@@ -108,7 +103,6 @@ router.post("/scan", async (req, res): Promise<void> => {
 
   if (overrides.forceRefresh) clearMarketCache();
 
-  // Use in-memory TTL when no overrides and not forced.
   const isPlain =
     !overrides.tickers &&
     overrides.minDte == null &&
@@ -122,7 +116,7 @@ router.post("/scan", async (req, res): Promise<void> => {
     overrides.riskFreeRate == null &&
     overrides.topN == null &&
     overrides.earningsInWindow == null;
-  const cached = getCachedScan();
+  const cached = getCachedScanForUser(userId);
   if (isPlain && !overrides.forceRefresh && cached) {
     res.json(RunScanResponse.parse({ ...cached.result, cached: true, stale: false }));
     return;
@@ -131,10 +125,10 @@ router.post("/scan", async (req, res): Promise<void> => {
   const result = await runScreener(cfg);
 
   if (isPlain) {
-    setCachedScan(result, cfg.cacheTtlMinutes * 60 * 1000);
-    // Best-effort persistence — do not fail the response if the DB hiccups.
+    setCachedScanForUser(userId, result, cfg.cacheTtlMinutes * 60 * 1000);
     try {
       await db.insert(scanSnapshotTable).values({
+        userId,
         scannedAt: result.scannedAt ? new Date(result.scannedAt) : new Date(),
         candidates: result.candidates,
         errors: result.errors,
@@ -146,21 +140,20 @@ router.post("/scan", async (req, res): Promise<void> => {
       req.log.warn({ err }, "failed to persist scan snapshot");
     }
   } else if (overrides.forceRefresh) {
-    // A forced refresh on a custom-config scan still invalidates any stale
-    // cached plain-config snapshot to avoid serving outdated data afterward.
-    invalidateCachedScan();
+    invalidateCachedScanForUser(userId);
   }
 
   res.json(RunScanResponse.parse(result));
 });
 
-router.get("/scan/latest", async (_req, res): Promise<void> => {
-  const cached = getCachedScan();
+router.get("/scan/latest", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  const cached = getCachedScanForUser(userId);
   if (cached) {
     res.json(GetLatestScanResponse.parse({ ...cached.result, cached: true, stale: false }));
     return;
   }
-  const latest = await loadLatestFromDb();
+  const latest = await loadLatestFromDb(userId);
   res.json(GetLatestScanResponse.parse(latest));
 });
 
@@ -171,9 +164,10 @@ function median(arr: number[]): number {
   return s.length % 2 === 0 ? (s[m - 1]! + s[m]!) / 2 : s[m]!;
 }
 
-router.get("/scan/summary", async (_req, res): Promise<void> => {
-  const cached = getCachedScan();
-  const latest = cached?.result ?? (await loadLatestFromDb());
+router.get("/scan/summary", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  const cached = getCachedScanForUser(userId);
+  const latest = cached?.result ?? (await loadLatestFromDb(userId));
   const cands = latest.candidates;
   const annualized = cands.map((c) => c.annualizedPct);
   const buckets = [
@@ -206,12 +200,13 @@ router.get("/scan/summary", async (_req, res): Promise<void> => {
   res.json(GetScanSummaryResponse.parse(summary));
 });
 
-router.post("/scan/calls", async (_req, res): Promise<void> => {
-  const settings = await getSettings();
-  const rows = await db.select().from(holdingsTable);
-  // Aggregate by ticker — the holdings table allows multiple rows per
-  // ticker (split lots), and a covered-call recommendation should reflect
-  // total share ownership and the share-weighted average cost basis.
+router.post("/scan/calls", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  const settings = await getSettings(userId);
+  const rows = await db
+    .select()
+    .from(holdingsTable)
+    .where(eq(holdingsTable.userId, userId));
   const byTicker = new Map<string, { shares: number; cost: number }>();
   for (const r of rows) {
     const acc = byTicker.get(r.ticker) ?? { shares: 0, cost: 0 };

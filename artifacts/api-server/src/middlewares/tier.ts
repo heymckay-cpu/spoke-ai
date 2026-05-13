@@ -6,17 +6,15 @@ import {
   type Capability,
   type Tier,
 } from "@workspace/tiers";
-import { getCurrentTierForRequest } from "../lib/tierStore";
+import { getCurrentTierForUser } from "../lib/tierStore";
+import { getUserId } from "./auth";
 
 /**
- * Resolve the tier of the user behind this request.
- *
- * Today the app is single-tenant — there is no auth, and the tier lives on
- * the singleton settings row. This indirection exists so per-user storage
- * (post-auth) is a localized change.
+ * Resolve the per-user tier from the settings row.
  */
-export async function getCurrentTier(_req: Request): Promise<Tier> {
-  return getCurrentTierForRequest();
+export async function getCurrentTier(req: Request): Promise<Tier> {
+  const userId = getUserId(req);
+  return getCurrentTierForUser(userId);
 }
 
 /**
@@ -30,7 +28,6 @@ export function requireCapability(capability: Capability): RequestHandler {
     try {
       const tier = await getCurrentTier(req);
       if (!isTier(tier)) {
-        // Defensive: a corrupt tier value should never silently allow access.
         res.status(403).json(buildTierBlockedPayload(capability, "free"));
         return;
       }

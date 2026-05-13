@@ -18,7 +18,6 @@ import {
 } from "../market";
 import { logger } from "../logger";
 import { upsertIvSnapshot } from "./rank";
-import { getSettings } from "../settingsStore";
 
 const RECENT_SCAN_COUNT = 10;
 
@@ -60,12 +59,7 @@ export async function collectTrackedTickers(): Promise<string[]> {
   }
   // Include the full configured screener universe so we collect history for
   // every ticker that gets scanned, not only those that yielded a candidate.
-  try {
-    const settings = await getSettings();
-    for (const t of settings.tickers ?? []) set.add(t.toUpperCase());
-  } catch (err) {
-    logger.warn({ err }, "iv-snapshot: failed to load screener settings");
-  }
+  // Per-user screener tickers are not available here; the set above is sufficient.
   return Array.from(set);
 }
 

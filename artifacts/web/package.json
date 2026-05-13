@@ -57,7 +57,6 @@
     "@workspace/api-client-react": "workspace:*",
     "@workspace/data": "workspace:*",
     "@workspace/portfolio": "workspace:*",
-    "@workspace/replit-auth-web": "workspace:*",
     "@workspace/tiers": "workspace:*",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",

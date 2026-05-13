@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, qaConversationsTable, qaMessagesTable } from "@workspace/db";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import {
   CreateQaConversationBody,
   GetQaConversationParams,
@@ -14,6 +14,7 @@ import {
   type QaHistoryMessage,
 } from "../lib/qa/agent";
 import { logger } from "../lib/logger";
+import { getUserId } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
@@ -38,6 +39,7 @@ function serialiseMessage(row: typeof qaMessagesTable.$inferSelect): SerialisedM
 }
 
 router.post("/qa/conversations", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const parsed = CreateQaConversationBody.safeParse(req.body ?? {});
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -46,7 +48,7 @@ router.post("/qa/conversations", async (req, res): Promise<void> => {
   const title = parsed.data.title?.trim() || "New conversation";
   const [row] = await db
     .insert(qaConversationsTable)
-    .values({ title })
+    .values({ userId, title })
     .returning();
   if (!row) {
     res.status(500).json({ error: "Failed to create conversation" });
@@ -56,6 +58,7 @@ router.post("/qa/conversations", async (req, res): Promise<void> => {
 });
 
 router.get("/qa/conversations/:id", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const params = GetQaConversationParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -65,7 +68,7 @@ router.get("/qa/conversations/:id", async (req, res): Promise<void> => {
   const [conv] = await db
     .select()
     .from(qaConversationsTable)
-    .where(eq(qaConversationsTable.id, id));
+    .where(and(eq(qaConversationsTable.id, id), eq(qaConversationsTable.userId, userId)));
   if (!conv) {
     res.status(404).json({ error: "Conversation not found" });
     return;
@@ -84,6 +87,7 @@ router.get("/qa/conversations/:id", async (req, res): Promise<void> => {
 });
 
 router.post("/qa/messages", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const parsed = SendQaMessageBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -93,14 +97,12 @@ router.post("/qa/messages", async (req, res): Promise<void> => {
   const [conv] = await db
     .select()
     .from(qaConversationsTable)
-    .where(eq(qaConversationsTable.id, conversationId));
+    .where(and(eq(qaConversationsTable.id, conversationId), eq(qaConversationsTable.userId, userId)));
   if (!conv) {
     res.status(404).json({ error: "Conversation not found" });
     return;
   }
 
-  // Persist the user message immediately so it shows up in history even if
-  // the LLM call fails — the UI will surface the failure separately.
   const [userRow] = await db
     .insert(qaMessagesTable)
     .values({ conversationId, role: "user", content })
@@ -116,9 +118,6 @@ router.post("/qa/messages", async (req, res): Promise<void> => {
     .where(eq(qaMessagesTable.conversationId, conversationId))
     .orderBy(asc(qaMessagesTable.createdAt), asc(qaMessagesTable.id));
 
-  // Build history that excludes the just-inserted user row (it's passed
-  // separately to the agent) and any past attachments — Claude doesn't need
-  // the rendered tables, only the prose so it can keep context.
   const history: QaHistoryMessage[] = priorMessages
     .filter((m) => m.id !== userRow.id)
     .map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
@@ -160,6 +159,7 @@ router.post("/qa/messages", async (req, res): Promise<void> => {
 });
 
 router.post("/qa/messages/stream", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const parsed = SendQaMessageBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -169,7 +169,7 @@ router.post("/qa/messages/stream", async (req, res): Promise<void> => {
   const [conv] = await db
     .select()
     .from(qaConversationsTable)
-    .where(eq(qaConversationsTable.id, conversationId));
+    .where(and(eq(qaConversationsTable.id, conversationId), eq(qaConversationsTable.userId, userId)));
   if (!conv) {
     res.status(404).json({ error: "Conversation not found" });
     return;
@@ -194,9 +194,6 @@ router.post("/qa/messages/stream", async (req, res): Promise<void> => {
     .filter((m) => m.id !== userRow.id)
     .map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
 
-  // Open the SSE stream. Headers must be flushed before any tokens go out
-  // so the browser sees the response as event-stream and starts pushing
-  // incremental updates to the listener instead of buffering.
   res.status(200);
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -208,8 +205,6 @@ router.post("/qa/messages/stream", async (req, res): Promise<void> => {
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
   };
 
-  // Send the persisted user message id immediately so the client can
-  // reconcile its optimistic bubble.
   send({ type: "user_message", message: serialiseMessage(userRow) });
 
   try {

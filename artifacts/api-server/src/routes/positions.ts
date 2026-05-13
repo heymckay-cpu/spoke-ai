@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db, positionsTable } from "@workspace/db";
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
+import { getUserId } from "../middlewares/auth";
 import {
   CreatePositionBody,
   UpdatePositionBody,
@@ -200,10 +201,12 @@ async function enrichOne(row: typeof positionsTable.$inferSelect): Promise<Enric
   return enrichPosition(row, ctxMap.get(row.id) ?? {});
 }
 
-router.get("/positions", async (_req, res): Promise<void> => {
+router.get("/positions", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const rows = await db
     .select()
     .from(positionsTable)
+    .where(eq(positionsTable.userId, userId))
     .orderBy(desc(positionsTable.openedAt));
 
   const ctxMap = await buildRollContexts(rows);
@@ -225,10 +228,12 @@ router.get("/positions", async (_req, res): Promise<void> => {
   res.json(ListPositionsResponse.parse({ positions: enriched, totals }));
 });
 
-router.get("/positions/stats", async (_req, res): Promise<void> => {
+router.get("/positions/stats", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const rows = await db
     .select()
     .from(positionsTable)
+    .where(eq(positionsTable.userId, userId))
     .orderBy(desc(positionsTable.openedAt));
 
   const closed = rows.filter(
@@ -421,18 +426,18 @@ router.get("/positions/stats", async (_req, res): Promise<void> => {
 });
 
 router.post("/positions", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const parsed = CreatePositionBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
   const v = parsed.data;
-  // Validate rolledFromId if provided so the link can never dangle.
   if (v.rolledFromId != null) {
     const [parent] = await db
       .select({ id: positionsTable.id })
       .from(positionsTable)
-      .where(eq(positionsTable.id, v.rolledFromId));
+      .where(and(eq(positionsTable.id, v.rolledFromId), eq(positionsTable.userId, userId)));
     if (!parent) {
       res.status(400).json({ error: `rolledFromId ${v.rolledFromId} does not exist` });
       return;
@@ -441,6 +446,7 @@ router.post("/positions", async (req, res): Promise<void> => {
   const [inserted] = await db
     .insert(positionsTable)
     .values({
+      userId,
       ticker: v.ticker.toUpperCase(),
       strike: v.strike,
       expiry: v.expiry,
@@ -459,6 +465,7 @@ router.post("/positions", async (req, res): Promise<void> => {
 });
 
 router.patch("/positions/:id", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const params = UpdatePositionParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -486,7 +493,7 @@ router.patch("/positions/:id", async (req, res): Promise<void> => {
   const [updated] = await db
     .update(positionsTable)
     .set(updates)
-    .where(eq(positionsTable.id, params.data.id))
+    .where(and(eq(positionsTable.id, params.data.id), eq(positionsTable.userId, userId)))
     .returning();
   if (!updated) {
     res.status(404).json({ error: "Position not found" });
@@ -522,6 +529,7 @@ import {
 export { nextThirdFridayOnOrAfter, snapToNearestStrike };
 
 router.post("/positions/:id/roll", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const params = RollPositionParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -534,8 +542,6 @@ router.post("/positions/:id/roll", async (req, res): Promise<void> => {
   }
   const v = parsed.data;
 
-  // Both writes happen inside a single DB transaction so the user can never
-  // be left with a closed leg and no opened replacement (or vice versa).
   let closedRow: typeof positionsTable.$inferSelect;
   let openedRow: typeof positionsTable.$inferSelect;
   try {
@@ -543,7 +549,7 @@ router.post("/positions/:id/roll", async (req, res): Promise<void> => {
       const existing = await tx
         .select()
         .from(positionsTable)
-        .where(eq(positionsTable.id, params.data.id));
+        .where(and(eq(positionsTable.id, params.data.id), eq(positionsTable.userId, userId)));
       const current = existing[0];
       if (!current) {
         throw new RollError(404, "Position not found");
@@ -555,7 +561,7 @@ router.post("/positions/:id/roll", async (req, res): Promise<void> => {
       const [closed] = await tx
         .update(positionsTable)
         .set({ closedAt: new Date(), closePrice: v.closePrice })
-        .where(eq(positionsTable.id, params.data.id))
+        .where(and(eq(positionsTable.id, params.data.id), eq(positionsTable.userId, userId)))
         .returning();
       if (!closed) {
         throw new RollError(500, "Failed to close position");
@@ -564,14 +570,13 @@ router.post("/positions/:id/roll", async (req, res): Promise<void> => {
       const [opened] = await tx
         .insert(positionsTable)
         .values({
+          userId,
           ticker: current.ticker,
           strike: v.strike,
           expiry: v.expiry,
           premium: v.premium,
           contracts: v.contracts,
           notes: v.notes ?? null,
-          // A roll always links the new leg back to the closed one so the
-          // journal can render the chain (rolledFrom / rolledTo badges).
           rolledFromId: current.id,
         })
         .returning();
@@ -615,6 +620,7 @@ router.post("/positions/:id/roll", async (req, res): Promise<void> => {
 });
 
 router.post("/positions/roll/undo", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const parsed = UndoRollBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -632,7 +638,7 @@ router.post("/positions/roll/undo", async (req, res): Promise<void> => {
       const rows = await tx
         .select()
         .from(positionsTable)
-        .where(inArray(positionsTable.id, [closedId, openedId]));
+        .where(and(inArray(positionsTable.id, [closedId, openedId]), eq(positionsTable.userId, userId)));
       const closed = rows.find((r) => r.id === closedId);
       const opened = rows.find((r) => r.id === openedId);
       if (!closed || !opened) {
@@ -711,6 +717,7 @@ router.post("/positions/roll/undo", async (req, res): Promise<void> => {
 });
 
 router.get("/positions/:id/roll-suggestion", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const params = GetRollSuggestionParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -719,7 +726,7 @@ router.get("/positions/:id/roll-suggestion", async (req, res): Promise<void> => 
   const [row] = await db
     .select()
     .from(positionsTable)
-    .where(eq(positionsTable.id, params.data.id));
+    .where(and(eq(positionsTable.id, params.data.id), eq(positionsTable.userId, userId)));
   if (!row) {
     res.status(404).json({ error: "Position not found" });
     return;
@@ -740,6 +747,7 @@ router.get("/positions/:id/roll-suggestion", async (req, res): Promise<void> => 
 router.get(
   "/positions/:id/roll-quote/:expiry/:strike",
   async (req, res): Promise<void> => {
+    const userId = getUserId(req);
     const params = GetRollQuoteParams.safeParse(req.params);
     if (!params.success) {
       res.status(400).json({ error: params.error.message });
@@ -749,7 +757,7 @@ router.get(
     const [row] = await db
       .select()
       .from(positionsTable)
-      .where(eq(positionsTable.id, id));
+      .where(and(eq(positionsTable.id, id), eq(positionsTable.userId, userId)));
     if (!row) {
       res.status(404).json({ error: "Position not found" });
       return;
@@ -802,12 +810,13 @@ router.get(
 );
 
 router.get("/positions/:id/advisor", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const params = GetPositionAdvisorParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const advisor = await getAdvisor(params.data.id);
+  const advisor = await getAdvisor(params.data.id, userId);
   if (!advisor) {
     res.status(404).json({ error: "Position not found" });
     return;
@@ -816,17 +825,16 @@ router.get("/positions/:id/advisor", async (req, res): Promise<void> => {
 });
 
 router.delete("/positions/:id", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const params = DeletePositionParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  // Notifications carry no FK constraint to positions, so clean up explicitly
-  // before deleting the row to avoid orphaned alerts referencing a missing id.
   await deleteNotificationsForPosition(params.data.id);
   const result = await db
     .delete(positionsTable)
-    .where(eq(positionsTable.id, params.data.id))
+    .where(and(eq(positionsTable.id, params.data.id), eq(positionsTable.userId, userId)))
     .returning({ id: positionsTable.id });
   if (result.length === 0) {
     res.status(404).json({ error: "Position not found" });

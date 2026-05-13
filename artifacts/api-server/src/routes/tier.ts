@@ -8,12 +8,12 @@ import {
 } from "@workspace/tiers";
 import { GetTierResponse, SetTierBody, SetTierResponse } from "@workspace/api-zod";
 import { getCurrentTier } from "../middlewares/tier";
-import { setCurrentTier } from "../lib/tierStore";
+import { setUserTier } from "../lib/tierStore";
+import { getUserId } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
 function buildStatus(tier: ReturnType<typeof isTier> extends true ? never : string) {
-  // The cast is safe — every code path constructs `tier` from a validated source.
   const t = tier as "free" | "pro" | "ultra";
   return {
     tier: t,
@@ -35,13 +35,16 @@ router.get("/tier", async (req, res): Promise<void> => {
   res.json(GetTierResponse.parse(buildStatus(tier)));
 });
 
-router.put("/tier", async (_req, res): Promise<void> => {
-  const parsed = SetTierBody.safeParse(_req.body);
+router.put("/tier", async (req, res): Promise<void> => {
+  const parsed = SetTierBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const next = await setCurrentTier(parsed.data.tier);
+  // TODO: Gate this behind Stripe billing in the billing follow-up task.
+  // No billing yet — test users can self-select any tier freely.
+  const userId = getUserId(req);
+  const next = await setUserTier(userId, parsed.data.tier);
   res.json(SetTierResponse.parse(buildStatus(next)));
 });
 

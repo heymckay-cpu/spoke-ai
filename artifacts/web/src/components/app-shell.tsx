@@ -1,7 +1,7 @@
 import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Briefcase, LayoutGrid, LineChart, LogOut, Menu, MessageSquare, Settings as SettingsIcon, Moon, Sun, Wallet } from "lucide-react";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useUser, useClerk } from "@clerk/react";
 import {
   Sheet,
   SheetContent,
@@ -89,22 +89,27 @@ interface AppShellProps {
   children: ReactNode;
 }
 
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+
 export function AppShell({ title, breadcrumbs, actions, children }: AppShellProps) {
   const [location] = useLocation();
   const { theme, toggle } = useTheme();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const { user, logout } = useAuth();
+  const { user } = useUser();
+  const { signOut } = useClerk();
+
   const initials =
     [user?.firstName?.[0], user?.lastName?.[0]]
       .filter(Boolean)
       .join("")
       .toUpperCase() ||
-    user?.email?.[0]?.toUpperCase() ||
+    user?.emailAddresses?.[0]?.emailAddress?.[0]?.toUpperCase() ||
     "U";
   const displayName =
     [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
-    user?.email ||
+    user?.emailAddresses?.[0]?.emailAddress ||
     "Account";
+
   const latest = useGetLatestScan({
     query: { staleTime: 30_000, queryKey: getGetLatestScanQueryKey() },
   });
@@ -321,9 +326,9 @@ export function AppShell({ title, breadcrumbs, actions, children }: AppShellProp
             </Button>
             {user && (
               <div className="flex items-center gap-2 rounded-full border border-border bg-card px-1 py-1 pr-2">
-                {user.profileImageUrl ? (
+                {user.imageUrl ? (
                   <img
-                    src={user.profileImageUrl}
+                    src={user.imageUrl}
                     alt=""
                     className="h-6 w-6 rounded-full object-cover"
                   />
@@ -342,7 +347,7 @@ export function AppShell({ title, breadcrumbs, actions, children }: AppShellProp
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => logout()}
+                  onClick={() => signOut({ redirectUrl: basePath || "/" })}
                   aria-label="Sign out"
                   data-testid="button-sign-out"
                   className="h-6 w-6"

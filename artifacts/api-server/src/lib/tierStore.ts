@@ -4,57 +4,59 @@ import { isTier, type Tier } from "@workspace/tiers";
 import { logger } from "./logger";
 
 /**
- * Default tier for fresh installs. Dev defaults to `ultra` so every gated
- * feature is exercisable end-to-end without flipping switches; production
- * defaults to `free` so monetization works as soon as billing lands.
- *
- * Centralized here so the schema default, the seed insert in settingsStore,
- * and the read-side fallback all agree on a single source of truth.
+ * Default tier for new users.
+ * NOTE: No billing yet — test users can self-select any tier from the Settings
+ * page. When Stripe billing is added, gate the PUT /tier endpoint there.
+ * TODO: Gate tier mutation behind Stripe in the billing follow-up task.
  */
 export function defaultTier(): Tier {
-  return process.env["NODE_ENV"] === "production" ? "free" : "ultra";
+  return "free";
 }
 
 /**
- * Read the singleton tier from the settings row. The settings row is
- * lazily created by `getSettings`; if it doesn't exist yet (e.g. a fresh
- * install where /tier was hit before /settings), fall back to the
- * environment-aware default.
+ * Read the per-user tier from their settings row. If the row doesn't exist
+ * yet (fresh account, first request), returns the default tier.
  */
-export async function getCurrentTierForRequest(): Promise<Tier> {
+export async function getCurrentTierForUser(userId: string): Promise<Tier> {
   const rows = await db
     .select({ tier: settingsTable.tier })
     .from(settingsTable)
-    .where(eq(settingsTable.id, 1));
+    .where(eq(settingsTable.userId, userId));
   const raw = rows[0]?.tier;
   if (raw && isTier(raw)) return raw;
   if (raw) {
-    logger.warn({ raw }, "settings.tier holds a value outside the Tier enum; using default");
+    logger.warn({ raw, userId }, "settings.tier holds a value outside the Tier enum; using default");
   }
   return defaultTier();
 }
 
 /**
- * Persist the user's tier. The settings row is created on first read; if
- * a tier write happens before that (test / fresh install), seed a minimal
- * row so the upsert succeeds without violating NOT NULL on the screener
- * defaults.
+ * Persist the per-user tier. The settings row is lazily created on first
+ * read; if a tier write happens before that, upsert a minimal row so the
+ * write succeeds.
  */
-export async function setCurrentTier(tier: Tier): Promise<Tier> {
-  const result = await db
-    .update(settingsTable)
-    .set({ tier, updatedAt: new Date() })
-    .where(eq(settingsTable.id, 1))
-    .returning({ tier: settingsTable.tier });
-  if (result.length === 0) {
-    // No settings row yet — defer to getSettings(), which seeds defaults,
-    // then re-apply the tier.
-    const { getSettings } = await import("./settingsStore");
-    await getSettings();
-    await db
-      .update(settingsTable)
-      .set({ tier, updatedAt: new Date() })
-      .where(eq(settingsTable.id, 1));
-  }
+export async function setUserTier(userId: string, tier: Tier): Promise<Tier> {
+  await db
+    .insert(settingsTable)
+    .values({
+      userId,
+      tickers: [],
+      minDte: 25,
+      maxDte: 50,
+      targetDelta: 0.25,
+      minDelta: 0.15,
+      maxDelta: 0.35,
+      minOpenInterest: 100,
+      minBid: 0.1,
+      minUnderlyingPrice: 5.0,
+      riskFreeRate: 0.045,
+      topN: 20,
+      cacheTtlMinutes: 15,
+      tier,
+    })
+    .onConflictDoUpdate({
+      target: settingsTable.userId,
+      set: { tier, updatedAt: new Date() },
+    });
   return tier;
 }

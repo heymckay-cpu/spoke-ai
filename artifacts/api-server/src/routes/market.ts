@@ -34,7 +34,9 @@ router.get("/quote/:ticker", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Ticker not found" });
     return;
   }
-  const settings = await getSettings();
+  const { getUserId } = await import("../middlewares/auth");
+  const userId = getUserId(req);
+  const settings = await getSettings(userId);
   res.json(
     GetQuoteResponse.parse({
       ticker: q.ticker,
@@ -74,7 +76,9 @@ router.get("/chain/:ticker/:expiry", async (req, res): Promise<void> => {
   }
   const ticker = params.data.ticker.toUpperCase();
   const expiry = params.data.expiry;
-  const settings = await getSettings();
+  const { getUserId } = await import("../middlewares/auth");
+  const userId = getUserId(req);
+  const settings = await getSettings(userId);
   const snap = await getOptionChain(ticker, expiry);
   if (!snap) {
     res.status(404).json({ error: "Chain not found" });

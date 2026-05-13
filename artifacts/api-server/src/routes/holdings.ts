@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, holdingsTable } from "@workspace/db";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import {
   CreateHoldingBody,
   UpdateHoldingBody,
@@ -12,6 +12,7 @@ import {
   DeleteHoldingResponse,
 } from "@workspace/api-zod";
 import { getSpot } from "../lib/market";
+import { getUserId } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
@@ -33,7 +34,7 @@ async function enrichHolding(row: typeof holdingsTable.$inferSelect): Promise<En
   try {
     spot = await getSpot(row.ticker);
   } catch {
-    /* ignore — never fail the list because of a quote hiccup */
+    /* ignore */
   }
   const marketValue = spot != null ? spot * row.shares : null;
   const cost = row.avgCost * row.shares;
@@ -53,8 +54,13 @@ async function enrichHolding(row: typeof holdingsTable.$inferSelect): Promise<En
   };
 }
 
-router.get("/holdings", async (_req, res): Promise<void> => {
-  const rows = await db.select().from(holdingsTable).orderBy(desc(holdingsTable.openedAt));
+router.get("/holdings", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  const rows = await db
+    .select()
+    .from(holdingsTable)
+    .where(eq(holdingsTable.userId, userId))
+    .orderBy(desc(holdingsTable.openedAt));
   const enriched = await Promise.all(rows.map(enrichHolding));
   const totals = {
     holdingsCount: enriched.length,
@@ -66,6 +72,7 @@ router.get("/holdings", async (_req, res): Promise<void> => {
 });
 
 router.post("/holdings", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const parsed = CreateHoldingBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -75,6 +82,7 @@ router.post("/holdings", async (req, res): Promise<void> => {
   const [inserted] = await db
     .insert(holdingsTable)
     .values({
+      userId,
       ticker: v.ticker.toUpperCase(),
       shares: v.shares,
       avgCost: v.avgCost,
@@ -89,6 +97,7 @@ router.post("/holdings", async (req, res): Promise<void> => {
 });
 
 router.patch("/holdings/:id", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const params = UpdateHoldingParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -107,7 +116,7 @@ router.patch("/holdings/:id", async (req, res): Promise<void> => {
   const [updated] = await db
     .update(holdingsTable)
     .set(updates)
-    .where(eq(holdingsTable.id, params.data.id))
+    .where(and(eq(holdingsTable.id, params.data.id), eq(holdingsTable.userId, userId)))
     .returning();
   if (!updated) {
     res.status(404).json({ error: "Holding not found" });
@@ -117,6 +126,7 @@ router.patch("/holdings/:id", async (req, res): Promise<void> => {
 });
 
 router.delete("/holdings/:id", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const params = DeleteHoldingParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -124,7 +134,7 @@ router.delete("/holdings/:id", async (req, res): Promise<void> => {
   }
   const result = await db
     .delete(holdingsTable)
-    .where(eq(holdingsTable.id, params.data.id))
+    .where(and(eq(holdingsTable.id, params.data.id), eq(holdingsTable.userId, userId)))
     .returning({ id: holdingsTable.id });
   if (result.length === 0) {
     res.status(404).json({ error: "Holding not found" });

@@ -1,58 +1,40 @@
-// Shared "run the screener with current settings, cache the result, and
-// persist a snapshot" helper. Used both by the POST /scan route and by the
-// background scheduler so the in-memory cache stays consistent regardless
-// of who triggered the refresh.
-import { db, scanSnapshotTable } from "@workspace/db";
-import { getSettings, onSettingsSaved } from "./settingsStore";
-import { runScreener, type ScanResultOut } from "./screener";
-import { clearMarketCache } from "./market";
-import { logger } from "./logger";
+// Per-user in-memory scan cache. Each userId gets its own TTL'd cache entry
+// so scans don't bleed across users.
+import type { ScanResultOut } from "./screener";
 
-let cachedScan: { result: ScanResultOut; expiresAt: number } | null = null;
+const cacheByUser = new Map<string, { result: ScanResultOut; expiresAt: number }>();
 
-// Drop the cached scan whenever settings change so the next call recomputes
-// with the updated parameters.
-onSettingsSaved(() => {
-  cachedScan = null;
-});
-
-export function getCachedScan(): { result: ScanResultOut; expiresAt: number } | null {
-  if (cachedScan && Date.now() >= cachedScan.expiresAt) {
-    cachedScan = null;
+export function getCachedScanForUser(userId: string): { result: ScanResultOut; expiresAt: number } | null {
+  const entry = cacheByUser.get(userId);
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAt) {
+    cacheByUser.delete(userId);
+    return null;
   }
-  return cachedScan;
+  return entry;
 }
 
-export function setCachedScan(result: ScanResultOut, ttlMs: number): void {
-  cachedScan = { result, expiresAt: Date.now() + ttlMs };
+export function setCachedScanForUser(userId: string, result: ScanResultOut, ttlMs: number): void {
+  cacheByUser.set(userId, { result, expiresAt: Date.now() + ttlMs });
+}
+
+export function invalidateCachedScanForUser(userId: string): void {
+  cacheByUser.delete(userId);
+}
+
+export function invalidateAllCachedScans(): void {
+  cacheByUser.clear();
+}
+
+// Legacy helpers kept for backward compatibility (used by scheduler if needed).
+export function getCachedScan() {
+  return null;
+}
+
+export function setCachedScan(_result: ScanResultOut, _ttlMs: number): void {
+  // no-op: per-user cache now used; call setCachedScanForUser instead
 }
 
 export function invalidateCachedScan(): void {
-  cachedScan = null;
-}
-
-export interface RunAndCacheOptions {
-  forceRefresh?: boolean;
-}
-
-export async function runAndCacheLatestScan(
-  opts: RunAndCacheOptions = {},
-): Promise<ScanResultOut> {
-  const settings = await getSettings();
-  if (opts.forceRefresh) clearMarketCache();
-  const result = await runScreener(settings);
-  setCachedScan(result, settings.cacheTtlMinutes * 60 * 1000);
-  try {
-    await db.insert(scanSnapshotTable).values({
-      scannedAt: result.scannedAt ? new Date(result.scannedAt) : new Date(),
-      candidates: result.candidates,
-      errors: result.errors,
-      tickersScanned: result.tickersScanned,
-      tickersWithCandidate: result.tickersWithCandidate,
-      hiddenByEarningsCount: result.hiddenByEarningsCount,
-    });
-  } catch (err) {
-    logger.warn({ err }, "failed to persist scan snapshot");
-  }
-  return result;
+  // no-op: per-user cache now used; call invalidateCachedScanForUser instead
 }

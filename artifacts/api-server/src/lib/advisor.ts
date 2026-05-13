@@ -1,5 +1,5 @@
 import { db, positionsTable, type PositionRow } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   buildBreakdown,
   type ConcentrationBreakdown,
@@ -151,6 +151,7 @@ interface BuildContextDeps {
  */
 export async function buildAdvisorContext(
   positionId: number,
+  userId: string,
   deps: BuildContextDeps = {},
 ): Promise<AdvisorContext | null> {
   const getChain = deps.getOptionChainFn ?? getOptionChain;
@@ -158,7 +159,7 @@ export async function buildAdvisorContext(
   const [row] = await db
     .select()
     .from(positionsTable)
-    .where(eq(positionsTable.id, positionId));
+    .where(and(eq(positionsTable.id, positionId), eq(positionsTable.userId, userId)));
   if (!row) return null;
 
   const chainRows = await loadChainLegs(row);
@@ -259,7 +260,8 @@ export async function buildAdvisorContext(
       contracts: positionsTable.contracts,
       closedAt: positionsTable.closedAt,
     })
-    .from(positionsTable);
+    .from(positionsTable)
+    .where(eq(positionsTable.userId, userId));
   const openLikes = openRows
     .filter((p) => p.closedAt == null)
     .map((p) => ({
@@ -463,9 +465,10 @@ export interface GetAdvisorOptions extends BuildContextDeps, RunAdvisorOptions {
 
 export async function getAdvisor(
   positionId: number,
+  userId: string,
   opts: GetAdvisorOptions = {},
 ): Promise<AdvisorResponse | null> {
-  const context = await buildAdvisorContext(positionId, opts);
+  const context = await buildAdvisorContext(positionId, userId, opts);
   if (!context) return null;
 
   const key = cacheKey(positionId, context.quote.fetchedAt);

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useAuth } from "@workspace/replit-auth-web";
+import { useUser } from "@clerk/react";
 import { useLocation } from "wouter";
 import {
   ArrowRight,
@@ -335,18 +335,18 @@ function getPricingTiers(): PricingTier[] {
 }
 
 export function LandingPage() {
-  const { isAuthenticated, isLoading, login } = useAuth();
+  const { isSignedIn, isLoaded } = useUser();
   const [, navigate] = useLocation();
-  const dashboardBase = (import.meta as unknown as { env: { BASE_URL: string } }).env
+  const basePath = (import.meta as unknown as { env: { BASE_URL: string } }).env
     .BASE_URL.replace(/\/+$/, "");
 
   useEffect(() => {
-    if (!isLoading && isAuthenticated) {
+    if (isLoaded && isSignedIn) {
       navigate("/dashboard");
     }
-  }, [isLoading, isAuthenticated, navigate]);
+  }, [isLoaded, isSignedIn, navigate]);
 
-  const goLogin = () => login(`${dashboardBase}/dashboard`);
+  const goLogin = () => navigate("/sign-in");
   const tiers = getPricingTiers();
   const marqueeRef = useRef<HTMLDivElement>(null);
 

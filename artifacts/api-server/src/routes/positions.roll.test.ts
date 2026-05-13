@@ -38,6 +38,7 @@ async function insertOpen(ticker: string): Promise<typeof positionsTable.$inferS
   const [row] = await db
     .insert(positionsTable)
     .values({
+      userId: "test-user",
       ticker,
       strike: 100,
       expiry: "2099-01-16",

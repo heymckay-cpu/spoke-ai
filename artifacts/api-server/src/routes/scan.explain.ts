@@ -21,7 +21,8 @@ import {
 import { hasCapability } from "@workspace/tiers";
 import { getCurrentTier } from "../middlewares/tier";
 import type { CandidateOut } from "../lib/screener";
-import { getCachedScan } from "../lib/scanRunner";
+import { getCachedScanForUser } from "../lib/scanRunner";
+import { getUserId } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
@@ -30,19 +31,12 @@ interface SnapshotLookup {
   candidate: CandidateOut;
 }
 
-/**
- * Find a candidate by (ticker, strike, expiry) inside the most recent
- * persisted scan snapshot. Returns the snapshot id (used as the cache key)
- * along with the candidate row, or null when there is no match.
- */
 async function findLatestCandidate(
+  userId: string,
   ticker: string,
   strike: number,
   expiry: string,
 ): Promise<SnapshotLookup | null> {
-  // Prefer the in-memory cache when present so the explanation lines up
-  // with whatever the dashboard is currently rendering. The cache lacks a
-  // db id, so fall back to the latest snapshot row to get one.
   const tickerU = ticker.toUpperCase();
   const matches = (cands: unknown): CandidateOut | null => {
     if (!Array.isArray(cands)) return null;
@@ -53,10 +47,11 @@ async function findLatestCandidate(
     );
   };
 
-  const cached = getCachedScan();
+  const cached = getCachedScanForUser(userId);
   const [row] = await db
     .select()
     .from(scanSnapshotTable)
+    .where(eq(scanSnapshotTable.userId, userId))
     .orderBy(desc(scanSnapshotTable.scannedAt))
     .limit(1);
   if (cached) {
@@ -71,12 +66,10 @@ async function findLatestCandidate(
   return { snapshotId: row.id, candidate: c };
 }
 
-async function loadPortfolioSnapshot(): Promise<{
+async function loadPortfolioSnapshot(userId: string): Promise<{
   openPositions: ExplainerInput["openPositions"];
   shareHoldings: ExplainerInput["shareHoldings"];
 }> {
-  // The positions table tracks open vs. closed via `closedAt`; we filter
-  // in JS to keep this single round-trip readable.
   const [positions, holdings] = await Promise.all([
     db
       .select({
@@ -86,14 +79,16 @@ async function loadPortfolioSnapshot(): Promise<{
         contracts: positionsTable.contracts,
         closedAt: positionsTable.closedAt,
       })
-      .from(positionsTable),
+      .from(positionsTable)
+      .where(eq(positionsTable.userId, userId)),
     db
       .select({
         ticker: holdingsTable.ticker,
         shares: holdingsTable.shares,
         avgCost: holdingsTable.avgCost,
       })
-      .from(holdingsTable),
+      .from(holdingsTable)
+      .where(eq(holdingsTable.userId, userId)),
   ]);
   return {
     openPositions: positions
@@ -112,6 +107,7 @@ function rowToResult(row: CandidateExplanationRow): ExplainerResult {
 }
 
 router.post("/scan/explain", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const parsed = ExplainCandidateBody.safeParse(req.body ?? {});
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -119,7 +115,7 @@ router.post("/scan/explain", async (req, res): Promise<void> => {
   }
   const { ticker, strike, expiry, regenerate } = parsed.data;
 
-  const lookup = await findLatestCandidate(ticker, strike, expiry);
+  const lookup = await findLatestCandidate(userId, ticker, strike, expiry);
   if (!lookup) {
     res.status(404).json({
       error: `No candidate ${ticker.toUpperCase()} ${strike}P ${expiry} in the latest scan snapshot.`,
@@ -128,13 +124,13 @@ router.post("/scan/explain", async (req, res): Promise<void> => {
   }
   const { snapshotId, candidate } = lookup;
 
-  // Cache lookup keyed by (snapshot, ticker, strike, expiry).
   if (!regenerate) {
     const [cached] = await db
       .select()
       .from(candidateExplanationsTable)
       .where(
         and(
+          eq(candidateExplanationsTable.userId, userId),
           eq(candidateExplanationsTable.snapshotId, snapshotId),
           eq(candidateExplanationsTable.ticker, candidate.ticker),
           eq(candidateExplanationsTable.strike, candidate.strike),
@@ -162,12 +158,10 @@ router.post("/scan/explain", async (req, res): Promise<void> => {
     }
   }
 
-  // Tier gate. The fallback path is intentionally kept inline so unentitled
-  // users still see useful copy rather than a wall.
   const tier = await getCurrentTier(req);
   const aiEntitled = hasCapability(tier, "ai.explainer");
 
-  const portfolio = await loadPortfolioSnapshot();
+  const portfolio = await loadPortfolioSnapshot(userId);
   const explainerInput: ExplainerInput = {
     candidate,
     openPositions: portfolio.openPositions,
@@ -201,14 +195,13 @@ router.post("/scan/explain", async (req, res): Promise<void> => {
     result = buildFallbackExplanation(explainerInput);
   }
 
-  // Cache LLM responses only — the fallback is cheap to recompute and
-  // can change as the user's portfolio evolves.
   const generatedAt = new Date();
   if (source === "llm") {
     try {
       await db
         .insert(candidateExplanationsTable)
         .values({
+          userId,
           snapshotId,
           ticker: candidate.ticker,
           strike: candidate.strike,
@@ -222,6 +215,7 @@ router.post("/scan/explain", async (req, res): Promise<void> => {
         })
         .onConflictDoUpdate({
           target: [
+            candidateExplanationsTable.userId,
             candidateExplanationsTable.snapshotId,
             candidateExplanationsTable.ticker,
             candidateExplanationsTable.strike,

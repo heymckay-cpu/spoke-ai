@@ -3,10 +3,14 @@ import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../lib/tierStore", () => ({
-  getCurrentTierForRequest: vi.fn(),
+  getCurrentTierForUser: vi.fn(),
 }));
 
-import { getCurrentTierForRequest } from "../lib/tierStore";
+vi.mock("./auth", () => ({
+  getUserId: vi.fn(() => "test-user-id"),
+}));
+
+import { getCurrentTierForUser } from "../lib/tierStore";
 import { requireCapability } from "./tier";
 
 function buildApp(): Express {
@@ -30,7 +34,7 @@ function buildApp(): Express {
 }
 
 describe("requireCapability middleware", () => {
-  const mocked = vi.mocked(getCurrentTierForRequest);
+  const mocked = vi.mocked(getCurrentTierForUser);
 
   beforeEach(() => {
     mocked.mockReset();

@@ -4,10 +4,7 @@ import type { ScreenerSettings } from "./screener";
 import { setCacheTtlMinutes, clearMarketCache } from "./market";
 import { defaultTier } from "./tierStore";
 
-// Listeners notified whenever settings are saved. The /scan route registers
-// here to drop its in-memory cached snapshot so the next call rebuilds with
-// the new parameters.
-type SettingsListener = (s: ScreenerSettings) => void;
+type SettingsListener = (s: ScreenerSettings, userId: string) => void;
 const listeners = new Set<SettingsListener>();
 export function onSettingsSaved(fn: SettingsListener): () => void {
   listeners.add(fn);
@@ -45,16 +42,14 @@ const DEFAULT_SETTINGS: ScreenerSettings = {
   earningsInWindow: "hide",
 };
 
-export async function getSettings(): Promise<ScreenerSettings> {
-  const rows = await db.select().from(settingsTable).where(eq(settingsTable.id, 1));
+export async function getSettings(userId: string): Promise<ScreenerSettings> {
+  const rows = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId));
   const row = rows[0];
   if (!row) {
-    // Seed the singleton row with both the screener defaults and an
-    // env-aware tier so production never silently provisions Ultra and
-    // dev gets Ultra so every gated feature is testable.
+    // Lazy-seed the user's row with defaults on first read.
     await db
       .insert(settingsTable)
-      .values({ id: 1, ...flatten(DEFAULT_SETTINGS), tier: defaultTier() });
+      .values({ userId, ...flatten(DEFAULT_SETTINGS), tier: defaultTier() });
     setCacheTtlMinutes(DEFAULT_SETTINGS.cacheTtlMinutes);
     return DEFAULT_SETTINGS;
   }
@@ -93,26 +88,20 @@ function flatten(s: ScreenerSettings) {
   };
 }
 
-export async function saveSettings(s: ScreenerSettings): Promise<ScreenerSettings> {
-  // First-write path must seed the env-aware tier so a save before any
-  // /tier read in production cannot leave the row at the schema default
-  // for dev (or vice-versa). On UPDATE we deliberately do NOT touch tier
-  // — that lives behind the dedicated /tier endpoint.
+export async function saveSettings(userId: string, s: ScreenerSettings): Promise<ScreenerSettings> {
   const flat = flatten(s);
   await db
     .insert(settingsTable)
-    .values({ id: 1, ...flat, tier: defaultTier() })
+    .values({ userId, ...flat, tier: defaultTier() })
     .onConflictDoUpdate({
-      target: settingsTable.id,
+      target: settingsTable.userId,
       set: { ...flat, updatedAt: new Date() },
     });
   setCacheTtlMinutes(s.cacheTtlMinutes);
-  // Settings changed → invalidate market & scan caches so subsequent scans
-  // reflect the new parameters immediately.
   clearMarketCache();
   for (const fn of listeners) {
     try {
-      fn(s);
+      fn(s, userId);
     } catch {
       /* listener errors must not break saves */
     }

@@ -1,16 +1,15 @@
 import { db, positionsTable, notificationsTable } from "@workspace/db";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, inArray } from "drizzle-orm";
 import { hasCapability } from "@workspace/tiers";
 import { getSpot } from "./market";
 import { logger } from "./logger";
-import { getCurrentTierForRequest } from "./tierStore";
+import { getCurrentTierForUser } from "./tierStore";
 
 export const EXPIRING_SOON_DTE = 3;
 
-// Single-flight mutex: the scheduled interval and the manual /notifications/scan
-// route share this lock so two scans can never run in parallel and double-fire
-// alerts. Concurrent callers receive the in-flight scan's result.
-let inFlight: Promise<AlertScanResult> | null = null;
+// Per-user single-flight mutex map so two scans for the same user can never
+// run in parallel and double-fire alerts.
+const inFlightByUser = new Map<string, Promise<AlertScanResult>>();
 
 function dteFromIso(expiry: string): number {
   const exp = new Date(`${expiry}T00:00:00Z`).getTime();
@@ -24,30 +23,25 @@ export interface AlertScanResult {
   expiringAlerts: number;
 }
 
-// Scan all open positions and create notifications for any that have crossed
-// into ITM or are within EXPIRING_SOON_DTE days of expiry. Each condition
-// fires at most once per position (tracked via lastAlerted* columns); the
-// alert resets when the underlying condition clears (e.g. spot recovers
-// above strike).
-export async function scanPositionsForAlerts(): Promise<AlertScanResult> {
-  // De-dupe overlapping callers (scheduler tick + manual /scan) by handing
-  // them the same in-flight promise.
-  if (inFlight) return inFlight;
-  inFlight = (async (): Promise<AlertScanResult> => {
+export async function scanPositionsForAlerts(userId: string): Promise<AlertScanResult> {
+  const existing = inFlightByUser.get(userId);
+  if (existing) return existing;
+  const promise = (async (): Promise<AlertScanResult> => {
     try {
-      return await runScan();
+      return await runScan(userId);
     } finally {
-      inFlight = null;
+      inFlightByUser.delete(userId);
     }
   })();
-  return inFlight;
+  inFlightByUser.set(userId, promise);
+  return promise;
 }
 
-async function runScan(): Promise<AlertScanResult> {
+async function runScan(userId: string): Promise<AlertScanResult> {
   const open = await db
     .select()
     .from(positionsTable)
-    .where(isNull(positionsTable.closedAt));
+    .where(and(eq(positionsTable.userId, userId), isNull(positionsTable.closedAt)));
 
   let itmAlerts = 0;
   let expiringAlerts = 0;
@@ -62,10 +56,6 @@ async function runScan(): Promise<AlertScanResult> {
       logger.debug({ err, ticker: row.ticker }, "alert scan: getSpot failed");
     }
 
-    // ITM detection — fire once per crossing. The atomic conditional update
-    // (set marker WHERE marker IS NULL) ensures only one writer can claim
-    // the alert slot, even if a second scan slips past the in-process mutex
-    // (e.g. across processes). Insert only happens when we won the claim.
     const isItm = spot != null && spot < row.strike;
     if (isItm) {
       const claimed = await db
@@ -74,6 +64,7 @@ async function runScan(): Promise<AlertScanResult> {
         .where(
           and(
             eq(positionsTable.id, row.id),
+            eq(positionsTable.userId, userId),
             isNull(positionsTable.lastAlertedItmAt),
           ),
         )
@@ -84,6 +75,7 @@ async function runScan(): Promise<AlertScanResult> {
           `(spot ${spot!.toFixed(2)} < strike ${row.strike.toFixed(2)}). ` +
           `Consider rolling or closing.`;
         await db.insert(notificationsTable).values({
+          userId,
           positionId: row.id,
           kind: "itm",
           ticker: row.ticker,
@@ -92,14 +84,12 @@ async function runScan(): Promise<AlertScanResult> {
         itmAlerts += 1;
       }
     } else if (spot != null && row.lastAlertedItmAt != null) {
-      // Spot recovered — reset so a future re-cross alerts again.
       await db
         .update(positionsTable)
         .set({ lastAlertedItmAt: null })
-        .where(eq(positionsTable.id, row.id));
+        .where(and(eq(positionsTable.id, row.id), eq(positionsTable.userId, userId)));
     }
 
-    // Expiring soon — same atomic-claim pattern.
     const isExpiringSoon = dte >= 0 && dte <= EXPIRING_SOON_DTE;
     if (isExpiringSoon) {
       const claimed = await db
@@ -108,6 +98,7 @@ async function runScan(): Promise<AlertScanResult> {
         .where(
           and(
             eq(positionsTable.id, row.id),
+            eq(positionsTable.userId, userId),
             isNull(positionsTable.lastAlertedExpiringSoonAt),
           ),
         )
@@ -117,6 +108,7 @@ async function runScan(): Promise<AlertScanResult> {
           `${row.ticker} ${row.strike}P expires in ${dte} day${dte === 1 ? "" : "s"} ` +
           `(${row.expiry}). Plan to roll, close, or take assignment.`;
         await db.insert(notificationsTable).values({
+          userId,
           positionId: row.id,
           kind: "expiring_soon",
           ticker: row.ticker,
@@ -132,44 +124,42 @@ async function runScan(): Promise<AlertScanResult> {
 
 let intervalHandle: NodeJS.Timeout | null = null;
 
-// Start a background scheduler that periodically scans open positions for
-// alert conditions. Safe to call multiple times — only one scheduler runs.
-// First scan is delayed slightly so the server can finish booting.
 export function startAlertScheduler(intervalMinutes = 15): void {
   if (intervalHandle) return;
   const intervalMs = Math.max(1, intervalMinutes) * 60 * 1000;
 
   const run = async () => {
     try {
-      // Email-style alert delivery is gated behind `alerts.email` (Pro+).
-      // Free-tier installs still see the in-app notifications produced by
-      // the manual route on demand, but the scheduler — which is what
-      // would feed an SMTP/Resend integration once added — is silenced
-      // until the tier qualifies. This keeps the scheduler honest now
-      // even though the actual email transport hasn't shipped yet.
-      const tier = await getCurrentTierForRequest();
-      if (!hasCapability(tier, "alerts.email")) {
-        logger.debug({ tier }, "alert scheduler: skipped (tier below alerts.email)");
-        return;
-      }
-      const result = await scanPositionsForAlerts();
-      if (result.itmAlerts > 0 || result.expiringAlerts > 0) {
-        logger.info(
-          { ...result },
-          "alert scan: fired notifications",
-        );
-      } else {
-        logger.debug({ ...result }, "alert scan: no new alerts");
+      // Find all distinct userIds that have open positions so each gets their own alert scan.
+      const userRows = await db
+        .selectDistinct({ userId: positionsTable.userId })
+        .from(positionsTable)
+        .where(isNull(positionsTable.closedAt));
+
+      for (const { userId } of userRows) {
+        try {
+          const tier = await getCurrentTierForUser(userId);
+          if (!hasCapability(tier, "alerts.email")) {
+            logger.debug({ tier, userId }, "alert scheduler: skipped (tier below alerts.email)");
+            continue;
+          }
+          const result = await scanPositionsForAlerts(userId);
+          if (result.itmAlerts > 0 || result.expiringAlerts > 0) {
+            logger.info({ ...result, userId }, "alert scan: fired notifications");
+          } else {
+            logger.debug({ ...result, userId }, "alert scan: no new alerts");
+          }
+        } catch (err) {
+          logger.warn({ err, userId }, "alert scan failed for user");
+        }
       }
     } catch (err) {
-      logger.warn({ err }, "alert scan failed");
+      logger.warn({ err }, "alert scheduler: failed to fetch active users");
     }
   };
 
-  // Initial delayed run, then on a fixed interval.
   setTimeout(run, 30_000);
   intervalHandle = setInterval(run, intervalMs);
-  // Don't keep the event loop alive solely for this timer.
   if (typeof intervalHandle.unref === "function") intervalHandle.unref();
   logger.info({ intervalMinutes }, "alert scheduler started");
 }
@@ -181,9 +171,6 @@ export function stopAlertScheduler(): void {
   }
 }
 
-// Reset the alert marker for a position. Called when a position is closed
-// (re-opening should alert fresh) or when the user acknowledges a stale
-// alert and wants to be re-notified later.
 export async function clearAlertMarkers(positionId: number): Promise<void> {
   await db
     .update(positionsTable)
@@ -191,9 +178,6 @@ export async function clearAlertMarkers(positionId: number): Promise<void> {
     .where(eq(positionsTable.id, positionId));
 }
 
-// Accepts an optional Drizzle transaction handle so callers running inside a
-// db.transaction(...) can opt in to atomic cleanup. Default is the global db
-// for backward compatibility with non-transactional call sites.
 type DbExecutor = Pick<typeof db, "delete">;
 export async function deleteNotificationsForPosition(
   positionId: number,
@@ -202,4 +186,4 @@ export async function deleteNotificationsForPosition(
   await executor.delete(notificationsTable).where(eq(notificationsTable.positionId, positionId));
 }
 
-export { and, isNull };
+export { and, isNull, inArray };
