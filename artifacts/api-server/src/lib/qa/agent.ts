@@ -26,6 +26,40 @@ export interface QaAgentResult {
   toolCalls: Array<{ name: string; input: unknown }>;
 }
 
+// Events emitted by the streaming variant of the agent loop. The route
+// translates these directly into SSE frames so the client can render text
+// as it arrives and show which tool the model is currently invoking.
+export type QaStreamEvent =
+  | { type: "text"; delta: string }
+  | { type: "tool_start"; name: string; label: string }
+  | { type: "tool_end"; name: string };
+
+// Friendly progress copy shown in the UI while a read-only tool runs. Keep
+// these short — the bubble is small.
+const TOOL_LABELS: Record<string, string> = {
+  listPositions: "Looking up your positions…",
+  getPositionStats: "Crunching position stats…",
+  latestScan: "Pulling the latest screener results…",
+  listHoldings: "Checking your holdings…",
+  getQuote: "Fetching a live quote…",
+  getRollChain: "Walking the roll history…",
+};
+
+function humanLabelFor(name: string): string {
+  return TOOL_LABELS[name] ?? `Calling ${name}…`;
+}
+
+// Hide attachment fences from the streamed text. The model emits a
+// ```attachment block as part of its answer, but we render those as a
+// proper table on the client — no point flashing raw JSON in the bubble
+// while the stream is still in flight.
+function cleanForDisplay(snapshot: string): string {
+  let cleaned = snapshot.replace(/```attachment\s*\n[\s\S]*?```/g, "");
+  const idx = cleaned.search(/```attachment(\b|\s|$)/);
+  if (idx >= 0) cleaned = cleaned.slice(0, idx);
+  return cleaned;
+}
+
 export type QaErrorCode =
   | "unavailable"
   | "rate_limit"
@@ -192,6 +226,131 @@ export async function runQaAgent(
           is_error: true,
         });
       }
+    }
+    messages.push({ role: "user", content: toolResults });
+  }
+
+  if (!finalText) finalText = "I couldn't put together an answer. Try rephrasing the question.";
+  const { stripped, attachments } = parseAttachments(finalText);
+  return { text: stripped, attachments, toolCalls };
+}
+
+interface AnthropicMessageStream {
+  on(event: "text", listener: (delta: string, snapshot: string) => void): unknown;
+  on(event: "contentBlock", listener: (block: AnthropicContentBlock) => void): unknown;
+  finalMessage(): Promise<AnthropicMessage>;
+}
+
+interface AnthropicWithStream {
+  messages: {
+    stream: (
+      args: Parameters<typeof anthropic.messages.create>[0],
+    ) => AnthropicMessageStream;
+  };
+}
+
+// Streaming variant of `runQaAgent`: same tool-use loop, but pipes text
+// deltas and tool start/end milestones to `emit` as they happen so the
+// client can render the answer incrementally. Returns the same final
+// `QaAgentResult` so the route can persist a single assistant row exactly
+// like the non-streaming path.
+export async function runQaAgentStreaming(
+  history: QaHistoryMessage[],
+  userMessage: string,
+  emit: (event: QaStreamEvent) => void,
+): Promise<QaAgentResult> {
+  type LoopMessage = { role: "user" | "assistant"; content: unknown };
+  const messages: LoopMessage[] = [
+    ...history.map((h) => ({ role: h.role as "user" | "assistant", content: h.content })),
+    { role: "user" as const, content: userMessage },
+  ];
+
+  const toolCalls: Array<{ name: string; input: unknown }> = [];
+  let finalText = "";
+
+  const streamingClient = anthropic as unknown as AnthropicWithStream;
+
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    let finalMsg: AnthropicMessage;
+    let emittedLen = 0;
+    const announcedTools = new Set<string>();
+    try {
+      const stream = streamingClient.messages.stream({
+        model: "claude-sonnet-4-6",
+        max_tokens: 8192,
+        system: SYSTEM_PROMPT,
+        tools: TOOL_DEFINITIONS as unknown as Parameters<typeof anthropic.messages.create>[0]["tools"],
+        messages: messages as Parameters<typeof anthropic.messages.create>[0]["messages"],
+      });
+
+      stream.on("text", (_delta: string, snapshot: string) => {
+        const cleaned = cleanForDisplay(snapshot);
+        if (cleaned.length > emittedLen) {
+          emit({ type: "text", delta: cleaned.slice(emittedLen) });
+          emittedLen = cleaned.length;
+        }
+      });
+
+      stream.on("contentBlock", (block: AnthropicContentBlock) => {
+        if (block.type === "tool_use") {
+          const tu = block as AnthropicToolUseBlock;
+          if (!announcedTools.has(tu.id)) {
+            announcedTools.add(tu.id);
+            emit({ type: "tool_start", name: tu.name, label: humanLabelFor(tu.name) });
+          }
+        }
+      });
+
+      finalMsg = await stream.finalMessage();
+    } catch (err) {
+      const code = classifyError(err);
+      throw new QaUnavailableError(code, err instanceof Error ? err.message : String(err));
+    }
+
+    messages.push({ role: "assistant", content: finalMsg.content });
+
+    if (finalMsg.stop_reason !== "tool_use") {
+      finalText = finalMsg.content
+        .filter((b): b is AnthropicTextBlock => b.type === "text")
+        .map((b) => b.text)
+        .join("\n\n")
+        .trim();
+      break;
+    }
+
+    const toolUses = finalMsg.content.filter(
+      (b): b is AnthropicToolUseBlock => b.type === "tool_use",
+    );
+    const toolResults: Array<{ type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }> = [];
+    for (const use of toolUses) {
+      toolCalls.push({ name: use.name, input: use.input });
+      const handler = TOOL_HANDLERS[use.name];
+      if (!handler) {
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: use.id,
+          content: JSON.stringify({ error: `tool '${use.name}' is not in the read-only allowlist` }),
+          is_error: true,
+        });
+        emit({ type: "tool_end", name: use.name });
+        continue;
+      }
+      try {
+        const result = await handler(use.input);
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: use.id,
+          content: JSON.stringify(result).slice(0, 60_000),
+        });
+      } catch (e) {
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: use.id,
+          content: JSON.stringify({ error: e instanceof Error ? e.message : "tool failed" }),
+          is_error: true,
+        });
+      }
+      emit({ type: "tool_end", name: use.name });
     }
     messages.push({ role: "user", content: toolResults });
   }

@@ -61,6 +61,7 @@ import type {
   ScanSummary,
   SectorMap,
   SendQaMessage404,
+  SendQaMessageStream404,
   Settings,
   SettingsInput,
   TierBlocked,
@@ -3162,3 +3163,102 @@ export function useGetSectors<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Streaming variant of `sendQaMessage`. Returns `text/event-stream`
+with one JSON payload per `data:` frame. The frame `type` field
+determines the shape:
+  * `user_message` — once at start, contains the persisted user `QaMessage`.
+  * `tool_start` — `{ name, label }` when the agent begins a read-only tool call.
+  * `tool_end` — `{ name }` when that tool call completes.
+  * `text` — `{ delta }` incremental assistant text (with attachment fences hidden).
+  * `done` — once at end, contains the persisted assistant `QaMessage`.
+  * `error` — `{ code, error }` if the AI provider failed mid-stream.
+Persistence semantics match `sendQaMessage`: the user row is always
+written; the assistant row is written only on success.
+
+ * @summary Send a user message and stream the assistant reply as SSE
+ */
+export const getSendQaMessageStreamUrl = () => {
+  return `/api/qa/messages/stream`;
+};
+
+export const sendQaMessageStream = async (
+  qaSendMessageInput: QaSendMessageInput,
+  options?: RequestInit,
+): Promise<string> => {
+  return customFetch<string>(getSendQaMessageStreamUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(qaSendMessageInput),
+  });
+};
+
+export const getSendQaMessageStreamMutationOptions = <
+  TError = ErrorType<SendQaMessageStream404>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendQaMessageStream>>,
+    TError,
+    { data: BodyType<QaSendMessageInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendQaMessageStream>>,
+  TError,
+  { data: BodyType<QaSendMessageInput> },
+  TContext
+> => {
+  const mutationKey = ["sendQaMessageStream"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendQaMessageStream>>,
+    { data: BodyType<QaSendMessageInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return sendQaMessageStream(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendQaMessageStreamMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendQaMessageStream>>
+>;
+export type SendQaMessageStreamMutationBody = BodyType<QaSendMessageInput>;
+export type SendQaMessageStreamMutationError =
+  ErrorType<SendQaMessageStream404>;
+
+/**
+ * @summary Send a user message and stream the assistant reply as SSE
+ */
+export const useSendQaMessageStream = <
+  TError = ErrorType<SendQaMessageStream404>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendQaMessageStream>>,
+    TError,
+    { data: BodyType<QaSendMessageInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof sendQaMessageStream>>,
+  TError,
+  { data: BodyType<QaSendMessageInput> },
+  TContext
+> => {
+  return useMutation(getSendQaMessageStreamMutationOptions(options));
+};

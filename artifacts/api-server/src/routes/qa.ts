@@ -6,7 +6,13 @@ import {
   GetQaConversationParams,
   SendQaMessageBody,
 } from "@workspace/api-zod";
-import { runQaAgent, QaUnavailableError, type QaAttachment, type QaHistoryMessage } from "../lib/qa/agent";
+import {
+  runQaAgent,
+  runQaAgentStreaming,
+  QaUnavailableError,
+  type QaAttachment,
+  type QaHistoryMessage,
+} from "../lib/qa/agent";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -150,6 +156,94 @@ router.post("/qa/messages", async (req, res): Promise<void> => {
       error: err instanceof Error ? err.message : "AI is currently unavailable",
       code: "unknown",
     });
+  }
+});
+
+router.post("/qa/messages/stream", async (req, res): Promise<void> => {
+  const parsed = SendQaMessageBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const { conversationId, content } = parsed.data;
+  const [conv] = await db
+    .select()
+    .from(qaConversationsTable)
+    .where(eq(qaConversationsTable.id, conversationId));
+  if (!conv) {
+    res.status(404).json({ error: "Conversation not found" });
+    return;
+  }
+
+  const [userRow] = await db
+    .insert(qaMessagesTable)
+    .values({ conversationId, role: "user", content })
+    .returning();
+  if (!userRow) {
+    res.status(500).json({ error: "Failed to persist message" });
+    return;
+  }
+
+  const priorMessages = await db
+    .select()
+    .from(qaMessagesTable)
+    .where(eq(qaMessagesTable.conversationId, conversationId))
+    .orderBy(asc(qaMessagesTable.createdAt), asc(qaMessagesTable.id));
+
+  const history: QaHistoryMessage[] = priorMessages
+    .filter((m) => m.id !== userRow.id)
+    .map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
+
+  // Open the SSE stream. Headers must be flushed before any tokens go out
+  // so the browser sees the response as event-stream and starts pushing
+  // incremental updates to the listener instead of buffering.
+  res.status(200);
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+  const send = (payload: Record<string, unknown>): void => {
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+
+  // Send the persisted user message id immediately so the client can
+  // reconcile its optimistic bubble.
+  send({ type: "user_message", message: serialiseMessage(userRow) });
+
+  try {
+    const result = await runQaAgentStreaming(history, content, (event) => {
+      send(event as unknown as Record<string, unknown>);
+    });
+    const [assistantRow] = await db
+      .insert(qaMessagesTable)
+      .values({
+        conversationId,
+        role: "assistant",
+        content: result.text,
+        attachments: result.attachments,
+      })
+      .returning();
+    if (!assistantRow) {
+      send({ type: "error", code: "unknown", error: "Failed to persist assistant reply" });
+    } else {
+      send({ type: "done", message: serialiseMessage(assistantRow) });
+    }
+  } catch (err) {
+    if (err instanceof QaUnavailableError) {
+      logger.warn({ code: err.code, msg: err.message }, "QA agent unavailable");
+      send({ type: "error", code: err.code, error: err.message || "AI is currently unavailable" });
+    } else {
+      logger.error({ err }, "QA agent failed");
+      send({
+        type: "error",
+        code: "unknown",
+        error: err instanceof Error ? err.message : "AI is currently unavailable",
+      });
+    }
+  } finally {
+    res.end();
   }
 });
 

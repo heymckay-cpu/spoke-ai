@@ -816,6 +816,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/SectorMap"
 
+  /qa/messages/stream:
+    post:
+      operationId: sendQaMessageStream
+      tags: [qa]
+      summary: Send a user message and stream the assistant reply as SSE
+      description: |
+        Streaming variant of `sendQaMessage`. Returns `text/event-stream`
+        with one JSON payload per `data:` frame. The frame `type` field
+        determines the shape:
+          * `user_message` — once at start, contains the persisted user `QaMessage`.
+          * `tool_start` — `{ name, label }` when the agent begins a read-only tool call.
+          * `tool_end` — `{ name }` when that tool call completes.
+          * `text` — `{ delta }` incremental assistant text (with attachment fences hidden).
+          * `done` — once at end, contains the persisted assistant `QaMessage`.
+          * `error` — `{ code, error }` if the AI provider failed mid-stream.
+        Persistence semantics match `sendQaMessage`: the user row is always
+        written; the assistant row is written only on success.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QaSendMessageInput"
+      responses:
+        "200":
+          description: Server-sent event stream of agent progress and final reply.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "404":
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error: { type: string }
+
 components:
   schemas:
     HealthStatus:

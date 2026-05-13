@@ -1331,3 +1331,7 @@ export type GetSectorsParams = {
    */
   tickers: string;
 };
+
+export type SendQaMessageStream404 = {
+  error: string;
+};

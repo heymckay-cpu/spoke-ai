@@ -4,7 +4,6 @@ import { Loader2, Send, Sparkles } from "lucide-react";
 import {
   useCreateQaConversation,
   useGetQaConversation,
-  useSendQaMessage,
   getGetQaConversationQueryKey,
   type QaMessage,
 } from "@workspace/api-client-react";
@@ -89,7 +88,9 @@ export function QaPanel({ className }: QaPanelProps) {
   });
 
   const createMutation = useCreateQaConversation();
-  const sendMutation = useSendQaMessage();
+  const [streamingText, setStreamingText] = useState("");
+  const [toolStatus, setToolStatus] = useState<string | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
 
   const messages: QaMessage[] = conversationQuery.data?.messages ?? [];
   const showOptimistic =
@@ -100,7 +101,7 @@ export function QaPanel({ className }: QaPanelProps) {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [messages.length, sendMutation.isPending, errorPayload]);
+  }, [messages.length, isStreaming, streamingText, toolStatus, errorPayload]);
 
   async function ensureConversationId(): Promise<number> {
     if (conversationId != null) return conversationId;
@@ -114,46 +115,76 @@ export function QaPanel({ className }: QaPanelProps) {
 
   async function submit(text: string) {
     const trimmed = text.trim();
-    if (!trimmed || sendMutation.isPending) return;
+    if (!trimmed || isStreaming) return;
     setErrorPayload(null);
     setDraft("");
+    setStreamingText("");
+    setToolStatus(null);
+    let cid: number;
     try {
-      const cid = await ensureConversationId();
-      setOptimisticUser({
-        id: -Date.now(),
-        conversationId: cid,
-        role: "user",
-        content: trimmed,
-        attachments: [],
-        createdAt: new Date().toISOString(),
+      cid = await ensureConversationId();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "AI features unavailable";
+      setErrorPayload({ error: message });
+      return;
+    }
+
+    setOptimisticUser({
+      id: -Date.now(),
+      conversationId: cid,
+      role: "user",
+      content: trimmed,
+      attachments: [],
+      createdAt: new Date().toISOString(),
+    });
+    setIsStreaming(true);
+
+    const apiBase = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
+    const url = `${apiBase}/api/qa/messages/stream`;
+    let streamErrored = false;
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "text/event-stream" },
+        body: JSON.stringify({ conversationId: cid, content: trimmed }),
+        credentials: "include",
       });
-      await sendMutation.mutateAsync({
-        data: { conversationId: cid, content: trimmed },
-      });
+      if (!res.ok || !res.body) {
+        let payload: QaErrorPayload = { error: `AI request failed (${res.status})` };
+        try {
+          payload = (await res.json()) as QaErrorPayload;
+        } catch {
+          /* leave default */
+        }
+        setErrorPayload(payload);
+        streamErrored = true;
+      } else {
+        await consumeStream(res.body, {
+          onText: (delta) => setStreamingText((prev) => prev + delta),
+          onToolStart: (label) => setToolStatus(label),
+          onToolEnd: () => setToolStatus(null),
+          onError: (payload) => {
+            streamErrored = true;
+            setErrorPayload(payload);
+          },
+        });
+      }
+    } catch (err) {
+      streamErrored = true;
+      setErrorPayload({ error: err instanceof Error ? err.message : "AI features unavailable" });
+    } finally {
+      setIsStreaming(false);
+      setStreamingText("");
+      setToolStatus(null);
+      // Always refetch — on success it picks up the persisted assistant
+      // row; on error it at least shows the persisted user message.
       await queryClient.invalidateQueries({ queryKey: getGetQaConversationQueryKey(cid) });
       setOptimisticUser(null);
-    } catch (err: unknown) {
-      // Pull structured error payload off the failing fetch when possible.
-      let payload: QaErrorPayload = { error: "AI features unavailable" };
-      const e = err as { response?: Response; message?: string; data?: QaErrorPayload };
-      if (e?.data && typeof e.data === "object") {
-        payload = { error: e.data.error ?? "AI features unavailable", code: e.data.code };
-      } else if (e?.response instanceof Response) {
-        try {
-          payload = (await e.response.clone().json()) as QaErrorPayload;
-        } catch {
-          /* ignore */
-        }
-      } else if (e?.message) {
-        payload = { error: e.message };
+      if (streamErrored) {
+        // Surface a generic failure if the stream died without sending an
+        // explicit error frame.
+        setErrorPayload((cur) => cur ?? { error: "AI features unavailable" });
       }
-      setErrorPayload(payload);
-      // Refetch so the persisted user message still shows up even if the
-      // assistant reply failed.
-      if (conversationId != null) {
-        await queryClient.invalidateQueries({ queryKey: getGetQaConversationQueryKey(conversationId) });
-      }
-      setOptimisticUser(null);
     }
   }
 
@@ -203,8 +234,37 @@ export function QaPanel({ className }: QaPanelProps) {
           {showOptimistic && optimisticUser && (
             <QaMessageBubble message={optimisticUser} />
           )}
-          {sendMutation.isPending && (
-            <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground" data-testid="qa-thinking">
+          {isStreaming && (streamingText.length > 0 || toolStatus) && (
+            <div data-testid="qa-streaming">
+              <QaMessageBubble
+                message={{
+                  id: -1,
+                  conversationId: conversationId ?? 0,
+                  role: "assistant",
+                  content:
+                    streamingText.length > 0
+                      ? streamingText
+                      : toolStatus ?? "Thinking…",
+                  attachments: [],
+                  createdAt: new Date().toISOString(),
+                }}
+              />
+              {toolStatus && (
+                <div
+                  className="mt-1 flex items-center gap-2 px-1 text-xs text-muted-foreground"
+                  data-testid="qa-tool-status"
+                >
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {toolStatus}
+                </div>
+              )}
+            </div>
+          )}
+          {isStreaming && streamingText.length === 0 && !toolStatus && (
+            <div
+              className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground"
+              data-testid="qa-thinking"
+            >
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               Thinking…
             </div>
@@ -243,15 +303,15 @@ export function QaPanel({ className }: QaPanelProps) {
             rows={2}
             className="min-h-[56px] resize-none"
             data-testid="qa-input"
-            disabled={sendMutation.isPending}
+            disabled={isStreaming}
           />
           <Button
             type="submit"
-            disabled={!draft.trim() || sendMutation.isPending}
+            disabled={!draft.trim() || isStreaming}
             className="h-12"
             data-testid="qa-send"
           >
-            {sendMutation.isPending ? (
+            {isStreaming ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Send className="h-4 w-4" />
@@ -261,4 +321,69 @@ export function QaPanel({ className }: QaPanelProps) {
       </form>
     </div>
   );
+}
+
+interface StreamHandlers {
+  onText: (delta: string) => void;
+  onToolStart: (label: string) => void;
+  onToolEnd: (name: string) => void;
+  onError: (payload: QaErrorPayload) => void;
+}
+
+// Read an SSE response body frame-by-frame and dispatch parsed events to
+// the handlers. Stops when the upstream closes or an error frame arrives.
+async function consumeStream(
+  body: ReadableStream<Uint8Array>,
+  handlers: StreamHandlers,
+): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // SSE frames are separated by a blank line.
+      let sep: number;
+      while ((sep = buffer.indexOf("\n\n")) !== -1) {
+        const frame = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        const dataLines: string[] = [];
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+        }
+        if (dataLines.length === 0) continue;
+        let parsed: { type?: string; [k: string]: unknown };
+        try {
+          parsed = JSON.parse(dataLines.join("\n")) as { type?: string };
+        } catch {
+          continue;
+        }
+        switch (parsed.type) {
+          case "text":
+            if (typeof parsed.delta === "string") handlers.onText(parsed.delta);
+            break;
+          case "tool_start":
+            if (typeof parsed.label === "string") handlers.onToolStart(parsed.label);
+            break;
+          case "tool_end":
+            if (typeof parsed.name === "string") handlers.onToolEnd(parsed.name);
+            break;
+          case "error":
+            handlers.onError({
+              error: typeof parsed.error === "string" ? parsed.error : "AI features unavailable",
+              code: typeof parsed.code === "string" ? parsed.code : undefined,
+            });
+            break;
+          // user_message / done are handled implicitly via the post-stream
+          // refetch of the conversation.
+          default:
+            break;
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }

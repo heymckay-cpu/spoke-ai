@@ -100,6 +100,7 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 const runAgentMock = vi.fn();
+const runStreamingAgentMock = vi.fn();
 vi.mock("../lib/qa/agent", () => {
   class QaUnavailableError extends Error {
     code: string;
@@ -111,6 +112,7 @@ vi.mock("../lib/qa/agent", () => {
   }
   return {
     runQaAgent: (...args: unknown[]) => runAgentMock(...args),
+    runQaAgentStreaming: (...args: unknown[]) => runStreamingAgentMock(...args),
     QaUnavailableError,
   };
 });
@@ -123,6 +125,7 @@ beforeEach(async () => {
   stores.nextConvId = 1;
   stores.nextMsgId = 1;
   runAgentMock.mockReset();
+  runStreamingAgentMock.mockReset();
   vi.resetModules();
   app = express();
   app.use(express.json());
@@ -214,6 +217,76 @@ describe("POST /api/qa/messages", () => {
       .send({ conversationId: 1, content: "hello" });
     expect(r.status).toBe(503);
     expect(r.body).toMatchObject({ code: "rate_limit" });
+    expect(stores.messages.filter((m) => m.role === "user")).toHaveLength(1);
+    expect(stores.messages.filter((m) => m.role === "assistant")).toHaveLength(0);
+  });
+});
+
+describe("POST /api/qa/messages/stream", () => {
+  it("returns 404 when the conversation does not exist", async () => {
+    const r = await request(app)
+      .post("/api/qa/messages/stream")
+      .send({ conversationId: 999, content: "hi" });
+    expect(r.status).toBe(404);
+  });
+
+  it("streams text + tool events as SSE frames and persists both messages", async () => {
+    stores.conversations.push({ id: 1, title: "x", createdAt: new Date() });
+    stores.nextConvId = 2;
+    runStreamingAgentMock.mockImplementation(
+      async (_history: unknown, _msg: unknown, emit: (e: unknown) => void) => {
+        emit({ type: "tool_start", name: "listPositions", label: "Looking up your positions…" });
+        emit({ type: "tool_end", name: "listPositions" });
+        emit({ type: "text", delta: "Here is " });
+        emit({ type: "text", delta: "your answer." });
+        return { text: "Here is your answer.", attachments: [], toolCalls: [] };
+      },
+    );
+
+    const r = await request(app)
+      .post("/api/qa/messages/stream")
+      .send({ conversationId: 1, content: "what's my pnl?" });
+
+    expect(r.status).toBe(200);
+    expect(r.headers["content-type"]).toContain("text/event-stream");
+    const frames = r.text
+      .split("\n\n")
+      .filter((f) => f.startsWith("data:"))
+      .map((f) => JSON.parse(f.replace(/^data:\s*/, "")));
+    const types = frames.map((f) => f.type);
+    expect(types).toEqual([
+      "user_message",
+      "tool_start",
+      "tool_end",
+      "text",
+      "text",
+      "done",
+    ]);
+    const done = frames.find((f) => f.type === "done");
+    expect(done.message.content).toBe("Here is your answer.");
+    expect(done.message.role).toBe("assistant");
+    expect(stores.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+  });
+
+  it("emits an error frame and skips the assistant write when the agent fails", async () => {
+    stores.conversations.push({ id: 1, title: "x", createdAt: new Date() });
+    stores.nextConvId = 2;
+    const { QaUnavailableError } = await import("../lib/qa/agent");
+    runStreamingAgentMock.mockRejectedValue(
+      new QaUnavailableError("rate_limit", "slow down"),
+    );
+
+    const r = await request(app)
+      .post("/api/qa/messages/stream")
+      .send({ conversationId: 1, content: "hi" });
+
+    expect(r.status).toBe(200);
+    const frames = r.text
+      .split("\n\n")
+      .filter((f) => f.startsWith("data:"))
+      .map((f) => JSON.parse(f.replace(/^data:\s*/, "")));
+    const err = frames.find((f) => f.type === "error");
+    expect(err).toMatchObject({ code: "rate_limit" });
     expect(stores.messages.filter((m) => m.role === "user")).toHaveLength(1);
     expect(stores.messages.filter((m) => m.role === "assistant")).toHaveLength(0);
   });

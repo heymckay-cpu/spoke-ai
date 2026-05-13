@@ -2078,3 +2078,25 @@ export const GetSectorsResponse = zod.object({
     .record(zod.string(), zod.string())
     .describe("Map from uppercased ticker to GICS-flavored sector label."),
 });
+
+/**
+ * Streaming variant of `sendQaMessage`. Returns `text/event-stream`
+with one JSON payload per `data:` frame. The frame `type` field
+determines the shape:
+  * `user_message` — once at start, contains the persisted user `QaMessage`.
+  * `tool_start` — `{ name, label }` when the agent begins a read-only tool call.
+  * `tool_end` — `{ name }` when that tool call completes.
+  * `text` — `{ delta }` incremental assistant text (with attachment fences hidden).
+  * `done` — once at end, contains the persisted assistant `QaMessage`.
+  * `error` — `{ code, error }` if the AI provider failed mid-stream.
+Persistence semantics match `sendQaMessage`: the user row is always
+written; the assistant row is written only on success.
+
+ * @summary Send a user message and stream the assistant reply as SSE
+ */
+export const sendQaMessageStreamBodyContentMax = 4000;
+
+export const SendQaMessageStreamBody = zod.object({
+  conversationId: zod.number(),
+  content: zod.string().min(1).max(sendQaMessageStreamBodyContentMax),
+});
