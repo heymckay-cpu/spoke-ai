@@ -30,6 +30,7 @@ import type {
   HoldingInput,
   HoldingUpdate,
   HoldingsList,
+  IvHistory,
   Notification,
   NotificationsList,
   Position,
@@ -627,6 +628,98 @@ export const useRunCallScan = <
 > => {
   return useMutation(getRunCallScanMutationOptions(options));
 };
+
+/**
+ * Returns the daily ATM 30-day IV snapshots stored for the ticker
+over the trailing 52 weeks. Used by the candidate drawer's
+sparkline. The series is empty when no snapshots have been
+captured yet for the ticker.
+
+ * @summary 52-week ATM-IV snapshot history for a ticker
+ */
+export const getGetIvHistoryUrl = (ticker: string) => {
+  return `/api/iv/history/${ticker}`;
+};
+
+export const getIvHistory = async (
+  ticker: string,
+  options?: RequestInit,
+): Promise<IvHistory> => {
+  return customFetch<IvHistory>(getGetIvHistoryUrl(ticker), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetIvHistoryQueryKey = (ticker: string) => {
+  return [`/api/iv/history/${ticker}`] as const;
+};
+
+export const getGetIvHistoryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getIvHistory>>,
+  TError = ErrorType<unknown>,
+>(
+  ticker: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getIvHistory>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetIvHistoryQueryKey(ticker);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getIvHistory>>> = ({
+    signal,
+  }) => getIvHistory(ticker, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!ticker,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getIvHistory>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetIvHistoryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getIvHistory>>
+>;
+export type GetIvHistoryQueryError = ErrorType<unknown>;
+
+/**
+ * @summary 52-week ATM-IV snapshot history for a ticker
+ */
+
+export function useGetIvHistory<
+  TData = Awaited<ReturnType<typeof getIvHistory>>,
+  TError = ErrorType<unknown>,
+>(
+  ticker: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getIvHistory>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetIvHistoryQueryOptions(ticker, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Get spot price and earnings flag for a ticker

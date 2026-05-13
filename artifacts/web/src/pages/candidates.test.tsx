@@ -10,6 +10,7 @@ const {
   mockUseListHoldings,
   mockUseRunScan,
   mockUseHealthCheck,
+  mockUseUpdateSettings,
 } = vi.hoisted(() => ({
   mockUseGetLatestScan: vi.fn(),
   mockUseGetScanSummary: vi.fn(),
@@ -18,6 +19,7 @@ const {
   mockUseListHoldings: vi.fn(() => ({ data: { holdings: [] }, isLoading: false })),
   mockUseRunScan: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   mockUseHealthCheck: vi.fn(() => ({ data: { ok: true }, isLoading: false })),
+  mockUseUpdateSettings: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }));
 
 vi.mock("@workspace/api-client-react", () => {
@@ -29,6 +31,7 @@ vi.mock("@workspace/api-client-react", () => {
     useListHoldings: mockUseListHoldings,
     useRunScan: mockUseRunScan,
     useHealthCheck: mockUseHealthCheck,
+    useUpdateSettings: mockUseUpdateSettings,
     getListPositionsQueryKey: () => ["/api/positions"],
     getListHoldingsQueryKey: () => ["/api/holdings"],
     getGetSettingsQueryKey: () => ["/api/settings"],

@@ -5,6 +5,7 @@
  * Wheel Strategy Dashboard API
  * OpenAPI spec version: 0.1.0
  */
+import type { CallCandidateIvRankBasis } from "./callCandidateIvRankBasis";
 
 export interface CallCandidate {
   ticker: string;
@@ -34,6 +35,9 @@ export interface CallCandidate {
   pctOtm: number;
   /** @nullable */
   ivRank?: number | null;
+  /** @nullable */
+  ivPercentile: number | null;
+  ivRankBasis: CallCandidateIvRankBasis;
   /** @nullable */
   hv30?: number | null;
   /** @nullable */

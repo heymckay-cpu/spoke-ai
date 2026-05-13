@@ -6,6 +6,7 @@ import marketRouter from "./market";
 import positionsRouter from "./positions";
 import notificationsRouter from "./notifications";
 import holdingsRouter from "./holdings";
+import ivHistoryRouter from "./ivHistory";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(marketRouter);
 router.use(positionsRouter);
 router.use(notificationsRouter);
 router.use(holdingsRouter);
+router.use(ivHistoryRouter);
 
 export default router;

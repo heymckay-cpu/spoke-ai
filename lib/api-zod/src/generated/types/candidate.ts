@@ -5,6 +5,7 @@
  * Wheel Strategy Dashboard API
  * OpenAPI spec version: 0.1.0
  */
+import type { CandidateIvRankBasis } from "./candidateIvRankBasis";
 
 export interface Candidate {
   ticker: string;
@@ -29,10 +30,17 @@ export interface Candidate {
   breakeven: number;
   pctOtm: number;
   /**
-   * 0..1, proxy from realized vol
+   * 0..1 IV rank — real percentile within the trailing 52-week ATM-IV history when enough snapshots exist, otherwise the realized-vol proxy.
    * @nullable
    */
   ivRank?: number | null;
+  /**
+   * 0..1 share of trailing 52-week days where IV was at or below the current IV. Null when basis is `provisional` or when history is too short.
+   * @nullable
+   */
+  ivPercentile: number | null;
+  /** `real` once 20+ daily IV snapshots have accumulated for the ticker; `provisional` while the proxy is still being used. */
+  ivRankBasis: CandidateIvRankBasis;
   /** @nullable */
   hv30?: number | null;
   /** @nullable */

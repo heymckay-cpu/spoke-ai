@@ -203,6 +203,17 @@ export interface ScanInput {
   earningsInWindow?: ScanInputEarningsInWindow;
 }
 
+/**
+ * `real` once 20+ daily IV snapshots have accumulated for the ticker; `provisional` while the proxy is still being used.
+ */
+export type CandidateIvRankBasis =
+  (typeof CandidateIvRankBasis)[keyof typeof CandidateIvRankBasis];
+
+export const CandidateIvRankBasis = {
+  real: "real",
+  provisional: "provisional",
+} as const;
+
 export interface Candidate {
   ticker: string;
   spot: number;
@@ -226,10 +237,17 @@ export interface Candidate {
   breakeven: number;
   pctOtm: number;
   /**
-   * 0..1, proxy from realized vol
+   * 0..1 IV rank — real percentile within the trailing 52-week ATM-IV history when enough snapshots exist, otherwise the realized-vol proxy.
    * @nullable
    */
   ivRank?: number | null;
+  /**
+   * 0..1 share of trailing 52-week days where IV was at or below the current IV. Null when basis is `provisional` or when history is too short.
+   * @nullable
+   */
+  ivPercentile: number | null;
+  /** `real` once 20+ daily IV snapshots have accumulated for the ticker; `provisional` while the proxy is still being used. */
+  ivRankBasis: CandidateIvRankBasis;
   /** @nullable */
   hv30?: number | null;
   /** @nullable */
@@ -257,6 +275,32 @@ export interface ScanResult {
   stale: boolean;
   /** Number of qualifying candidates that were suppressed by the earnings-in-window filter (always 0 when the filter is `include` or `only`). */
   hiddenByEarningsCount: number;
+}
+
+export interface IvSnapshotPoint {
+  /** ISO date YYYY-MM-DD */
+  date: string;
+  /** ATM 30-day implied volatility (decimal) */
+  iv: number;
+}
+
+/**
+ * `real` once 20+ daily snapshots have accumulated.
+ */
+export type IvHistoryBasis =
+  (typeof IvHistoryBasis)[keyof typeof IvHistoryBasis];
+
+export const IvHistoryBasis = {
+  real: "real",
+  provisional: "provisional",
+} as const;
+
+export interface IvHistory {
+  ticker: string;
+  /** `real` once 20+ daily snapshots have accumulated. */
+  basis: IvHistoryBasis;
+  sampleSize: number;
+  points: IvSnapshotPoint[];
 }
 
 export interface IvRankBucket {
@@ -721,6 +765,14 @@ export interface DeleteResult {
   ok: boolean;
 }
 
+export type CallCandidateIvRankBasis =
+  (typeof CallCandidateIvRankBasis)[keyof typeof CallCandidateIvRankBasis];
+
+export const CallCandidateIvRankBasis = {
+  real: "real",
+  provisional: "provisional",
+} as const;
+
 export interface CallCandidate {
   ticker: string;
   spot: number;
@@ -749,6 +801,9 @@ export interface CallCandidate {
   pctOtm: number;
   /** @nullable */
   ivRank?: number | null;
+  /** @nullable */
+  ivPercentile: number | null;
+  ivRankBasis: CallCandidateIvRankBasis;
   /** @nullable */
   hv30?: number | null;
   /** @nullable */

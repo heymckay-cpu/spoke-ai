@@ -21,6 +21,8 @@ function mk(ticker: string, annualized: number, earnings: boolean): CandidateOut
     breakeven: 94,
     pctOtm: 5,
     ivRank: 0.5,
+    ivRankBasis: "provisional",
+    ivPercentile: null,
     hv30: 0.3,
     earningsDate: earnings ? "2026-01-10" : null,
     earningsInWindow: earnings,

@@ -358,7 +358,23 @@ export const RunScanResponse = zod.object({
       annualizedPct: zod.number(),
       breakeven: zod.number(),
       pctOtm: zod.number(),
-      ivRank: zod.number().nullish().describe("0..1, proxy from realized vol"),
+      ivRank: zod
+        .number()
+        .nullish()
+        .describe(
+          "0..1 IV rank — real percentile within the trailing 52-week ATM-IV history when enough snapshots exist, otherwise the realized-vol proxy.",
+        ),
+      ivPercentile: zod
+        .number()
+        .nullable()
+        .describe(
+          "0..1 share of trailing 52-week days where IV was at or below the current IV. Null when basis is `provisional` or when history is too short.",
+        ),
+      ivRankBasis: zod
+        .enum(["real", "provisional"])
+        .describe(
+          "`real` once 20+ daily IV snapshots have accumulated for the ticker; `provisional` while the proxy is still being used.",
+        ),
       hv30: zod.number().nullish(),
       earningsDate: zod.string().nullish(),
       earningsInWindow: zod.boolean(),
@@ -412,7 +428,23 @@ export const GetLatestScanResponse = zod.object({
       annualizedPct: zod.number(),
       breakeven: zod.number(),
       pctOtm: zod.number(),
-      ivRank: zod.number().nullish().describe("0..1, proxy from realized vol"),
+      ivRank: zod
+        .number()
+        .nullish()
+        .describe(
+          "0..1 IV rank — real percentile within the trailing 52-week ATM-IV history when enough snapshots exist, otherwise the realized-vol proxy.",
+        ),
+      ivPercentile: zod
+        .number()
+        .nullable()
+        .describe(
+          "0..1 share of trailing 52-week days where IV was at or below the current IV. Null when basis is `provisional` or when history is too short.",
+        ),
+      ivRankBasis: zod
+        .enum(["real", "provisional"])
+        .describe(
+          "`real` once 20+ daily IV snapshots have accumulated for the ticker; `provisional` while the proxy is still being used.",
+        ),
       hv30: zod.number().nullish(),
       earningsDate: zod.string().nullish(),
       earningsInWindow: zod.boolean(),
@@ -484,7 +516,20 @@ export const GetScanSummaryResponse = zod.object({
         ivRank: zod
           .number()
           .nullish()
-          .describe("0..1, proxy from realized vol"),
+          .describe(
+            "0..1 IV rank — real percentile within the trailing 52-week ATM-IV history when enough snapshots exist, otherwise the realized-vol proxy.",
+          ),
+        ivPercentile: zod
+          .number()
+          .nullable()
+          .describe(
+            "0..1 share of trailing 52-week days where IV was at or below the current IV. Null when basis is `provisional` or when history is too short.",
+          ),
+        ivRankBasis: zod
+          .enum(["real", "provisional"])
+          .describe(
+            "`real` once 20+ daily IV snapshots have accumulated for the ticker; `provisional` while the proxy is still being used.",
+          ),
         hv30: zod.number().nullish(),
         earningsDate: zod.string().nullish(),
         earningsInWindow: zod.boolean(),
@@ -534,6 +579,8 @@ export const RunCallScanResponse = zod.object({
       annualizedPct: zod.number(),
       pctOtm: zod.number(),
       ivRank: zod.number().nullish(),
+      ivPercentile: zod.number().nullable(),
+      ivRankBasis: zod.enum(["real", "provisional"]),
       hv30: zod.number().nullish(),
       earningsDate: zod.string().nullish(),
       earningsInWindow: zod.boolean(),
@@ -552,6 +599,32 @@ export const RunCallScanResponse = zod.object({
   ),
   holdingsScanned: zod.number(),
   holdingsWithCandidate: zod.number(),
+});
+
+/**
+ * Returns the daily ATM 30-day IV snapshots stored for the ticker
+over the trailing 52 weeks. Used by the candidate drawer's
+sparkline. The series is empty when no snapshots have been
+captured yet for the ticker.
+
+ * @summary 52-week ATM-IV snapshot history for a ticker
+ */
+export const GetIvHistoryParams = zod.object({
+  ticker: zod.coerce.string(),
+});
+
+export const GetIvHistoryResponse = zod.object({
+  ticker: zod.string(),
+  basis: zod
+    .enum(["real", "provisional"])
+    .describe("`real` once 20+ daily snapshots have accumulated."),
+  sampleSize: zod.number(),
+  points: zod.array(
+    zod.object({
+      date: zod.string().describe("ISO date YYYY-MM-DD"),
+      iv: zod.number().describe("ATM 30-day implied volatility (decimal)"),
+    }),
+  ),
 });
 
 /**

@@ -4,26 +4,45 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // Mock the generated hooks before importing the page so we have controllable
 // stubs in place of network calls.
-const mockGetLatestScan = vi.fn();
-const mockGetScanSummary = vi.fn();
-const mockGetSettings = vi.fn();
-const mockUseRunScan = vi.fn();
-const mockUseUpdateSettings = vi.fn();
-const runScanMutate = vi.fn();
-const updateSettingsMutate = vi.fn();
+const {
+  mockGetLatestScan,
+  mockGetScanSummary,
+  mockGetSettings,
+  mockListPositions,
+  mockListHoldings,
+  mockHealthCheck,
+  mockUseRunScan,
+  mockUseUpdateSettings,
+  runScanMutate,
+  updateSettingsMutate,
+} = vi.hoisted(() => ({
+  mockGetLatestScan: vi.fn(),
+  mockGetScanSummary: vi.fn(),
+  mockGetSettings: vi.fn(),
+  mockListPositions: vi.fn(() => ({ data: { positions: [] }, isLoading: false })),
+  mockListHoldings: vi.fn(() => ({ data: { holdings: [] }, isLoading: false })),
+  mockHealthCheck: vi.fn(() => ({ data: { ok: true }, isLoading: false })),
+  mockUseRunScan: vi.fn(),
+  mockUseUpdateSettings: vi.fn(),
+  runScanMutate: vi.fn(),
+  updateSettingsMutate: vi.fn(),
+}));
 
 vi.mock("@workspace/api-client-react", () => ({
-  useGetLatestScan: (...args: unknown[]) => mockGetLatestScan(...args),
-  useGetScanSummary: (...args: unknown[]) => mockGetScanSummary(...args),
-  useGetSettings: (...args: unknown[]) => mockGetSettings(...args),
-  useRunScan: (opts?: { mutation?: { onSuccess?: (r: unknown) => void } }) =>
-    mockUseRunScan(opts),
-  useUpdateSettings: (opts?: { mutation?: { onSuccess?: (r: unknown) => void } }) =>
-    mockUseUpdateSettings(opts),
+  useGetLatestScan: mockGetLatestScan,
+  useGetScanSummary: mockGetScanSummary,
+  useGetSettings: mockGetSettings,
+  useListPositions: mockListPositions,
+  useListHoldings: mockListHoldings,
+  useHealthCheck: mockHealthCheck,
+  useRunScan: mockUseRunScan,
+  useUpdateSettings: mockUseUpdateSettings,
   getGetLatestScanQueryKey: () => ["/api/scan/latest"] as const,
   getGetScanSummaryQueryKey: () => ["/api/scan/summary"] as const,
   getGetSettingsQueryKey: () => ["/api/settings"] as const,
   getListPositionsQueryKey: () => ["/api/positions"] as const,
+  getListHoldingsQueryKey: () => ["/api/holdings"] as const,
+  getHealthCheckQueryKey: () => ["/api/health"] as const,
 }));
 
 // The candidate row uses the AddPositionDialog which pulls in market hooks; stub

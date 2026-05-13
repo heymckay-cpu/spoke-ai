@@ -13,6 +13,7 @@ import {
 } from "./market";
 import { logger } from "./logger";
 import type { ScreenerSettings } from "./screener";
+import { computeIvRank, computeIvPercentile, type IvBasis } from "./iv/rank";
 
 export interface CallCandidateOut {
   ticker: string;
@@ -35,6 +36,8 @@ export interface CallCandidateOut {
   annualizedPct: number;
   pctOtm: number;
   ivRank: number | null;
+  ivPercentile: number | null;
+  ivRankBasis: IvBasis;
   hv30: number | null;
   earningsDate: string | null;
   earningsInWindow: boolean;
@@ -123,7 +126,7 @@ async function scanHolding(
   }
 
   const hvStat = await getIvHistoryProxy(h.ticker);
-  const rank = hvStat ? ivRank(hvStat.current, hvStat.min, hvStat.max) : null;
+  const proxyRank = hvStat ? ivRank(hvStat.current, hvStat.min, hvStat.max) : null;
   const hv30 = hvStat?.current ?? null;
 
   const expirations = await getExpirations(h.ticker);
@@ -145,7 +148,6 @@ async function scanHolding(
   const minStrike = Math.max(quote.spot, h.avgCost);
   const contractsAvailable = Math.floor(h.shares / 100);
   let best: CallCandidateOut | null = null;
-
   for (const exp of eligible) {
     const snap = await getOptionChain(h.ticker, exp);
     if (!snap) continue;
@@ -178,7 +180,10 @@ async function scanHolding(
       staticReturnPct: staticReturn * 100,
       annualizedPct: annualized * 100,
       pctOtm: pctOtm * 100,
-      ivRank: rank,
+      // Filled in below from the final selected candidate's IV.
+      ivRank: proxyRank,
+      ivPercentile: null,
+      ivRankBasis: "provisional",
       hv30,
       earningsDate: quote.earningsDate,
       earningsInWindow: isInDateWindow(quote.earningsDate, cfg.minDte, cfg.maxDte),
@@ -191,6 +196,23 @@ async function scanHolding(
 
   if (best === null) {
     errors.push({ ticker: h.ticker, reason: "no qualifying call" });
+    return null;
+  }
+  // Resolve real IV rank + percentile against the *selected* candidate's IV
+  // so the displayed values always correspond to the same contract.
+  // Only fall back to the realized-vol proxy while basis is "provisional";
+  // once basis is "real", trust the real value (even if null on a degenerate
+  // min==max range) and never mislabel a proxy value as real.
+  try {
+    const [r, p] = await Promise.all([
+      computeIvRank(h.ticker, best.iv),
+      computeIvPercentile(h.ticker, best.iv),
+    ]);
+    best.ivRankBasis = r.basis;
+    best.ivRank = r.basis === "real" ? r.value : proxyRank;
+    best.ivPercentile = p.value;
+  } catch (err) {
+    logger.warn({ err, ticker: h.ticker }, "computeIvRank failed; using proxy");
   }
   return best;
 }

@@ -2,10 +2,12 @@ import { cn } from "@/lib/utils";
 
 interface Props {
   rank?: number | null;
+  basis?: "real" | "provisional";
   className?: string;
 }
 
-export function IvRankPill({ rank, className }: Props) {
+export function IvRankPill({ rank, basis, className }: Props) {
+  const isProvisional = basis === "provisional";
   if (rank == null || Number.isNaN(rank)) {
     return (
       <span
@@ -14,6 +16,11 @@ export function IvRankPill({ rank, className }: Props) {
           "bg-muted text-muted-foreground",
           className,
         )}
+        title={
+          isProvisional
+            ? "Not enough IV history yet — collecting daily snapshots."
+            : undefined
+        }
         data-testid="pill-iv-rank-empty"
       >
         —
@@ -38,14 +45,20 @@ export function IvRankPill({ rank, className }: Props) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums",
+        "inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums",
         bg,
         fg,
         className,
       )}
-      data-testid="pill-iv-rank"
+      title={
+        isProvisional
+          ? "IV Rank (provisional) — derived from realized vol while we accumulate 20+ daily IV snapshots."
+          : "IV Rank — current IV's percentile within the trailing 52-week ATM-IV history."
+      }
+      data-testid={isProvisional ? "pill-iv-rank-provisional" : "pill-iv-rank"}
     >
       {Math.round(pct * 100)}
+      {isProvisional && <span className="opacity-60">*</span>}
     </span>
   );
 }

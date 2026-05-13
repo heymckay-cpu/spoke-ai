@@ -139,6 +139,29 @@ paths:
               schema:
                 $ref: "#/components/schemas/CallScanResult"
 
+  /iv/history/{ticker}:
+    get:
+      operationId: getIvHistory
+      tags: [scan]
+      summary: 52-week ATM-IV snapshot history for a ticker
+      description: |
+        Returns the daily ATM 30-day IV snapshots stored for the ticker
+        over the trailing 52 weeks. Used by the candidate drawer's
+        sparkline. The series is empty when no snapshots have been
+        captured yet for the ticker.
+      parameters:
+        - in: path
+          name: ticker
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: IV history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IvHistory"
+
   /quote/{ticker}:
     get:
       operationId: getQuote
@@ -713,6 +736,8 @@ components:
         - breakeven
         - pctOtm
         - earningsInWindow
+        - ivRankBasis
+        - ivPercentile
       properties:
         ticker: { type: string }
         spot: { type: number }
@@ -731,7 +756,12 @@ components:
         annualizedPct: { type: number }
         breakeven: { type: number }
         pctOtm: { type: number }
-        ivRank: { type: ["number", "null"], description: "0..1, proxy from realized vol" }
+        ivRank: { type: ["number", "null"], description: "0..1 IV rank — real percentile within the trailing 52-week ATM-IV history when enough snapshots exist, otherwise the realized-vol proxy." }
+        ivPercentile: { type: ["number", "null"], description: "0..1 share of trailing 52-week days where IV was at or below the current IV. Null when basis is `provisional` or when history is too short." }
+        ivRankBasis:
+          type: string
+          enum: [real, provisional]
+          description: "`real` once 20+ daily IV snapshots have accumulated for the ticker; `provisional` while the proxy is still being used."
         hv30: { type: ["number", "null"] }
         earningsDate: { type: ["string", "null"] }
         earningsInWindow: { type: boolean }
@@ -771,6 +801,28 @@ components:
         hiddenByEarningsCount:
           type: integer
           description: "Number of qualifying candidates that were suppressed by the earnings-in-window filter (always 0 when the filter is `include` or `only`)."
+
+    IvSnapshotPoint:
+      type: object
+      required: [date, iv]
+      properties:
+        date: { type: string, description: "ISO date YYYY-MM-DD" }
+        iv: { type: number, description: "ATM 30-day implied volatility (decimal)" }
+
+    IvHistory:
+      type: object
+      required: [ticker, basis, sampleSize, points]
+      properties:
+        ticker: { type: string }
+        basis:
+          type: string
+          enum: [real, provisional]
+          description: "`real` once 20+ daily snapshots have accumulated."
+        sampleSize: { type: integer }
+        points:
+          type: array
+          items:
+            $ref: "#/components/schemas/IvSnapshotPoint"
 
     IvRankBucket:
       type: object
@@ -1262,6 +1314,8 @@ components:
         - pctOtm
         - earningsInWindow
         - aboveBasis
+        - ivRankBasis
+        - ivPercentile
       properties:
         ticker: { type: string }
         spot: { type: number }
@@ -1283,6 +1337,10 @@ components:
         annualizedPct: { type: number }
         pctOtm: { type: number }
         ivRank: { type: ["number", "null"] }
+        ivPercentile: { type: ["number", "null"] }
+        ivRankBasis:
+          type: string
+          enum: [real, provisional]
         hv30: { type: ["number", "null"] }
         earningsDate: { type: ["string", "null"] }
         earningsInWindow: { type: boolean }

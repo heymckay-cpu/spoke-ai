@@ -9,6 +9,7 @@ import {
   type OptionRow,
 } from "./market";
 import { logger } from "./logger";
+import { computeIvRank, computeIvPercentile, type IvBasis } from "./iv/rank";
 
 export type EarningsFilterMode = "hide" | "only" | "include";
 
@@ -51,6 +52,8 @@ export interface CandidateOut {
   breakeven: number;
   pctOtm: number;
   ivRank: number | null;
+  ivPercentile: number | null;
+  ivRankBasis: IvBasis;
   hv30: number | null;
   earningsDate: string | null;
   earningsInWindow: boolean;
@@ -167,7 +170,7 @@ async function scanTicker(
     return null;
   }
   const hvStat = await getIvHistoryProxy(ticker);
-  const rank = hvStat ? ivRank(hvStat.current, hvStat.min, hvStat.max) : null;
+  const proxyRank = hvStat ? ivRank(hvStat.current, hvStat.min, hvStat.max) : null;
   const hv30 = hvStat?.current ?? null;
 
   const expirations = await getExpirations(ticker);
@@ -217,7 +220,10 @@ async function scanTicker(
       annualizedPct: annualized * 100,
       breakeven,
       pctOtm: pctOtm * 100,
-      ivRank: rank,
+      // Filled in below from the final selected candidate's IV.
+      ivRank: proxyRank,
+      ivPercentile: null,
+      ivRankBasis: "provisional",
       hv30,
       earningsDate: quote.earningsDate,
       earningsInWindow: isInDateWindow(quote.earningsDate, cfg.minDte, cfg.maxDte),
@@ -229,6 +235,23 @@ async function scanTicker(
 
   if (best === null) {
     errors.push({ ticker, reason: "no qualifying strike" });
+    return null;
+  }
+  // Resolve real IV rank + percentile against the *selected* candidate's IV
+  // so the displayed rank/percentile always correspond to the same contract.
+  // Only fall back to the realized-vol proxy while basis is "provisional";
+  // once basis is "real", trust the real value (even if null on a degenerate
+  // min==max range) and never mislabel a proxy value as real.
+  try {
+    const [r, p] = await Promise.all([
+      computeIvRank(ticker, best.iv),
+      computeIvPercentile(ticker, best.iv),
+    ]);
+    best.ivRankBasis = r.basis;
+    best.ivRank = r.basis === "real" ? r.value : proxyRank;
+    best.ivPercentile = p.value;
+  } catch (err) {
+    logger.warn({ err, ticker }, "computeIvRank failed; using proxy");
   }
   return best;
 }

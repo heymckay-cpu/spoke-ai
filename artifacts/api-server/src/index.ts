@@ -3,6 +3,7 @@ import { logger } from "./lib/logger";
 import { setMarketProvider } from "./lib/market";
 import { createPolygonProvider } from "./lib/polygonProvider";
 import { startScanScheduler } from "./lib/scheduler";
+import { startIvSnapshotScheduler } from "./lib/iv/snapshotJob";
 
 // Optionally swap the default Yahoo provider for a live one (e.g. Polygon).
 // Yahoo zeros bid/ask after hours; Polygon serves live quotes during RTH so
@@ -48,4 +49,5 @@ app.listen(port, (err) => {
 
   logger.info({ port }, "Server listening");
   startScanScheduler();
+  startIvSnapshotScheduler();
 });

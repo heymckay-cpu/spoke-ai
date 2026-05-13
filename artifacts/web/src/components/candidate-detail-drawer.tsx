@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SpokeSpinner } from "@/components/spoke-spinner";
 import { IvRankPill } from "@/components/iv-rank-pill";
+import { IvHistorySparkline } from "@/components/iv-history-sparkline";
 import { EarningsFlag } from "@/components/earnings-flag";
 import { AddPositionDialog } from "@/components/add-position-dialog";
 import { RollPositionDialog } from "@/components/roll-position-dialog";
@@ -277,7 +278,7 @@ export function CandidateDetailDrawer({
                   </Link>
                 </SheetTitle>
                 <div className="flex items-center gap-2">
-                  <IvRankPill rank={candidate.ivRank ?? null} />
+                  <IvRankPill rank={candidate.ivRank ?? null} basis={candidate.ivRankBasis} />
                   <EarningsFlag
                     earningsDate={candidate.earningsDate}
                     inWindow={candidate.earningsInWindow}
@@ -486,6 +487,25 @@ export function CandidateDetailDrawer({
                   hint={`POP ~${fmtFractionPct(1 - Math.abs(candidate.delta), 0)}`}
                 />
               </div>
+            </div>
+
+            {/* IV Percentile + 52-week IV sparkline (real history once enough snapshots accumulate). */}
+            <div className="mt-4 space-y-2">
+              {candidate.ivPercentile != null && (
+                <div className="text-xs text-muted-foreground">
+                  IV Percentile:{" "}
+                  <span className="font-semibold tabular-nums text-foreground">
+                    {Math.round(candidate.ivPercentile * 100)}
+                  </span>{" "}
+                  — share of the past 52 weeks where IV was at or below today's
+                  {candidate.ivRankBasis === "provisional" && (
+                    <span className="ml-1 text-amber-600 dark:text-amber-400">
+                      (provisional)
+                    </span>
+                  )}
+                </div>
+              )}
+              <IvHistorySparkline ticker={candidate.ticker} />
             </div>
 
             {/* Risk callouts */}

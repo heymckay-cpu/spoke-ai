@@ -64,6 +64,7 @@ type SortKey =
   | "delta"
   | "iv"
   | "ivRank"
+  | "ivPercentile"
   | "bid"
   | "premium"
   | "collateral"
@@ -99,6 +100,8 @@ function sortCandidates(rows: Candidate[], sort: SortState): Candidate[] {
         return c.iv;
       case "ivRank":
         return c.ivRank ?? -1;
+      case "ivPercentile":
+        return c.ivPercentile ?? -1;
       case "bid":
         return c.bid;
       case "premium":
@@ -177,6 +180,7 @@ const COLUMNS: ColDef[] = [
   { key: "delta", label: "Δ", align: "right" },
   { key: "iv", label: "IV", align: "right" },
   { key: "ivRank", label: "IVR", align: "right" },
+  { key: "ivPercentile", label: "IV%", align: "right" },
   { key: "bid", label: "Bid", align: "right" },
   { key: "premium", label: "Prem", align: "right" },
   { key: "collateral", label: "Collateral", align: "right" },
@@ -587,9 +591,24 @@ export function CandidatesPage() {
                       <td className="px-3 py-2 text-right tabular-nums">{fmtFractionPct(c.iv, 1)}</td>
                       <td
                         className="px-3 py-2 text-right"
-                        title="IV Rank is approximated from 30-day realized volatility over a trailing 252-day window (true IVR isn't exposed by Yahoo Finance)."
+                        title={
+                          c.ivRankBasis === "real"
+                            ? "Real IV Rank — current IV's percentile within the trailing 52-week ATM-IV history."
+                            : "IV Rank (provisional) — approximated from realized volatility while we accumulate 20+ daily IV snapshots."
+                        }
                       >
-                        <IvRankPill rank={c.ivRank ?? null} />
+                        <IvRankPill rank={c.ivRank ?? null} basis={c.ivRankBasis} />
+                      </td>
+                      <td
+                        className="px-3 py-2 text-right tabular-nums"
+                        data-testid={`cell-iv-percentile-${c.ticker}`}
+                        title={
+                          c.ivPercentile == null
+                            ? "IV Percentile is shown once 20+ daily IV snapshots have accumulated."
+                            : "Share of the trailing 52 weeks where IV was at or below today's."
+                        }
+                      >
+                        {c.ivPercentile == null ? "—" : Math.round(c.ivPercentile * 100)}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">
                         {fmtMoney(c.bid)}

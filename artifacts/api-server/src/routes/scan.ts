@@ -45,9 +45,18 @@ async function loadLatestFromDb(): Promise<ScanResultOut> {
   const settings = await getSettings();
   const ageMs = Date.now() - row.scannedAt.getTime();
   const isStale = ageMs > settings.cacheTtlMinutes * 60 * 1000;
+  // Backward-compatible normalization: snapshots persisted before the
+  // ivRankBasis / ivPercentile fields existed are missing those keys.
+  // Default them so the response schema parse keeps working.
+  const rawCandidates = (row.candidates as Array<Record<string, unknown>>) ?? [];
+  const candidates = rawCandidates.map((c) => ({
+    ivRankBasis: "provisional",
+    ivPercentile: null,
+    ...c,
+  })) as CandidateOut[];
   return {
     scannedAt: row.scannedAt.toISOString(),
-    candidates: row.candidates as CandidateOut[],
+    candidates,
     errors: row.errors as ScanError[],
     tickersScanned: row.tickersScanned,
     tickersWithCandidate: row.tickersWithCandidate,
