@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
-import { setBaseUrl } from "@workspace/api-client-react";
+import { setBaseUrl, setAuthTokenGetter } from "@workspace/api-client-react";
 import { ClerkProvider, SignIn, SignUp, Show, useClerk } from "@clerk/react";
 import { publishableKeyFromHost } from "@clerk/react/internal";
 import { shadcn } from "@clerk/themes";
@@ -129,6 +129,18 @@ function ClerkQueryClientCacheInvalidator() {
   return null;
 }
 
+function ClerkTokenWirer() {
+  const { session } = useClerk();
+  useEffect(() => {
+    setAuthTokenGetter(async () => {
+      if (!session) return null;
+      return session.getToken();
+    });
+    return () => setAuthTokenGetter(null);
+  }, [session]);
+  return null;
+}
+
 function HomeRedirect() {
   return (
     <>
@@ -228,6 +240,7 @@ function ClerkProviderWithRoutes() {
     >
       <QueryClientProvider client={queryClient}>
         <ClerkQueryClientCacheInvalidator />
+        <ClerkTokenWirer />
         <ThemeProvider>
           <TooltipProvider delayDuration={150}>
             <Router />
