@@ -14,6 +14,7 @@ export * from "./candidate";
 export * from "./chain";
 export * from "./chainExpirations";
 export * from "./chainRow";
+export * from "./concentrationSettings";
 export * from "./deleteResult";
 export * from "./getRollQuote404";
 export * from "./getRollSuggestion404";

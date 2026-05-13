@@ -583,6 +583,19 @@ components:
         - provider
         - live
 
+    ConcentrationSettings:
+      type: object
+      description: |
+        Per-ticker and per-sector cash-at-risk thresholds, expressed as a
+        fraction (0..1) of total open cash-at-risk. Used to flag trades
+        that would over-concentrate the portfolio.
+      required:
+        - tickerPct
+        - sectorPct
+      properties:
+        tickerPct: { type: number, minimum: 0, maximum: 1 }
+        sectorPct: { type: number, minimum: 0, maximum: 1 }
+
     Settings:
       type: object
       required:
@@ -598,6 +611,7 @@ components:
         - riskFreeRate
         - topN
         - cacheTtlMinutes
+        - concentration
       properties:
         tickers:
           type: array
@@ -613,6 +627,7 @@ components:
         riskFreeRate: { type: number, minimum: 0, maximum: 1 }
         topN: { type: integer, minimum: 1, maximum: 200 }
         cacheTtlMinutes: { type: integer, minimum: 1, maximum: 1440 }
+        concentration: { $ref: "#/components/schemas/ConcentrationSettings" }
 
     SettingsInput:
       type: object
@@ -629,6 +644,7 @@ components:
         - riskFreeRate
         - topN
         - cacheTtlMinutes
+        - concentration
       properties:
         tickers:
           type: array
@@ -644,6 +660,7 @@ components:
         riskFreeRate: { type: number, minimum: 0, maximum: 1 }
         topN: { type: integer, minimum: 1, maximum: 200 }
         cacheTtlMinutes: { type: integer, minimum: 1, maximum: 1440 }
+        concentration: { $ref: "#/components/schemas/ConcentrationSettings" }
 
     ScanInput:
       type: object

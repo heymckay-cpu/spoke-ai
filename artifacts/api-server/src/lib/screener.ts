@@ -23,6 +23,10 @@ export interface ScreenerSettings {
   riskFreeRate: number;
   topN: number;
   cacheTtlMinutes: number;
+  concentration: {
+    tickerPct: number;
+    sectorPct: number;
+  };
 }
 
 export interface CandidateOut {

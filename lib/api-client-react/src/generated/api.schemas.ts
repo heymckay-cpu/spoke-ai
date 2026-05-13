@@ -13,6 +13,25 @@ export interface HealthStatus {
   live: boolean;
 }
 
+/**
+ * Per-ticker and per-sector cash-at-risk thresholds, expressed as a
+fraction (0..1) of total open cash-at-risk. Used to flag trades
+that would over-concentrate the portfolio.
+
+ */
+export interface ConcentrationSettings {
+  /**
+   * @minimum 0
+   * @maximum 1
+   */
+  tickerPct: number;
+  /**
+   * @minimum 0
+   * @maximum 1
+   */
+  sectorPct: number;
+}
+
 export interface Settings {
   tickers: string[];
   /** @minimum 1 */
@@ -55,6 +74,7 @@ export interface Settings {
    * @maximum 1440
    */
   cacheTtlMinutes: number;
+  concentration: ConcentrationSettings;
 }
 
 export interface SettingsInput {
@@ -99,6 +119,7 @@ export interface SettingsInput {
    * @maximum 1440
    */
   cacheTtlMinutes: number;
+  concentration: ConcentrationSettings;
 }
 
 /**

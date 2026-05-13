@@ -1,0 +1,10 @@
+{
+  "name": "@workspace/data",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./sectors": "./src/sectors.ts"
+  }
+}

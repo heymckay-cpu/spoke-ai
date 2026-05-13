@@ -51,6 +51,12 @@ export const getSettingsResponseTopNMax = 200;
 
 export const getSettingsResponseCacheTtlMinutesMax = 1440;
 
+export const getSettingsResponseConcentrationTickerPctMin = 0;
+export const getSettingsResponseConcentrationTickerPctMax = 1;
+
+export const getSettingsResponseConcentrationSectorPctMin = 0;
+export const getSettingsResponseConcentrationSectorPctMax = 1;
+
 export const GetSettingsResponse = zod.object({
   tickers: zod.array(zod.string()),
   minDte: zod.number().min(1),
@@ -81,6 +87,20 @@ export const GetSettingsResponse = zod.object({
     .number()
     .min(1)
     .max(getSettingsResponseCacheTtlMinutesMax),
+  concentration: zod
+    .object({
+      tickerPct: zod
+        .number()
+        .min(getSettingsResponseConcentrationTickerPctMin)
+        .max(getSettingsResponseConcentrationTickerPctMax),
+      sectorPct: zod
+        .number()
+        .min(getSettingsResponseConcentrationSectorPctMin)
+        .max(getSettingsResponseConcentrationSectorPctMax),
+    })
+    .describe(
+      "Per-ticker and per-sector cash-at-risk thresholds, expressed as a\nfraction (0..1) of total open cash-at-risk. Used to flag trades\nthat would over-concentrate the portfolio.\n",
+    ),
 });
 
 /**
@@ -108,6 +128,12 @@ export const updateSettingsBodyRiskFreeRateMax = 1;
 export const updateSettingsBodyTopNMax = 200;
 
 export const updateSettingsBodyCacheTtlMinutesMax = 1440;
+
+export const updateSettingsBodyConcentrationTickerPctMin = 0;
+export const updateSettingsBodyConcentrationTickerPctMax = 1;
+
+export const updateSettingsBodyConcentrationSectorPctMin = 0;
+export const updateSettingsBodyConcentrationSectorPctMax = 1;
 
 export const UpdateSettingsBody = zod.object({
   tickers: zod.array(zod.string()),
@@ -137,6 +163,20 @@ export const UpdateSettingsBody = zod.object({
     .number()
     .min(1)
     .max(updateSettingsBodyCacheTtlMinutesMax),
+  concentration: zod
+    .object({
+      tickerPct: zod
+        .number()
+        .min(updateSettingsBodyConcentrationTickerPctMin)
+        .max(updateSettingsBodyConcentrationTickerPctMax),
+      sectorPct: zod
+        .number()
+        .min(updateSettingsBodyConcentrationSectorPctMin)
+        .max(updateSettingsBodyConcentrationSectorPctMax),
+    })
+    .describe(
+      "Per-ticker and per-sector cash-at-risk thresholds, expressed as a\nfraction (0..1) of total open cash-at-risk. Used to flag trades\nthat would over-concentrate the portfolio.\n",
+    ),
 });
 
 export const updateSettingsResponseTargetDeltaMin = 0;
@@ -160,6 +200,12 @@ export const updateSettingsResponseRiskFreeRateMax = 1;
 export const updateSettingsResponseTopNMax = 200;
 
 export const updateSettingsResponseCacheTtlMinutesMax = 1440;
+
+export const updateSettingsResponseConcentrationTickerPctMin = 0;
+export const updateSettingsResponseConcentrationTickerPctMax = 1;
+
+export const updateSettingsResponseConcentrationSectorPctMin = 0;
+export const updateSettingsResponseConcentrationSectorPctMax = 1;
 
 export const UpdateSettingsResponse = zod.object({
   tickers: zod.array(zod.string()),
@@ -191,6 +237,20 @@ export const UpdateSettingsResponse = zod.object({
     .number()
     .min(1)
     .max(updateSettingsResponseCacheTtlMinutesMax),
+  concentration: zod
+    .object({
+      tickerPct: zod
+        .number()
+        .min(updateSettingsResponseConcentrationTickerPctMin)
+        .max(updateSettingsResponseConcentrationTickerPctMax),
+      sectorPct: zod
+        .number()
+        .min(updateSettingsResponseConcentrationSectorPctMin)
+        .max(updateSettingsResponseConcentrationSectorPctMax),
+    })
+    .describe(
+      "Per-ticker and per-sector cash-at-risk thresholds, expressed as a\nfraction (0..1) of total open cash-at-risk. Used to flag trades\nthat would over-concentrate the portfolio.\n",
+    ),
 });
 
 /**

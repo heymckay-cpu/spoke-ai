@@ -1,9 +1,17 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus } from "lucide-react";
-import { useCreatePosition } from "@workspace/api-client-react";
+import { AlertTriangle, Plus } from "lucide-react";
+import {
+  useCreatePosition,
+  useGetSettings,
+  useListPositions,
+  getGetSettingsQueryKey,
+  getListPositionsQueryKey,
+} from "@workspace/api-client-react";
+import { DEFAULT_CONCENTRATION, wouldExceedThreshold } from "@workspace/portfolio";
+import { fmtCompactMoney } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SpokeSpinner } from "@/components/spoke-spinner";
@@ -60,6 +68,12 @@ export function AddPositionDialog({
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
   const create = useCreatePosition();
+  const positionsQuery = useListPositions({
+    query: { queryKey: getListPositionsQueryKey(), enabled: open },
+  });
+  const settingsQuery = useGetSettings({
+    query: { queryKey: getGetSettingsQueryKey(), enabled: open },
+  });
 
   const buildDefaults = (): FormValues => ({
     ticker: initialValues?.ticker ?? "",
@@ -82,6 +96,33 @@ export function AddPositionDialog({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  const watchTicker = form.watch("ticker");
+  const watchStrike = form.watch("strike");
+  const watchContracts = form.watch("contracts");
+
+  const banner = useMemo(() => {
+    const positions = positionsQuery.data?.positions ?? [];
+    const concentration = settingsQuery.data?.concentration ?? DEFAULT_CONCENTRATION;
+    const ticker = (watchTicker ?? "").trim().toUpperCase();
+    const strike = Number(watchStrike) || 0;
+    const contracts = Math.max(1, Math.floor(Number(watchContracts) || 0));
+    if (!ticker || strike <= 0) return null;
+    const a = wouldExceedThreshold(
+      { ticker, strike },
+      contracts,
+      concentration,
+      positions,
+    );
+    if (a.level === "ok") return null;
+    return { assessment: a, ticker, contracts, settings: concentration };
+  }, [
+    positionsQuery.data,
+    settingsQuery.data,
+    watchTicker,
+    watchStrike,
+    watchContracts,
+  ]);
 
   const onSubmit = (values: FormValues) => {
     create.mutate(
@@ -134,6 +175,41 @@ export function AddPositionDialog({
             className="space-y-4"
             data-testid="form-add-position"
           >
+            {banner && (
+              <div
+                role="alert"
+                className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300"
+                data-testid="banner-concentration-warning"
+              >
+                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <div className="space-y-1">
+                  <p className="font-semibold">Heads up — concentration risk</p>
+                  {banner.assessment.tickerExceeds && (
+                    <p>
+                      After this trade, {banner.ticker} would account for{" "}
+                      <span className="font-semibold tabular-nums">
+                        {(banner.assessment.postTickerPct * 100).toFixed(0)}%
+                      </span>{" "}
+                      ({fmtCompactMoney(banner.assessment.postTickerCar)}) of your{" "}
+                      {fmtCompactMoney(banner.assessment.postTotalCar)} total open
+                      cash at risk — above your{" "}
+                      {(banner.settings.tickerPct * 100).toFixed(0)}% per-ticker limit.
+                    </p>
+                  )}
+                  {banner.assessment.sectorExceeds && (
+                    <p>
+                      Its sector would reach{" "}
+                      <span className="font-semibold tabular-nums">
+                        {(banner.assessment.postSectorPct * 100).toFixed(0)}%
+                      </span>{" "}
+                      ({fmtCompactMoney(banner.assessment.postSectorCar)}), above
+                      your {(banner.settings.sectorPct * 100).toFixed(0)}% per-sector
+                      limit.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <FormField
                 control={form.control}

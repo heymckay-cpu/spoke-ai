@@ -5,6 +5,7 @@
  * Wheel Strategy Dashboard API
  * OpenAPI spec version: 0.1.0
  */
+import type { ConcentrationSettings } from "./concentrationSettings";
 
 export interface Settings {
   tickers: string[];
@@ -48,4 +49,5 @@ export interface Settings {
    * @maximum 1440
    */
   cacheTtlMinutes: number;
+  concentration: ConcentrationSettings;
 }

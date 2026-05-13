@@ -46,6 +46,10 @@ const SettingsSchema = z
     riskFreeRate: z.number().min(0).max(1),
     topN: z.number().int().min(1).max(200),
     cacheTtlMinutes: z.number().int().min(1).max(1440),
+    concentration: z.object({
+      tickerPct: z.number().min(0).max(1),
+      sectorPct: z.number().min(0).max(1),
+    }),
   })
   .superRefine((v, ctx) => {
     if (v.minDte > v.maxDte) {
@@ -86,6 +90,10 @@ const DEFAULTS: FormValues = {
   riskFreeRate: 0.045,
   topN: 50,
   cacheTtlMinutes: 60,
+  concentration: {
+    tickerPct: 0.15,
+    sectorPct: 0.30,
+  },
 };
 
 interface ChipInputProps {
@@ -512,6 +520,64 @@ export function SettingsPage() {
                       )}
                     />
                   </div>
+                </CardContent>
+              </Card>
+
+              {/* Concentration risk */}
+              <Card className="border-card-border">
+                <CardContent className="space-y-5 p-5">
+                  <div>
+                    <h3 className="text-sm font-semibold tracking-tight">Concentration risk</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Warn when a new trade would push a single ticker or sector
+                      above this share of your total open cash-at-risk. Advisory only.
+                    </p>
+                  </div>
+                  {(
+                    [
+                      {
+                        name: "concentration.tickerPct" as const,
+                        label: "Per-ticker limit",
+                        hint: "Default 15%. Tighter is safer, looser allows bigger single-name bets.",
+                      },
+                      {
+                        name: "concentration.sectorPct" as const,
+                        label: "Per-sector limit",
+                        hint: "Default 30%. Tickers without a known sector are ignored.",
+                      },
+                    ]
+                  ).map((cfg) => (
+                    <FormField
+                      key={cfg.name}
+                      control={form.control}
+                      name={cfg.name}
+                      render={({ field }) => (
+                        <FormItem>
+                          <div className="flex items-center justify-between">
+                            <FormLabel>{cfg.label}</FormLabel>
+                            <span
+                              className="text-xs font-medium tabular-nums text-muted-foreground"
+                              data-testid={`value-${cfg.name.replace(/\./g, "-")}`}
+                            >
+                              {((field.value ?? 0) * 100).toFixed(0)}%
+                            </span>
+                          </div>
+                          <FormControl>
+                            <Slider
+                              min={0}
+                              max={1}
+                              step={0.01}
+                              value={[field.value ?? 0]}
+                              onValueChange={(v) => field.onChange(v[0])}
+                              data-testid={`slider-${cfg.name.replace(/\./g, "-")}`}
+                            />
+                          </FormControl>
+                          <FormDescription>{cfg.hint}</FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  ))}
                 </CardContent>
               </Card>
 

@@ -4,8 +4,14 @@ import { motion } from "framer-motion";
 import {
   useGetLatestScan,
   useGetScanSummary,
+  useGetSettings,
+  useListPositions,
+  getListPositionsQueryKey,
+  getGetSettingsQueryKey,
   type Candidate,
 } from "@workspace/api-client-react";
+import { DEFAULT_CONCENTRATION } from "@workspace/portfolio";
+import { ConcentrationChip } from "@/components/concentration-chip";
 import {
   ArrowDown,
   ArrowUp,
@@ -23,7 +29,6 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { getListPositionsQueryKey } from "@workspace/api-client-react";
 import { AppShell } from "@/components/app-shell";
 import { AddPositionDialog } from "@/components/add-position-dialog";
 import { CandidateDetailDrawer } from "@/components/candidate-detail-drawer";
@@ -182,6 +187,14 @@ export function CandidatesPage() {
   const qc = useQueryClient();
   const latest = useGetLatestScan();
   const summary = useGetScanSummary();
+  const positionsQuery = useListPositions({
+    query: { queryKey: getListPositionsQueryKey() },
+  });
+  const settingsQuery = useGetSettings({
+    query: { queryKey: getGetSettingsQueryKey() },
+  });
+  const positions = positionsQuery.data?.positions ?? [];
+  const concentration = settingsQuery.data?.concentration ?? DEFAULT_CONCENTRATION;
   const [sort, setSort] = useState<SortState>({ key: "annualized", dir: "desc" });
   const [filter, setFilter] = useState("");
   const [page, setPage] = useState(0);
@@ -454,14 +467,23 @@ export function CandidatesPage() {
                       data-testid={`row-candidate-${c.ticker}-${i}`}
                     >
                       <td className="px-3 py-2">
-                        <Link
-                          href={`/chain/${c.ticker}`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="font-semibold tracking-tight text-foreground hover:text-primary"
-                          data-testid={`link-ticker-${c.ticker}`}
-                        >
-                          {c.ticker}
-                        </Link>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Link
+                            href={`/chain/${c.ticker}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="font-semibold tracking-tight text-foreground hover:text-primary"
+                            data-testid={`link-ticker-${c.ticker}`}
+                          >
+                            {c.ticker}
+                          </Link>
+                          <ConcentrationChip
+                            ticker={c.ticker}
+                            strike={c.strike}
+                            contracts={getContracts(c)}
+                            positions={positions}
+                            settings={concentration}
+                          />
+                        </div>
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{fmtMoney(c.spot)}</td>
                       <td className="px-3 py-2 text-right tabular-nums font-medium">

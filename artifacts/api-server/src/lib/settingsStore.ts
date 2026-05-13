@@ -37,13 +37,17 @@ const DEFAULT_SETTINGS: ScreenerSettings = {
   riskFreeRate: 0.045,
   topN: 20,
   cacheTtlMinutes: 15,
+  concentration: {
+    tickerPct: 0.15,
+    sectorPct: 0.30,
+  },
 };
 
 export async function getSettings(): Promise<ScreenerSettings> {
   const rows = await db.select().from(settingsTable).where(eq(settingsTable.id, 1));
   const row = rows[0];
   if (!row) {
-    await db.insert(settingsTable).values({ id: 1, ...DEFAULT_SETTINGS });
+    await db.insert(settingsTable).values({ id: 1, ...flatten(DEFAULT_SETTINGS) });
     setCacheTtlMinutes(DEFAULT_SETTINGS.cacheTtlMinutes);
     return DEFAULT_SETTINGS;
   }
@@ -60,18 +64,32 @@ export async function getSettings(): Promise<ScreenerSettings> {
     riskFreeRate: row.riskFreeRate,
     topN: row.topN,
     cacheTtlMinutes: row.cacheTtlMinutes,
+    concentration: {
+      tickerPct: row.concentrationTickerPct,
+      sectorPct: row.concentrationSectorPct,
+    },
   };
   setCacheTtlMinutes(settings.cacheTtlMinutes);
   return settings;
 }
 
+function flatten(s: ScreenerSettings) {
+  const { concentration, ...rest } = s;
+  return {
+    ...rest,
+    concentrationTickerPct: concentration.tickerPct,
+    concentrationSectorPct: concentration.sectorPct,
+  };
+}
+
 export async function saveSettings(s: ScreenerSettings): Promise<ScreenerSettings> {
+  const flat = flatten(s);
   await db
     .insert(settingsTable)
-    .values({ id: 1, ...s })
+    .values({ id: 1, ...flat })
     .onConflictDoUpdate({
       target: settingsTable.id,
-      set: { ...s, updatedAt: new Date() },
+      set: { ...flat, updatedAt: new Date() },
     });
   setCacheTtlMinutes(s.cacheTtlMinutes);
   // Settings changed → invalidate market & scan caches so subsequent scans
