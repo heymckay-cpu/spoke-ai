@@ -32,12 +32,14 @@ vi.mock("@workspace/api-client-react", () => {
     useRunScan: mockUseRunScan,
     useHealthCheck: mockUseHealthCheck,
     useUpdateSettings: mockUseUpdateSettings,
+    useGetSectors: vi.fn(() => ({ data: { sectors: [] }, isLoading: false })),
     getListPositionsQueryKey: () => ["/api/positions"],
     getListHoldingsQueryKey: () => ["/api/holdings"],
     getGetSettingsQueryKey: () => ["/api/settings"],
     getGetLatestScanQueryKey: () => ["/api/scan/latest"],
     getGetScanSummaryQueryKey: () => ["/api/scan/summary"],
     getHealthCheckQueryKey: () => ["/api/health"],
+    getGetSectorsQueryKey: () => ["/api/sectors"],
   };
   return m;
 });

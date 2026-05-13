@@ -19,6 +19,11 @@ vi.mock("../lib/alerts", () => ({
   deleteNotificationsForPosition: vi.fn(async () => {}),
 }));
 
+vi.mock("../middlewares/auth", () => ({
+  requireUser: (_req: unknown, _res: unknown, next: () => void) => next(),
+  getUserId: () => "test-user",
+}));
+
 import { db, positionsTable } from "@workspace/db";
 import positionsRouter from "./positions";
 

@@ -92,6 +92,11 @@ vi.mock("@workspace/db", () => {
   return { db, qaConversationsTable: conversationsT, qaMessagesTable: messagesT };
 });
 
+vi.mock("../middlewares/auth", () => ({
+  requireUser: (_req: unknown, _res: unknown, next: () => void) => next(),
+  getUserId: () => "test-user",
+}));
+
 vi.mock("drizzle-orm", () => ({
   eq: (col: { __c?: string }, val: unknown) => (r: Record<string, unknown>) =>
     r[col.__c ?? ""] === val,

@@ -72,6 +72,11 @@ let anthropicResponse: {
   text?: string;
 } = { shouldThrow: true };
 
+vi.mock("../middlewares/auth", () => ({
+  requireUser: (_req: unknown, _res: unknown, next: () => void) => next(),
+  getUserId: () => "test-user",
+}));
+
 vi.mock("@workspace/integrations-anthropic-ai", () => ({
   anthropic: {
     messages: {

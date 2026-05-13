@@ -37,6 +37,11 @@ const holdingRows: Array<{ ticker: string; shares: number; avgCost: number }> = 
 let nextExplainId = 1;
 let currentTier: "free" | "pro" | "ultra" = "ultra";
 
+vi.mock("../middlewares/auth", () => ({
+  requireUser: (_req: unknown, _res: unknown, next: () => void) => next(),
+  getUserId: () => "test-user",
+}));
+
 vi.mock("@workspace/db", () => {
   // Tiny chainable query builder that ignores filter/order arguments and
   // resolves to the table's underlying row array. The route applies its own

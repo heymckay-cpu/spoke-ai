@@ -94,6 +94,11 @@ function buildDb() {
   return db;
 }
 
+vi.mock("../middlewares/auth", () => ({
+  requireUser: (_req: unknown, _res: unknown, next: () => void) => next(),
+  getUserId: () => "test-user",
+}));
+
 vi.mock("@workspace/db", () => {
   const positionsTable = {
     id: { _name: "id" },

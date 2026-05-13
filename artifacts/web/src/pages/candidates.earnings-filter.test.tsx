@@ -37,12 +37,14 @@ vi.mock("@workspace/api-client-react", () => ({
   useHealthCheck: mockHealthCheck,
   useRunScan: mockUseRunScan,
   useUpdateSettings: mockUseUpdateSettings,
+  useGetSectors: vi.fn(() => ({ data: { sectors: [] }, isLoading: false })),
   getGetLatestScanQueryKey: () => ["/api/scan/latest"] as const,
   getGetScanSummaryQueryKey: () => ["/api/scan/summary"] as const,
   getGetSettingsQueryKey: () => ["/api/settings"] as const,
   getListPositionsQueryKey: () => ["/api/positions"] as const,
   getListHoldingsQueryKey: () => ["/api/holdings"] as const,
   getHealthCheckQueryKey: () => ["/api/health"] as const,
+  getGetSectorsQueryKey: () => ["/api/sectors"] as const,
 }));
 
 // The candidate row uses the AddPositionDialog which pulls in market hooks; stub

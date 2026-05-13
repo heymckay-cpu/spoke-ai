@@ -65,6 +65,11 @@ vi.mock("../lib/alerts", () => ({
   deleteNotificationsForPosition: async () => {},
 }));
 
+vi.mock("../middlewares/auth", () => ({
+  requireUser: (_req: unknown, _res: unknown, next: () => void) => next(),
+  getUserId: () => "test-user",
+}));
+
 let app: Express;
 
 beforeEach(async () => {

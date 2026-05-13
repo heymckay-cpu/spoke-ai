@@ -831,7 +831,7 @@ router.delete("/positions/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  await deleteNotificationsForPosition(params.data.id);
+  // Verify ownership before touching notifications (prevent cross-user data leakage)
   const result = await db
     .delete(positionsTable)
     .where(and(eq(positionsTable.id, params.data.id), eq(positionsTable.userId, userId)))
@@ -840,6 +840,8 @@ router.delete("/positions/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Position not found" });
     return;
   }
+  // Only delete notifications after confirming this position belonged to the caller
+  await deleteNotificationsForPosition(params.data.id);
   res.json(DeletePositionResponse.parse({ ok: true }));
 });
 

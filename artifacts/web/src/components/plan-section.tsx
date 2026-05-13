@@ -57,9 +57,6 @@ export function PlanSection() {
   }
 
   const current = data.tier;
-  // Real billing is intentionally not wired up yet — this switcher is dev-only
-  // and lets us verify gating end-to-end without hooking up Stripe.
-  const isDev = import.meta.env.DEV;
 
   return (
     <Card className="border-card-border" data-testid="plan-section">
@@ -137,33 +134,30 @@ export function PlanSection() {
         </div>
 
         <p className="text-[11px] text-muted-foreground">
-          Real billing isn't wired up yet — see <code>README</code>. The switcher
-          below is a dev-only shortcut for testing gated features locally.
+          Billing is not yet enabled — select your plan to try out all features for free.
         </p>
 
-        {isDev ? (
-          <div
-            className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-card-border bg-muted/20 p-3"
-            data-testid="plan-dev-switcher"
-          >
-            <span className="text-xs font-medium text-muted-foreground">
-              Dev: switch tier
-            </span>
-            {TIERS.map((t) => (
-              <Button
-                key={t}
-                type="button"
-                size="sm"
-                variant={t === current ? "default" : "outline"}
-                disabled={setTier.isPending || t === current}
-                onClick={() => setTier.mutate({ data: { tier: t } })}
-                data-testid={`button-set-tier-${t}`}
-              >
-                {TIER_LABEL[t]}
-              </Button>
-            ))}
-          </div>
-        ) : null}
+        <div
+          className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-card-border bg-muted/20 p-3"
+          data-testid="plan-switcher"
+        >
+          <span className="text-xs font-medium text-muted-foreground">
+            Test mode — billing not enabled. Switch plan:
+          </span>
+          {TIERS.map((t) => (
+            <Button
+              key={t}
+              type="button"
+              size="sm"
+              variant={t === current ? "default" : "outline"}
+              disabled={setTier.isPending || t === current}
+              onClick={() => setTier.mutate({ data: { tier: t } })}
+              data-testid={`button-set-tier-${t}`}
+            >
+              {TIER_LABEL[t]}
+            </Button>
+          ))}
+        </div>
       </CardContent>
     </Card>
   );
