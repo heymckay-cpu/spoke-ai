@@ -7,3 +7,4 @@ export * from "./ivSnapshots";
 export * from "./conversations";
 export * from "./messages";
 export * from "./candidateExplanations";
+export * from "./tickerSectors";

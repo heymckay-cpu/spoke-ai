@@ -4,6 +4,7 @@ import {
   wouldExceedThreshold,
   type ConcentrationSettings,
   type PositionLike,
+  type SectorMap,
 } from "@workspace/portfolio";
 import {
   Tooltip,
@@ -20,6 +21,9 @@ export interface ConcentrationChipProps {
   contracts: number;
   positions: readonly PositionLike[];
   settings: ConcentrationSettings;
+  /** Optional provider-resolved ticker→sector map. Falls back to the
+   * static curated table when omitted or when a ticker is missing. */
+  sectorMap?: SectorMap;
 }
 
 /**
@@ -37,13 +41,16 @@ export function ConcentrationChip({
   contracts,
   positions,
   settings,
+  sectorMap,
 }: ConcentrationChipProps) {
-  const overlap = describeOverlap({ ticker, strike }, positions);
+  const overlap = describeOverlap({ ticker, strike }, positions, undefined, sectorMap);
   const assessment = wouldExceedThreshold(
     { ticker, strike },
     contracts,
     settings,
     positions,
+    undefined,
+    sectorMap,
   );
 
   const hasOverlap = overlap.openInTicker > 0;

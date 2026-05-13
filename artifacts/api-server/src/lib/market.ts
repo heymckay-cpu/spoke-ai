@@ -26,6 +26,21 @@ export interface MarketProvider {
     ...args: Parameters<typeof yahooFinance.options>
   ) => ReturnType<typeof yahooFinance.options>;
   chart: (...args: Parameters<typeof yahooFinance.chart>) => ReturnType<typeof yahooFinance.chart>;
+  // Optional: return the upstream provider's free-form sector string for
+  // a given ticker (e.g. Yahoo's "Technology", Polygon's mapped SIC band).
+  // The sectorResolver layer normalizes the result; providers that don't
+  // expose this info simply omit the method.
+  getSector?: (ticker: string) => Promise<string | null>;
+}
+
+async function yahooGetSector(yf: typeof yahooFinance, ticker: string): Promise<string | null> {
+  try {
+    const raw = await yf.quoteSummary(ticker, { modules: ["assetProfile"] });
+    const profile = (raw as { assetProfile?: { sector?: string | null } }).assetProfile;
+    return profile?.sector ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function adaptYahoo(yf: typeof yahooFinance): MarketProvider {
@@ -34,6 +49,7 @@ function adaptYahoo(yf: typeof yahooFinance): MarketProvider {
     quoteSummary: yf.quoteSummary.bind(yf),
     options: yf.options.bind(yf),
     chart: yf.chart.bind(yf),
+    getSector: (ticker) => yahooGetSector(yf, ticker),
   };
 }
 

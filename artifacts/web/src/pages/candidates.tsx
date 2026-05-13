@@ -16,6 +16,7 @@ import {
 } from "@workspace/api-client-react";
 import { DEFAULT_CONCENTRATION } from "@workspace/portfolio";
 import { ConcentrationChip } from "@/components/concentration-chip";
+import { useSectorMap } from "@/hooks/use-sector-map";
 import {
   ArrowDown,
   ArrowUp,
@@ -212,6 +213,14 @@ export function CandidatesPage() {
   });
   const positions = positionsQuery.data?.positions ?? [];
   const concentration = settingsQuery.data?.concentration ?? DEFAULT_CONCENTRATION;
+  const candidatesData = latest.data?.candidates ?? [];
+  const sectorTickers = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of positions) set.add(p.ticker);
+    for (const c of candidatesData) set.add(c.ticker);
+    return Array.from(set);
+  }, [positions, candidatesData]);
+  const sectorMap = useSectorMap(sectorTickers);
   const settings = settingsQuery;
   const [sort, setSort] = useState<SortState>({ key: "annualized", dir: "desc" });
   const [filter, setFilter] = useState("");
@@ -280,13 +289,13 @@ export function CandidatesPage() {
     setContractsByRow((prev) => ({ ...prev, [rowKey(c)]: clamped }));
   };
 
-  const candidates = latest.data?.candidates ?? [];
-
   const filtered = useMemo(() => {
     const f = filter.trim().toUpperCase();
-    const rows = f ? candidates.filter((c) => c.ticker.toUpperCase().includes(f)) : candidates;
+    const rows = f
+      ? candidatesData.filter((c) => c.ticker.toUpperCase().includes(f))
+      : candidatesData;
     return sortCandidates(rows, sort);
-  }, [candidates, filter, sort]);
+  }, [candidatesData, filter, sort]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
@@ -589,6 +598,7 @@ export function CandidatesPage() {
                             contracts={getContracts(c)}
                             positions={positions}
                             settings={concentration}
+                            sectorMap={sectorMap}
                           />
                         </div>
                       </td>

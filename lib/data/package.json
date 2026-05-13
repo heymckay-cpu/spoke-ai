@@ -5,6 +5,13 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./sectors": "./src/sectors.ts"
+    "./sectors": "./src/sectors.ts",
+    "./providerSectorMap": "./src/providerSectorMap.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
   }
 }

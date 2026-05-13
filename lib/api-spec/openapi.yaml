@@ -26,6 +26,8 @@ tags:
     description: Subscription tier and capability gating
   - name: qa
     description: Natural-language portfolio Q&A
+  - name: sectors
+    description: Provider-resolved ticker → sector lookup
 paths:
   /healthz:
     get:
@@ -789,6 +791,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/QaUnavailable"
+
+  /sectors:
+    get:
+      operationId: getSectors
+      tags: [sectors]
+      summary: Resolve sectors for a comma-separated list of tickers
+      description: |
+        Returns the GICS-flavored sector for each requested ticker, looked up
+        via the active market data provider with an in-memory + DB cache.
+        Tickers the provider can't classify fall back to a curated static
+        table; tickers neither knows are returned as "Unclassified".
+      parameters:
+        - in: query
+          name: tickers
+          required: true
+          description: Comma-separated list of tickers (case-insensitive).
+          schema: { type: string }
+      responses:
+        "200":
+          description: Sector map keyed by uppercased ticker
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SectorMap"
 
 components:
   schemas:
@@ -1999,3 +2025,13 @@ components:
         code:
           type: string
           enum: [unavailable, rate_limit, auth, timeout, unknown]
+
+    SectorMap:
+      type: object
+      required: [sectors]
+      properties:
+        sectors:
+          type: object
+          description: Map from uppercased ticker to GICS-flavored sector label.
+          additionalProperties:
+            type: string

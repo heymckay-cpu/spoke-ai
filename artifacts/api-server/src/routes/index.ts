@@ -10,6 +10,7 @@ import holdingsRouter from "./holdings";
 import ivHistoryRouter from "./ivHistory";
 import tierRouter from "./tier";
 import qaRouter from "./qa";
+import sectorsRouter from "./sectors";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use(holdingsRouter);
 router.use(ivHistoryRouter);
 router.use(tierRouter);
 router.use(qaRouter);
+router.use(sectorsRouter);
 
 export default router;

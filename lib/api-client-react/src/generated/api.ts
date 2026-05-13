@@ -30,6 +30,7 @@ import type {
   GetQaConversation404,
   GetRollQuote404,
   GetRollSuggestion404,
+  GetSectorsParams,
   HealthStatus,
   Holding,
   HoldingInput,
@@ -58,6 +59,7 @@ import type {
   ScanInput,
   ScanResult,
   ScanSummary,
+  SectorMap,
   SendQaMessage404,
   Settings,
   SettingsInput,
@@ -3061,3 +3063,102 @@ export const useSendQaMessage = <
 > => {
   return useMutation(getSendQaMessageMutationOptions(options));
 };
+
+/**
+ * Returns the GICS-flavored sector for each requested ticker, looked up
+via the active market data provider with an in-memory + DB cache.
+Tickers the provider can't classify fall back to a curated static
+table; tickers neither knows are returned as "Unclassified".
+
+ * @summary Resolve sectors for a comma-separated list of tickers
+ */
+export const getGetSectorsUrl = (params: GetSectorsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/sectors?${stringifiedParams}`
+    : `/api/sectors`;
+};
+
+export const getSectors = async (
+  params: GetSectorsParams,
+  options?: RequestInit,
+): Promise<SectorMap> => {
+  return customFetch<SectorMap>(getGetSectorsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSectorsQueryKey = (params?: GetSectorsParams) => {
+  return [`/api/sectors`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetSectorsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSectors>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetSectorsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSectors>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetSectorsQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getSectors>>> = ({
+    signal,
+  }) => getSectors(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSectors>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSectorsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSectors>>
+>;
+export type GetSectorsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Resolve sectors for a comma-separated list of tickers
+ */
+
+export function useGetSectors<
+  TData = Awaited<ReturnType<typeof getSectors>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetSectorsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSectors>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSectorsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}

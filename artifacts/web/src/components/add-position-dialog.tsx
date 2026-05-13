@@ -11,6 +11,7 @@ import {
   getListPositionsQueryKey,
 } from "@workspace/api-client-react";
 import { DEFAULT_CONCENTRATION, wouldExceedThreshold } from "@workspace/portfolio";
+import { useSectorMap } from "@/hooks/use-sector-map";
 import { fmtCompactMoney } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -101,10 +102,19 @@ export function AddPositionDialog({
   const watchStrike = form.watch("strike");
   const watchContracts = form.watch("contracts");
 
+  const positionsList = positionsQuery.data?.positions ?? [];
+  const watchTickerNorm = (watchTicker ?? "").trim().toUpperCase();
+  const sectorTickers = useMemo(() => {
+    const all = positionsList.map((p) => p.ticker);
+    if (watchTickerNorm) all.push(watchTickerNorm);
+    return all;
+  }, [positionsList, watchTickerNorm]);
+  const sectorMap = useSectorMap(sectorTickers);
+
   const banner = useMemo(() => {
-    const positions = positionsQuery.data?.positions ?? [];
+    const positions = positionsList;
     const concentration = settingsQuery.data?.concentration ?? DEFAULT_CONCENTRATION;
-    const ticker = (watchTicker ?? "").trim().toUpperCase();
+    const ticker = watchTickerNorm;
     const strike = Number(watchStrike) || 0;
     const contracts = Math.max(1, Math.floor(Number(watchContracts) || 0));
     if (!ticker || strike <= 0) return null;
@@ -113,15 +123,18 @@ export function AddPositionDialog({
       contracts,
       concentration,
       positions,
+      undefined,
+      sectorMap,
     );
     if (a.level === "ok") return null;
     return { assessment: a, ticker, contracts, settings: concentration };
   }, [
-    positionsQuery.data,
+    positionsList,
     settingsQuery.data,
-    watchTicker,
+    watchTickerNorm,
     watchStrike,
     watchContracts,
+    sectorMap,
   ]);
 
   const onSubmit = (values: FormValues) => {

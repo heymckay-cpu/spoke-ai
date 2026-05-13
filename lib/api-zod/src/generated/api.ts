@@ -2058,3 +2058,23 @@ export const SendQaMessageResponse = zod.object({
     createdAt: zod.string(),
   }),
 });
+
+/**
+ * Returns the GICS-flavored sector for each requested ticker, looked up
+via the active market data provider with an in-memory + DB cache.
+Tickers the provider can't classify fall back to a curated static
+table; tickers neither knows are returned as "Unclassified".
+
+ * @summary Resolve sectors for a comma-separated list of tickers
+ */
+export const GetSectorsQueryParams = zod.object({
+  tickers: zod.coerce
+    .string()
+    .describe("Comma-separated list of tickers (case-insensitive)."),
+});
+
+export const GetSectorsResponse = zod.object({
+  sectors: zod
+    .record(zod.string(), zod.string())
+    .describe("Map from uppercased ticker to GICS-flavored sector label."),
+});

@@ -26,6 +26,28 @@ export const DEFAULT_CONCENTRATION: ConcentrationSettings = {
   sectorPct: 0.3,
 };
 
+/**
+ * Optional ticker→sector map injected by callers that have a richer source
+ * of sector data (e.g. the API server's provider lookup) than the static
+ * table in `@workspace/data/sectors`. Lookups fall back to that static
+ * table when the map is missing or doesn't contain the ticker, so tests
+ * and offline paths keep working unchanged.
+ */
+export type SectorMap = Readonly<Record<string, Sector>>;
+
+function normalizeTicker(t: string): string {
+  return t.trim().toUpperCase().replace(/[.\-]/g, "_");
+}
+
+export function resolveSector(ticker: string, sectorMap?: SectorMap): Sector {
+  if (!ticker) return UNCLASSIFIED_SECTOR;
+  if (sectorMap) {
+    const hit = sectorMap[normalizeTicker(ticker)];
+    if (hit) return hit;
+  }
+  return sectorForTicker(ticker);
+}
+
 /** Cash-at-risk for a short put = strike × 100 × contracts (full-cash-secured). */
 export function carForPosition(p: Pick<PositionLike, "strike" | "contracts">): number {
   return p.strike * 100 * p.contracts;
@@ -45,7 +67,10 @@ function isOpen(p: PositionLike): boolean {
   return p.status === "open";
 }
 
-export function buildBreakdown(positions: readonly PositionLike[]): ConcentrationBreakdown {
+export function buildBreakdown(
+  positions: readonly PositionLike[],
+  sectorMap?: SectorMap,
+): ConcentrationBreakdown {
   const byTicker = new Map<string, number>();
   const bySector = new Map<string, number>();
   let totalCar = 0;
@@ -56,7 +81,7 @@ export function buildBreakdown(positions: readonly PositionLike[]): Concentratio
     totalCar += car;
     const t = p.ticker.toUpperCase();
     byTicker.set(t, (byTicker.get(t) ?? 0) + car);
-    const sector = sectorForTicker(t);
+    const sector = resolveSector(t, sectorMap);
     bySector.set(sector, (bySector.get(sector) ?? 0) + car);
   }
   return { totalCar, byTicker, bySector };
@@ -81,10 +106,11 @@ export function describeOverlap(
   candidate: CandidateLike,
   positions: readonly PositionLike[],
   breakdown?: ConcentrationBreakdown,
+  sectorMap?: SectorMap,
 ): OverlapInfo {
-  const b = breakdown ?? buildBreakdown(positions);
+  const b = breakdown ?? buildBreakdown(positions, sectorMap);
   const t = candidate.ticker.toUpperCase();
-  const sector = sectorForTicker(t);
+  const sector = resolveSector(t, sectorMap);
   const openInTicker = positions.filter((p) => isOpen(p) && p.ticker.toUpperCase() === t).length;
   return {
     ticker: t,
@@ -129,9 +155,10 @@ export function wouldExceedThreshold(
   settings: ConcentrationSettings,
   positions: readonly PositionLike[],
   breakdown?: ConcentrationBreakdown,
+  sectorMap?: SectorMap,
 ): ThresholdAssessment {
-  const b = breakdown ?? buildBreakdown(positions);
-  const overlap = describeOverlap(candidate, positions, b);
+  const b = breakdown ?? buildBreakdown(positions, sectorMap);
+  const overlap = describeOverlap(candidate, positions, b, sectorMap);
   const addedCar = carForCandidate(candidate, contracts);
   const postTotalCar = b.totalCar + addedCar;
   const postTickerCar = overlap.tickerCar + addedCar;

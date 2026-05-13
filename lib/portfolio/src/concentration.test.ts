@@ -146,3 +146,46 @@ describe("wouldExceedThreshold", () => {
     expect(a.level).toBe("both");
   });
 });
+
+describe("sectorMap injection", () => {
+  it("uses provider-resolved sectors when supplied, even for tickers absent from the static table", () => {
+    // SOFI / RIVN aren't in the static curated map; provider tells us
+    // they're Financials and Consumer Discretionary respectively.
+    const positions: PositionLike[] = [
+      open({ ticker: "SOFI", strike: 10, contracts: 1 }),
+      open({ ticker: "RIVN", strike: 15, contracts: 1 }),
+    ];
+    const sectorMap = { SOFI: "Financials", RIVN: "Consumer Discretionary" } as const;
+    const b = buildBreakdown(positions, sectorMap);
+    expect(b.bySector.get("Financials")).toBe(1_000);
+    expect(b.bySector.get("Consumer Discretionary")).toBe(1_500);
+    expect(b.bySector.get("Unclassified")).toBeUndefined();
+  });
+
+  it("threshold check applies to provider-classified tickers", () => {
+    const positions: PositionLike[] = [
+      open({ ticker: "JPM", strike: 200, contracts: 5 }), // 100k Financials
+    ];
+    // SOFI also Financials per provider — adding 1 contract at $200 strike
+    // (20k) keeps Financials at 100% of post-trade CAR, well above 30%.
+    const sectorMap = { SOFI: "Financials" } as const;
+    const a = wouldExceedThreshold(
+      { ticker: "SOFI", strike: 200 },
+      1,
+      DEFAULT_CONCENTRATION,
+      positions,
+      undefined,
+      sectorMap,
+    );
+    expect(a.sectorExceeds).toBe(true);
+  });
+
+  it("falls back to the static table when sectorMap doesn't have the ticker", () => {
+    const positions: PositionLike[] = [
+      open({ ticker: "AAPL", strike: 200, contracts: 1 }),
+    ];
+    // Empty sectorMap — should still classify AAPL via static table.
+    const b = buildBreakdown(positions, {});
+    expect(b.bySector.get("Information Technology")).toBe(20_000);
+  });
+});

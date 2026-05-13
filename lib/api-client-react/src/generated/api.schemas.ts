@@ -1283,6 +1283,16 @@ export interface QaUnavailable {
   code: QaUnavailableCode;
 }
 
+/**
+ * Map from uppercased ticker to GICS-flavored sector label.
+ */
+export type SectorMapSectors = { [key: string]: string };
+
+export interface SectorMap {
+  /** Map from uppercased ticker to GICS-flavored sector label. */
+  sectors: SectorMapSectors;
+}
+
 export type ExplainCandidate404 = {
   error: string;
 };
@@ -1313,4 +1323,11 @@ export type GetQaConversation404 = {
 
 export type SendQaMessage404 = {
   error: string;
+};
+
+export type GetSectorsParams = {
+  /**
+   * Comma-separated list of tickers (case-insensitive).
+   */
+  tickers: string;
 };

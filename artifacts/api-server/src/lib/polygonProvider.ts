@@ -14,6 +14,7 @@
 // Free-tier rate limit is 5 req/min; we do not throttle here because the
 // disk cache layer in market.ts already coalesces duplicate requests.
 
+import { sectorFromSicCode } from "@workspace/data";
 import { logger } from "./logger";
 import type { MarketProvider } from "./market";
 
@@ -67,6 +68,9 @@ interface ReferenceTickerResponse {
   results?: {
     name?: string;
     currency_name?: string;
+    sic_code?: string;
+    sic_description?: string;
+    type?: string;
   };
 }
 
@@ -301,6 +305,29 @@ function makeChart(apiKey: string) {
   };
 }
 
+function makeGetSector(apiKey: string) {
+  return async (ticker: string): Promise<string | null> => {
+    try {
+      const ref = await polygonGet<ReferenceTickerResponse>(
+        apiKey,
+        `/v3/reference/tickers/${encodeURIComponent(ticker.toUpperCase())}`,
+      );
+      const r = ref.results;
+      if (!r) return null;
+      // ETFs are exposed via `type=ETF` (or similar variants); surface
+      // them as the dashboard's dedicated bucket so the static fallback
+      // doesn't have to be consulted.
+      const t = (r.type ?? "").toUpperCase();
+      if (t === "ETF" || t === "ETN" || t === "ETV") return "ETF / Index";
+      const mapped = sectorFromSicCode(r.sic_code);
+      return mapped ?? null;
+    } catch (err) {
+      logger.warn({ err, ticker }, "polygon: failed to fetch sector");
+      return null;
+    }
+  };
+}
+
 export function createPolygonProvider(apiKey: string): MarketProvider {
   // Cast through unknown: the MarketProvider interface is declared in
   // terms of yahoo-finance2's overload signatures, but consumers only read
@@ -310,6 +337,7 @@ export function createPolygonProvider(apiKey: string): MarketProvider {
     quoteSummary: makeQuoteSummary() as unknown as MarketProvider["quoteSummary"],
     options: makeOptions(apiKey) as unknown as MarketProvider["options"],
     chart: makeChart(apiKey) as unknown as MarketProvider["chart"],
+    getSector: makeGetSector(apiKey),
   };
 }
 
