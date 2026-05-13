@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/reac
 import { setBaseUrl, setAuthTokenGetter } from "@workspace/api-client-react";
 import { ClerkProvider, SignIn, SignUp, Show, useClerk } from "@clerk/react";
 import { publishableKeyFromHost } from "@clerk/react/internal";
-import { shadcn } from "@clerk/themes";
+import { dark } from "@clerk/themes";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -46,7 +46,7 @@ const queryClient = new QueryClient({
 });
 
 const clerkAppearance = {
-  theme: shadcn,
+  baseTheme: dark,
   cssLayerName: "clerk",
   options: {
     logoPlacement: "inside" as const,
@@ -54,59 +54,77 @@ const clerkAppearance = {
     logoImageUrl: `${window.location.origin}${basePath}/logo.svg`,
   },
   variables: {
-    colorPrimary: "hsl(220 70% 50%)",
-    colorForeground: "hsl(222 47% 11%)",
-    colorMutedForeground: "hsl(215 16% 47%)",
-    colorDanger: "hsl(0 84% 60%)",
-    colorBackground: "hsl(0 0% 100%)",
-    colorInput: "hsl(210 40% 96%)",
-    colorInputForeground: "hsl(222 47% 11%)",
-    colorNeutral: "hsl(214 32% 91%)",
+    colorPrimary: "#6366F1",
+    colorForeground: "#F1F5F9",
+    colorMutedForeground: "#94A3B8",
+    colorDanger: "#F43F5E",
+    colorBackground: "#0F172A",
+    colorInput: "#1E293B",
+    colorInputForeground: "#F1F5F9",
+    colorNeutral: "#1E293B",
     fontFamily: "Inter, system-ui, sans-serif",
     borderRadius: "0.5rem",
   },
   elements: {
     rootBox: "w-full flex justify-center",
-    cardBox: "bg-white dark:bg-gray-900 rounded-2xl w-[440px] max-w-full overflow-hidden shadow-xl",
+    cardBox:
+      "bg-slate-950 border border-white/10 rounded-2xl w-[440px] max-w-full overflow-hidden shadow-2xl",
     card: "!shadow-none !border-0 !bg-transparent !rounded-none",
     footer: "!shadow-none !border-0 !bg-transparent !rounded-none",
-    headerTitle: "text-gray-900 dark:text-gray-100 font-semibold",
-    headerSubtitle: "text-gray-500 dark:text-gray-400",
-    socialButtonsBlockButtonText: "text-gray-700 dark:text-gray-200 font-medium",
-    formFieldLabel: "text-gray-700 dark:text-gray-300 text-sm font-medium",
-    footerActionLink: "text-blue-600 dark:text-blue-400 font-medium",
-    footerActionText: "text-gray-500 dark:text-gray-400",
-    dividerText: "text-gray-400 dark:text-gray-500",
-    identityPreviewEditButton: "text-blue-600 dark:text-blue-400",
-    formFieldSuccessText: "text-green-600 dark:text-green-400",
-    alertText: "text-gray-700 dark:text-gray-200",
+    headerTitle: "text-white font-semibold",
+    headerSubtitle: "text-slate-400",
+    socialButtonsBlockButtonText: "text-slate-100 font-medium",
+    formFieldLabel: "text-slate-200 text-sm font-medium",
+    footerActionLink: "text-indigo-300 hover:text-indigo-200 font-medium",
+    footerActionText: "text-slate-400",
+    dividerText: "text-slate-500",
+    identityPreviewEditButton: "text-indigo-300",
+    formFieldSuccessText: "text-emerald-400",
+    alertText: "text-slate-200",
     logoBox: "flex justify-center",
     logoImage: "h-10 w-auto",
-    socialButtonsBlockButton: "border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800",
-    formButtonPrimary: "bg-blue-600 hover:bg-blue-700 text-white",
-    formFieldInput: "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100",
-    footerAction: "border-t border-gray-100 dark:border-gray-800",
-    dividerLine: "bg-gray-200 dark:bg-gray-700",
-    alert: "bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800",
-    otpCodeFieldInput: "border-gray-200 dark:border-gray-700",
+    socialButtonsBlockButton:
+      "border border-white/10 bg-white/[0.02] hover:bg-white/[0.06] text-slate-100",
+    formButtonPrimary:
+      "bg-indigo-500 hover:bg-indigo-400 text-white shadow-[0_0_30px_-5px_rgba(99,102,241,0.6)]",
+    formFieldInput:
+      "border border-white/10 bg-slate-900 text-slate-100 placeholder:text-slate-500",
+    footerAction: "border-t border-white/5",
+    dividerLine: "bg-white/10",
+    alert: "bg-rose-500/10 border border-rose-500/30",
+    otpCodeFieldInput: "border border-white/10 bg-slate-900 text-slate-100",
     formFieldRow: "",
     main: "",
   },
 };
 
+function AuthBackdrop({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="flex min-h-[100dvh] items-center justify-center bg-slate-950 px-4 py-10"
+      style={{
+        backgroundImage:
+          "radial-gradient(900px 500px at 50% -100px, rgba(99,102,241,0.18), transparent 60%), radial-gradient(700px 400px at 80% 110%, rgba(56,189,248,0.10), transparent 60%)",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 function SignInPage() {
   return (
-    <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4">
+    <AuthBackdrop>
       <SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} />
-    </div>
+    </AuthBackdrop>
   );
 }
 
 function SignUpPage() {
   return (
-    <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4">
+    <AuthBackdrop>
       <SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} />
-    </div>
+    </AuthBackdrop>
   );
 }
 
@@ -148,7 +166,7 @@ function HomeRedirect() {
         <Redirect to="/dashboard" />
       </Show>
       <Show when="signed-out">
-        <Redirect to="/sign-in" />
+        <LandingPage />
       </Show>
     </>
   );

@@ -1,0 +1,47 @@
+#79 - Spoke AI Landing Page + Auth
+
+What & Why
+
+Build a public marketing landing page for Spoke AI at / that introduces the product, shows off features with sample screenshots, lists subscription tiers, and lets visitors sign in or create an account. Add real user authentication so the dashboard becomes a logged-in experience instead of an open single-user tool. Design inspiration: golumino.com — dark, modern, with a scrolling logo marquee of news outlets.
+
+Done looks like
+
+Visiting the site while logged out shows a polished marketing landing page (not the dashboard).
+Landing page sections, top to bottom:
+Sticky top nav with the Spoke AI logo, anchor links (Features, Pricing), and a "Sign in" / "Get started" button.
+Hero with headline, subhead, primary CTA ("Get started free"), secondary CTA ("Sign in"), and a hero product screenshot.
+Auto-scrolling marquee of news outlet logos (Yahoo Finance, Business Insider, New York Weekly, The Daily Scanner) using the attached image as the source — looped seamlessly, pauses on hover.
+Features section highlighting the real product capabilities: Candidate Screener, Roll Advisor, Positions Tracking, Portfolio Q&A, Concentration Risk, Data Freshness — each with an icon, short copy, and a sample screenshot from the app.
+Pricing section with three tier cards (Free, Pro, Ultra) showing the actual entitlements from lib/tiers, with a CTA on each.
+Final CTA band ("Start trading the wheel smarter") + footer with logo, small links, and copyright.
+Visual style mirrors golumino.com: dark background, subtle gradient/grid accents, large type, generous spacing, soft glows on CTAs. Matches Spoke AI's existing accent palette.
+Fully responsive (mobile, tablet, desktop). Marquee, hero, and pricing cards all reflow cleanly.
+Clicking "Sign in" or "Get started" runs the Replit Auth flow. After auth, the user lands on the dashboard (/dashboard or similar) and stays signed in across reloads.
+A "Sign out" control is available from the app shell once logged in, and shows the signed-in user's name/avatar.
+Logged-in users hitting / are redirected to the dashboard; logged-out users hitting any dashboard route are redirected to /.
+The existing dashboard pages (Candidates, Chain, Positions, Holdings, Ask, Settings) keep working unchanged behind auth.
+Out of scope
+
+Email/password signup forms, password reset, or social login providers beyond what Replit Auth gives out of the box.
+Paid checkout / Stripe integration for the pricing tiers — buttons can route to a "coming soon" state or the existing tier-selection in Settings.
+Per-user data isolation (multi-tenant data partitioning) — for now all signed-in users share the same dashboard data; we just gate access.
+Blog, docs, changelog, or any marketing pages beyond the single landing page.
+Rebranding from Spoke AI to anything else.
+Steps
+
+Add Replit Auth. Wire up Replit Auth on the API server (session storage, login/callback/logout routes, requireAuth middleware) and on the web client (auth hook, protected-route wrapper, sign-in/sign-out actions). Update the database schema for users + sessions.
+Restructure routing. Move the current dashboard from / to /dashboard (with the existing sub-routes nested under it), make / the public landing page, and add redirects in both directions based on auth state.
+Build the landing page. Implement the seven sections above as a single new page component, using Spoke AI brand assets and the attached news-outlet image for the marquee. Pull tier data from lib/tiers so pricing stays in sync.
+Capture sample screenshots. Generate or grab clean screenshots of the Candidates screener, Positions table, Roll Advisor suggestion, and Ask chat to use in the Features section. Store them under the web artifact's assets.
+Update the app shell. Show the signed-in user (name/avatar) in the header and add a Sign out control. Keep the existing nav and tier badge.
+Polish + responsive pass. Verify the landing page on mobile/tablet/desktop, confirm the marquee loops smoothly, and confirm the auth round-trip (sign in → dashboard → sign out → landing) works end-to-end.
+Relevant files
+
+artifacts/web/src/App.tsx
+artifacts/web/src/components/app-shell.tsx
+artifacts/web/src/pages
+artifacts/web/src/assets
+artifacts/api-server/src/routes/index.ts
+artifacts/api-server/src/lib/tierStore.ts
+lib/tiers/src/index.ts
+attached_assets/image_1778707506006.png

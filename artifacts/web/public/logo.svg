@@ -1,6 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40" fill="none">
-  <circle cx="20" cy="20" r="14" fill="#3B82F6"/>
-  <path d="M14 20 L20 13 L26 20 L20 27 Z" fill="white" opacity="0.9"/>
-  <text x="40" y="26" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="600" fill="#1E293B">Spoke</text>
-  <text x="96" y="22" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="500" letter-spacing="2" fill="#3B82F6">AI</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none">
+  <defs>
+    <linearGradient id="spokeGrad" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#818CF8"/>
+      <stop offset="1" stop-color="#6366F1"/>
+    </linearGradient>
+  </defs>
+  <circle cx="20" cy="20" r="16" stroke="url(#spokeGrad)" stroke-width="2.25" fill="none"/>
+  <circle cx="20" cy="20" r="3" fill="url(#spokeGrad)"/>
+  <line x1="20" y1="6" x2="20" y2="34" stroke="url(#spokeGrad)" stroke-width="1.75" stroke-linecap="round"/>
+  <line x1="6" y1="20" x2="34" y2="20" stroke="url(#spokeGrad)" stroke-width="1.75" stroke-linecap="round"/>
+  <line x1="10.1" y1="10.1" x2="29.9" y2="29.9" stroke="url(#spokeGrad)" stroke-width="1.75" stroke-linecap="round" opacity="0.7"/>
+  <line x1="29.9" y1="10.1" x2="10.1" y2="29.9" stroke="url(#spokeGrad)" stroke-width="1.75" stroke-linecap="round" opacity="0.7"/>
 </svg>
