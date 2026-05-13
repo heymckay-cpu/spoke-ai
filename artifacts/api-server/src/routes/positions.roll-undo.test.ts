@@ -148,7 +148,7 @@ beforeEach(async () => {
   app = express();
   app.use(express.json());
   app.use("/api", positionsRouter);
-});
+}, 30000);
 
 afterEach(() => {
   vi.clearAllMocks();

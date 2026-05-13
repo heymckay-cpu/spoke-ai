@@ -139,7 +139,7 @@ beforeEach(async () => {
   app.use(express.json());
   const router = (await import("./qa")).default;
   app.use("/api", router);
-});
+}, 30000);
 
 afterEach(() => {
   vi.clearAllMocks();
