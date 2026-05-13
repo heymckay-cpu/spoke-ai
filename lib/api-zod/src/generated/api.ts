@@ -101,6 +101,11 @@ export const GetSettingsResponse = zod.object({
     .describe(
       "Per-ticker and per-sector cash-at-risk thresholds, expressed as a\nfraction (0..1) of total open cash-at-risk. Used to flag trades\nthat would over-concentrate the portfolio.\n",
     ),
+  earningsInWindow: zod
+    .enum(["hide", "only", "include"])
+    .describe(
+      "How to treat candidates whose earnings date falls inside the DTE window. `hide` excludes them, `only` keeps just those, `include` keeps all.",
+    ),
 });
 
 /**
@@ -177,6 +182,7 @@ export const UpdateSettingsBody = zod.object({
     .describe(
       "Per-ticker and per-sector cash-at-risk thresholds, expressed as a\nfraction (0..1) of total open cash-at-risk. Used to flag trades\nthat would over-concentrate the portfolio.\n",
     ),
+  earningsInWindow: zod.enum(["hide", "only", "include"]),
 });
 
 export const updateSettingsResponseTargetDeltaMin = 0;
@@ -251,6 +257,11 @@ export const UpdateSettingsResponse = zod.object({
     .describe(
       "Per-ticker and per-sector cash-at-risk thresholds, expressed as a\nfraction (0..1) of total open cash-at-risk. Used to flag trades\nthat would over-concentrate the portfolio.\n",
     ),
+  earningsInWindow: zod
+    .enum(["hide", "only", "include"])
+    .describe(
+      "How to treat candidates whose earnings date falls inside the DTE window. `hide` excludes them, `only` keeps just those, `include` keeps all.",
+    ),
 });
 
 /**
@@ -314,6 +325,12 @@ export const RunScanBody = zod
       .optional(),
     topN: zod.number().min(1).max(runScanBodyTopNMax).optional(),
     forceRefresh: zod.boolean().optional(),
+    earningsInWindow: zod
+      .enum(["hide", "only", "include"])
+      .optional()
+      .describe(
+        "One-shot override for the earnings-in-window filter; falls back to the saved setting when omitted.",
+      ),
   })
   .describe("Optional one-shot overrides for this scan (does not persist)");
 
@@ -360,6 +377,11 @@ export const RunScanResponse = zod.object({
     .boolean()
     .describe(
       "True when the persisted snapshot is older than cacheTtlMinutes; the dashboard should treat candidates as historical and prompt a re-scan.",
+    ),
+  hiddenByEarningsCount: zod
+    .number()
+    .describe(
+      "Number of qualifying candidates that were suppressed by the earnings-in-window filter (always 0 when the filter is `include` or `only`).",
     ),
 });
 
@@ -409,6 +431,11 @@ export const GetLatestScanResponse = zod.object({
     .boolean()
     .describe(
       "True when the persisted snapshot is older than cacheTtlMinutes; the dashboard should treat candidates as historical and prompt a re-scan.",
+    ),
+  hiddenByEarningsCount: zod
+    .number()
+    .describe(
+      "Number of qualifying candidates that were suppressed by the earnings-in-window filter (always 0 when the filter is `include` or `only`).",
     ),
 });
 

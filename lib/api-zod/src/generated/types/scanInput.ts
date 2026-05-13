@@ -5,6 +5,7 @@
  * Wheel Strategy Dashboard API
  * OpenAPI spec version: 0.1.0
  */
+import type { ScanInputEarningsInWindow } from "./scanInputEarningsInWindow";
 
 /**
  * Optional one-shot overrides for this scan (does not persist)
@@ -47,4 +48,6 @@ export interface ScanInput {
    */
   topN?: number;
   forceRefresh?: boolean;
+  /** One-shot override for the earnings-in-window filter; falls back to the saved setting when omitted. */
+  earningsInWindow?: ScanInputEarningsInWindow;
 }

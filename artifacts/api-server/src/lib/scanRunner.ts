@@ -49,6 +49,7 @@ export async function runAndCacheLatestScan(
       errors: result.errors,
       tickersScanned: result.tickersScanned,
       tickersWithCandidate: result.tickersWithCandidate,
+      hiddenByEarningsCount: result.hiddenByEarningsCount,
     });
   } catch (err) {
     logger.warn({ err }, "failed to persist scan snapshot");

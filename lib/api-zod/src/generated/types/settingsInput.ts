@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ConcentrationSettings } from "./concentrationSettings";
+import type { SettingsInputEarningsInWindow } from "./settingsInputEarningsInWindow";
 
 export interface SettingsInput {
   tickers: string[];
@@ -50,4 +51,5 @@ export interface SettingsInput {
    */
   cacheTtlMinutes: number;
   concentration: ConcentrationSettings;
+  earningsInWindow: SettingsInputEarningsInWindow;
 }

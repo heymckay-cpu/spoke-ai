@@ -41,6 +41,7 @@ const DEFAULT_SETTINGS: ScreenerSettings = {
     tickerPct: 0.15,
     sectorPct: 0.30,
   },
+  earningsInWindow: "hide",
 };
 
 export async function getSettings(): Promise<ScreenerSettings> {
@@ -68,6 +69,10 @@ export async function getSettings(): Promise<ScreenerSettings> {
       tickerPct: row.concentrationTickerPct,
       sectorPct: row.concentrationSectorPct,
     },
+    earningsInWindow:
+      row.earningsInWindow === "only" || row.earningsInWindow === "include"
+        ? row.earningsInWindow
+        : "hide",
   };
   setCacheTtlMinutes(settings.cacheTtlMinutes);
   return settings;

@@ -9,8 +9,31 @@ interface Props {
   className?: string;
 }
 
+function daysUntil(iso: string): number | null {
+  const ms = new Date(`${iso}T00:00:00Z`).getTime();
+  if (Number.isNaN(ms)) return null;
+  return Math.round((ms - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
 export function EarningsFlag({ earningsDate, inWindow, className }: Props) {
   if (!inWindow) return null;
+  const days = earningsDate ? daysUntil(earningsDate) : null;
+  let tooltip: string;
+  if (earningsDate) {
+    const tail =
+      days == null
+        ? ""
+        : days === 0
+          ? " (today)"
+          : days === 1
+            ? " (tomorrow)"
+            : days > 0
+              ? ` (in ${days} days)`
+              : ` (${Math.abs(days)} days ago)`;
+    tooltip = `Earnings ${fmtDate(earningsDate)}${tail}`;
+  } else {
+    tooltip = "Earnings in window";
+  }
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -25,9 +48,7 @@ export function EarningsFlag({ earningsDate, inWindow, className }: Props) {
           <CalendarClock className="h-3 w-3" />
         </span>
       </TooltipTrigger>
-      <TooltipContent side="top">
-        Earnings {earningsDate ? fmtDate(earningsDate) : "in window"}
-      </TooltipContent>
+      <TooltipContent side="top">{tooltip}</TooltipContent>
     </Tooltip>
   );
 }

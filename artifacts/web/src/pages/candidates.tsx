@@ -1,13 +1,17 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import {
+  getGetLatestScanQueryKey,
+  getGetScanSummaryQueryKey,
+  getGetSettingsQueryKey,
   useGetLatestScan,
   useGetScanSummary,
   useGetSettings,
   useListPositions,
   getListPositionsQueryKey,
-  getGetSettingsQueryKey,
+  useRunScan,
+  useUpdateSettings,
   type Candidate,
 } from "@workspace/api-client-react";
 import { DEFAULT_CONCENTRATION } from "@workspace/portfolio";
@@ -183,6 +187,14 @@ const COLUMNS: ColDef[] = [
   { key: "openInterest", label: "OI", align: "right" },
 ];
 
+type EarningsMode = "hide" | "only" | "include";
+
+const EARNINGS_OPTIONS: { value: EarningsMode; label: string; hint: string }[] = [
+  { value: "hide", label: "Hide", hint: "Exclude candidates with earnings before expiry" },
+  { value: "only", label: "Show only", hint: "Only show candidates with earnings before expiry" },
+  { value: "include", label: "Include", hint: "Show all candidates regardless of earnings" },
+];
+
 export function CandidatesPage() {
   const qc = useQueryClient();
   const latest = useGetLatestScan();
@@ -195,11 +207,55 @@ export function CandidatesPage() {
   });
   const positions = positionsQuery.data?.positions ?? [];
   const concentration = settingsQuery.data?.concentration ?? DEFAULT_CONCENTRATION;
+  const settings = settingsQuery;
   const [sort, setSort] = useState<SortState>({ key: "annualized", dir: "desc" });
   const [filter, setFilter] = useState("");
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<Candidate | null>(null);
   const [contractsByRow, setContractsByRow] = useState<Record<string, number>>({});
+  // Mirror the persisted setting locally so the segmented control reflects
+  // pending changes immediately even before the save round-trips. We only
+  // overwrite from the server when the server value actually differs from
+  // what's already loaded — that way we don't clobber the user's optimistic
+  // toggle while the save / re-scan is still in flight.
+  const [earningsMode, setEarningsMode] = useState<EarningsMode>("hide");
+  useEffect(() => {
+    if (settings.data?.earningsInWindow) {
+      setEarningsMode(settings.data.earningsInWindow);
+    }
+  }, [settings.data?.earningsInWindow]);
+
+  const updateSettings = useUpdateSettings({
+    mutation: {
+      onSuccess: (saved) => {
+        qc.setQueryData(getGetSettingsQueryKey(), saved);
+        qc.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
+      },
+    },
+  });
+  const rescan = useRunScan({
+    mutation: {
+      onSuccess: (result) => {
+        qc.setQueryData(getGetLatestScanQueryKey(), result);
+        qc.invalidateQueries({ queryKey: getGetLatestScanQueryKey() });
+        qc.invalidateQueries({ queryKey: getGetScanSummaryQueryKey() });
+      },
+    },
+  });
+
+  const onEarningsModeChange = (next: EarningsMode) => {
+    if (next === earningsMode) return;
+    setEarningsMode(next);
+    setPage(0);
+    // Re-run the scan with the new flag so totals and ranking are correct
+    // server-side (the cache may have been built with a different filter).
+    rescan.mutate({ data: { earningsInWindow: next, forceRefresh: false } });
+    // Persist the user's choice alongside their other screener defaults.
+    if (settings.data) {
+      const { earningsInWindow: _ignored, ...rest } = settings.data;
+      updateSettings.mutate({ data: { ...rest, earningsInWindow: next } });
+    }
+  };
   const PAGE_SIZE = 25;
   const MAX_CONTRACTS = 999;
 
@@ -301,7 +357,41 @@ export function CandidatesPage() {
                 data-testid="input-filter-ticker"
               />
             </div>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              <div
+                className="inline-flex items-center rounded-md border border-input bg-background p-0.5"
+                role="radiogroup"
+                aria-label="Earnings in window filter"
+                data-testid="filter-earnings"
+              >
+                <CalendarClock
+                  className="ml-1.5 mr-0.5 h-3.5 w-3.5 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                {EARNINGS_OPTIONS.map((opt) => {
+                  const active = earningsMode === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => onEarningsModeChange(opt.value)}
+                      title={opt.hint}
+                      disabled={rescan.isPending && !active}
+                      className={cn(
+                        "px-2.5 py-1 text-[11px] font-medium rounded-sm transition-colors",
+                        active
+                          ? "bg-accent text-accent-foreground"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                      data-testid={`filter-earnings-${opt.value}`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
               <span
                 className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-500"
                 title="Yahoo Finance quotes are typically delayed by ~15 minutes during market hours and reflect the prior close after hours."
@@ -604,6 +694,25 @@ export function CandidatesPage() {
             </div>
           )}
         </Card>
+        {earningsMode === "hide" &&
+          (latest.data?.hiddenByEarningsCount ?? 0) > 0 && (
+            <p
+              className="text-xs text-muted-foreground"
+              data-testid="text-hidden-by-earnings"
+            >
+              {latest.data!.hiddenByEarningsCount}{" "}
+              {latest.data!.hiddenByEarningsCount === 1 ? "candidate" : "candidates"}{" "}
+              hidden by earnings filter.{" "}
+              <button
+                type="button"
+                onClick={() => onEarningsModeChange("include")}
+                className="font-medium text-primary underline-offset-2 hover:underline"
+                data-testid="button-show-hidden-earnings"
+              >
+                Show them
+              </button>
+            </p>
+          )}
       </motion.div>
       <CandidateDetailDrawer
         candidate={selected}

@@ -7,6 +7,7 @@ export const scanSnapshotTable = pgTable("scan_snapshots", {
   errors: jsonb("errors").notNull(),
   tickersScanned: integer("tickers_scanned").notNull(),
   tickersWithCandidate: integer("tickers_with_candidate").notNull(),
+  hiddenByEarningsCount: integer("hidden_by_earnings_count").notNull().default(0),
 });
 
 export type ScanSnapshotRow = typeof scanSnapshotTable.$inferSelect;

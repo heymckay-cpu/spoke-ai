@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ConcentrationSettings } from "./concentrationSettings";
+import type { SettingsEarningsInWindow } from "./settingsEarningsInWindow";
 
 export interface Settings {
   tickers: string[];
@@ -50,4 +51,6 @@ export interface Settings {
    */
   cacheTtlMinutes: number;
   concentration: ConcentrationSettings;
+  /** How to treat candidates whose earnings date falls inside the DTE window. `hide` excludes them, `only` keeps just those, `include` keeps all. */
+  earningsInWindow: SettingsEarningsInWindow;
 }

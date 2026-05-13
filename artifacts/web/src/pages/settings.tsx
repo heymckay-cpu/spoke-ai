@@ -50,6 +50,7 @@ const SettingsSchema = z
       tickerPct: z.number().min(0).max(1),
       sectorPct: z.number().min(0).max(1),
     }),
+    earningsInWindow: z.enum(["hide", "only", "include"]),
   })
   .superRefine((v, ctx) => {
     if (v.minDte > v.maxDte) {
@@ -94,6 +95,7 @@ const DEFAULTS: FormValues = {
     tickerPct: 0.15,
     sectorPct: 0.30,
   },
+  earningsInWindow: "hide",
 };
 
 interface ChipInputProps {
@@ -578,6 +580,66 @@ export function SettingsPage() {
                       )}
                     />
                   ))}
+                </CardContent>
+              </Card>
+
+              {/* Earnings filter */}
+              <Card className="border-card-border">
+                <CardContent className="space-y-4 p-5">
+                  <div>
+                    <h3 className="text-sm font-semibold tracking-tight">Earnings risk</h3>
+                    <p className="text-xs text-muted-foreground">
+                      How to treat candidates whose earnings date falls inside
+                      the DTE window. Earnings inside the window is the single
+                      biggest avoidable source of assignment surprise.
+                    </p>
+                  </div>
+                  <FormField
+                    control={form.control}
+                    name="earningsInWindow"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Default behavior</FormLabel>
+                        <FormControl>
+                          <div
+                            className="inline-flex items-center rounded-md border border-input bg-background p-0.5"
+                            data-testid="settings-earnings-filter"
+                          >
+                            {(
+                              [
+                                { value: "hide", label: "Hide" },
+                                { value: "only", label: "Show only" },
+                                { value: "include", label: "Include" },
+                              ] as const
+                            ).map((opt) => {
+                              const active = field.value === opt.value;
+                              return (
+                                <button
+                                  key={opt.value}
+                                  type="button"
+                                  onClick={() => field.onChange(opt.value)}
+                                  className={cn(
+                                    "px-3 py-1 text-xs rounded-sm transition-colors",
+                                    active
+                                      ? "bg-accent text-accent-foreground"
+                                      : "text-muted-foreground hover:text-foreground",
+                                  )}
+                                  data-testid={`settings-earnings-${opt.value}`}
+                                >
+                                  {opt.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </FormControl>
+                        <FormDescription>
+                          The candidates page filter bar mirrors this and can
+                          override it on the fly.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 </CardContent>
               </Card>
 

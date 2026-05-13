@@ -32,6 +32,18 @@ export interface ConcentrationSettings {
   sectorPct: number;
 }
 
+/**
+ * How to treat candidates whose earnings date falls inside the DTE window. `hide` excludes them, `only` keeps just those, `include` keeps all.
+ */
+export type SettingsEarningsInWindow =
+  (typeof SettingsEarningsInWindow)[keyof typeof SettingsEarningsInWindow];
+
+export const SettingsEarningsInWindow = {
+  hide: "hide",
+  only: "only",
+  include: "include",
+} as const;
+
 export interface Settings {
   tickers: string[];
   /** @minimum 1 */
@@ -75,7 +87,18 @@ export interface Settings {
    */
   cacheTtlMinutes: number;
   concentration: ConcentrationSettings;
+  /** How to treat candidates whose earnings date falls inside the DTE window. `hide` excludes them, `only` keeps just those, `include` keeps all. */
+  earningsInWindow: SettingsEarningsInWindow;
 }
+
+export type SettingsInputEarningsInWindow =
+  (typeof SettingsInputEarningsInWindow)[keyof typeof SettingsInputEarningsInWindow];
+
+export const SettingsInputEarningsInWindow = {
+  hide: "hide",
+  only: "only",
+  include: "include",
+} as const;
 
 export interface SettingsInput {
   tickers: string[];
@@ -120,7 +143,20 @@ export interface SettingsInput {
    */
   cacheTtlMinutes: number;
   concentration: ConcentrationSettings;
+  earningsInWindow: SettingsInputEarningsInWindow;
 }
+
+/**
+ * One-shot override for the earnings-in-window filter; falls back to the saved setting when omitted.
+ */
+export type ScanInputEarningsInWindow =
+  (typeof ScanInputEarningsInWindow)[keyof typeof ScanInputEarningsInWindow];
+
+export const ScanInputEarningsInWindow = {
+  hide: "hide",
+  only: "only",
+  include: "include",
+} as const;
 
 /**
  * Optional one-shot overrides for this scan (does not persist)
@@ -163,6 +199,8 @@ export interface ScanInput {
    */
   topN?: number;
   forceRefresh?: boolean;
+  /** One-shot override for the earnings-in-window filter; falls back to the saved setting when omitted. */
+  earningsInWindow?: ScanInputEarningsInWindow;
 }
 
 export interface Candidate {
@@ -217,6 +255,8 @@ export interface ScanResult {
   cached: boolean;
   /** True when the persisted snapshot is older than cacheTtlMinutes; the dashboard should treat candidates as historical and prompt a re-scan. */
   stale: boolean;
+  /** Number of qualifying candidates that were suppressed by the earnings-in-window filter (always 0 when the filter is `include` or `only`). */
+  hiddenByEarningsCount: number;
 }
 
 export interface IvRankBucket {

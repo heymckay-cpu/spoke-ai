@@ -21,4 +21,6 @@ export interface ScanResult {
   cached: boolean;
   /** True when the persisted snapshot is older than cacheTtlMinutes; the dashboard should treat candidates as historical and prompt a re-scan. */
   stale: boolean;
+  /** Number of qualifying candidates that were suppressed by the earnings-in-window filter (always 0 when the filter is `include` or `only`). */
+  hiddenByEarningsCount: number;
 }

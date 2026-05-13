@@ -35,6 +35,7 @@ async function loadLatestFromDb(): Promise<ScanResultOut> {
       tickersWithCandidate: 0,
       cached: false,
       stale: false,
+      hiddenByEarningsCount: 0,
     };
   }
   // Mirror the in-memory cache TTL when serving DB-backed snapshots: if the
@@ -52,6 +53,7 @@ async function loadLatestFromDb(): Promise<ScanResultOut> {
     tickersWithCandidate: row.tickersWithCandidate,
     cached: !isStale,
     stale: isStale,
+    hiddenByEarningsCount: row.hiddenByEarningsCount ?? 0,
   };
 }
 
@@ -76,6 +78,9 @@ router.post("/scan", async (req, res): Promise<void> => {
     ...(overrides.minUnderlyingPrice != null ? { minUnderlyingPrice: overrides.minUnderlyingPrice } : {}),
     ...(overrides.riskFreeRate != null ? { riskFreeRate: overrides.riskFreeRate } : {}),
     ...(overrides.topN != null ? { topN: overrides.topN } : {}),
+    ...(overrides.earningsInWindow != null
+      ? { earningsInWindow: overrides.earningsInWindow }
+      : {}),
   };
 
   // Cross-field invariants when overrides are supplied.
@@ -106,7 +111,8 @@ router.post("/scan", async (req, res): Promise<void> => {
     overrides.minBid == null &&
     overrides.minUnderlyingPrice == null &&
     overrides.riskFreeRate == null &&
-    overrides.topN == null;
+    overrides.topN == null &&
+    overrides.earningsInWindow == null;
   const cached = getCachedScan();
   if (isPlain && !overrides.forceRefresh && cached) {
     res.json(RunScanResponse.parse({ ...cached.result, cached: true, stale: false }));
@@ -125,6 +131,7 @@ router.post("/scan", async (req, res): Promise<void> => {
         errors: result.errors,
         tickersScanned: result.tickersScanned,
         tickersWithCandidate: result.tickersWithCandidate,
+        hiddenByEarningsCount: result.hiddenByEarningsCount,
       });
     } catch (err) {
       req.log.warn({ err }, "failed to persist scan snapshot");

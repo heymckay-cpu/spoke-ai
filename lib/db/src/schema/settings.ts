@@ -16,6 +16,10 @@ export const settingsTable = pgTable("settings", {
   cacheTtlMinutes: integer("cache_ttl_minutes").notNull(),
   concentrationTickerPct: doublePrecision("concentration_ticker_pct").notNull().default(0.15),
   concentrationSectorPct: doublePrecision("concentration_sector_pct").notNull().default(0.30),
+  // Earnings-in-window filter mode: "hide" | "only" | "include".
+  // Default "hide" because earnings inside the DTE window is the single
+  // biggest avoidable source of assignment surprise on wheel trades.
+  earningsInWindow: text("earnings_in_window").notNull().default("hide"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
 

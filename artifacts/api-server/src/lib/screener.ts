@@ -10,6 +10,8 @@ import {
 } from "./market";
 import { logger } from "./logger";
 
+export type EarningsFilterMode = "hide" | "only" | "include";
+
 export interface ScreenerSettings {
   tickers: string[];
   minDte: number;
@@ -27,6 +29,7 @@ export interface ScreenerSettings {
     tickerPct: number;
     sectorPct: number;
   };
+  earningsInWindow: EarningsFilterMode;
 }
 
 export interface CandidateOut {
@@ -66,6 +69,26 @@ export interface ScanResultOut {
   tickersWithCandidate: number;
   cached: boolean;
   stale: boolean;
+  hiddenByEarningsCount: number;
+}
+
+/**
+ * Apply the user's earnings-in-window filter mode to a set of (already sorted)
+ * candidates. Returned `kept` preserves the input ordering so downstream
+ * topN slicing keeps the highest-ranked surviving candidates.
+ */
+export function applyEarningsFilter(
+  candidates: CandidateOut[],
+  mode: EarningsFilterMode,
+): { kept: CandidateOut[]; hiddenByEarnings: number } {
+  if (mode === "only") {
+    return { kept: candidates.filter((c) => c.earningsInWindow), hiddenByEarnings: 0 };
+  }
+  if (mode === "hide") {
+    const kept = candidates.filter((c) => !c.earningsInWindow);
+    return { kept, hiddenByEarnings: candidates.length - kept.length };
+  }
+  return { kept: candidates, hiddenByEarnings: 0 };
 }
 
 function ivRank(
@@ -235,13 +258,22 @@ export async function runScreener(cfg: ScreenerSettings): Promise<ScanResultOut>
 
   candidates.sort((a, b) => b.annualizedPct - a.annualizedPct);
 
+  // Apply the earnings-in-window filter BEFORE topN slicing so the result
+  // count and ranking reflect the user's choice (rather than just hiding rows
+  // client-side, which would silently shift the top-N composition).
+  const { kept, hiddenByEarnings } = applyEarningsFilter(
+    candidates,
+    cfg.earningsInWindow,
+  );
+
   return {
     scannedAt: new Date().toISOString(),
-    candidates: candidates.slice(0, cfg.topN),
+    candidates: kept.slice(0, cfg.topN),
     errors,
     tickersScanned: cfg.tickers.length,
-    tickersWithCandidate: candidates.length,
+    tickersWithCandidate: kept.length,
     cached: false,
     stale: false,
+    hiddenByEarningsCount: hiddenByEarnings,
   };
 }

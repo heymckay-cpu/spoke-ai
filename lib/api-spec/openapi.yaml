@@ -612,6 +612,7 @@ components:
         - topN
         - cacheTtlMinutes
         - concentration
+        - earningsInWindow
       properties:
         tickers:
           type: array
@@ -628,6 +629,10 @@ components:
         topN: { type: integer, minimum: 1, maximum: 200 }
         cacheTtlMinutes: { type: integer, minimum: 1, maximum: 1440 }
         concentration: { $ref: "#/components/schemas/ConcentrationSettings" }
+        earningsInWindow:
+          type: string
+          enum: [hide, only, include]
+          description: How to treat candidates whose earnings date falls inside the DTE window. `hide` excludes them, `only` keeps just those, `include` keeps all.
 
     SettingsInput:
       type: object
@@ -645,6 +650,7 @@ components:
         - topN
         - cacheTtlMinutes
         - concentration
+        - earningsInWindow
       properties:
         tickers:
           type: array
@@ -661,6 +667,9 @@ components:
         topN: { type: integer, minimum: 1, maximum: 200 }
         cacheTtlMinutes: { type: integer, minimum: 1, maximum: 1440 }
         concentration: { $ref: "#/components/schemas/ConcentrationSettings" }
+        earningsInWindow:
+          type: string
+          enum: [hide, only, include]
 
     ScanInput:
       type: object
@@ -680,6 +689,10 @@ components:
         riskFreeRate: { type: number, minimum: 0, maximum: 1 }
         topN: { type: integer, minimum: 1, maximum: 200 }
         forceRefresh: { type: boolean }
+        earningsInWindow:
+          type: string
+          enum: [hide, only, include]
+          description: One-shot override for the earnings-in-window filter; falls back to the saved setting when omitted.
 
     Candidate:
       type: object
@@ -740,6 +753,7 @@ components:
         - tickersWithCandidate
         - cached
         - stale
+        - hiddenByEarningsCount
       properties:
         scannedAt: { type: ["string", "null"], description: "ISO timestamp of when this scan ran" }
         candidates:
@@ -754,6 +768,9 @@ components:
         tickersWithCandidate: { type: integer }
         cached: { type: boolean }
         stale: { type: boolean, description: "True when the persisted snapshot is older than cacheTtlMinutes; the dashboard should treat candidates as historical and prompt a re-scan." }
+        hiddenByEarningsCount:
+          type: integer
+          description: "Number of qualifying candidates that were suppressed by the earnings-in-window filter (always 0 when the filter is `include` or `only`)."
 
     IvRankBucket:
       type: object
