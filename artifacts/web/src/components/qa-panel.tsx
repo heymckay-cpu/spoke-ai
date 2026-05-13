@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useClerk } from "@clerk/react";
 import { Loader2, Send, Sparkles } from "lucide-react";
 import {
   useCreateQaConversation,
@@ -49,6 +50,11 @@ function describeError(payload: QaErrorPayload | null | undefined): { title: str
         title: "AI auth failed",
         body: "The AI provider rejected the request. The key may have rotated — try again in a moment.",
       };
+    case "unauthenticated":
+      return {
+        title: "Sign in required",
+        body: payload?.error ?? "You need to be signed in to use the AI assistant.",
+      };
     case "timeout":
       return {
         title: "AI timed out",
@@ -88,6 +94,7 @@ export function QaPanel({ className }: QaPanelProps) {
   });
 
   const createMutation = useCreateQaConversation();
+  const { session } = useClerk();
   const [streamingText, setStreamingText] = useState("");
   const [toolStatus, setToolStatus] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -143,11 +150,20 @@ export function QaPanel({ className }: QaPanelProps) {
     const url = `${apiBase}/api/qa/messages/stream`;
     let streamErrored = false;
     try {
+      const token = session ? await session.getToken() : null;
+      if (!token) {
+        streamErrored = true;
+        setErrorPayload({ error: "You need to be signed in to use the AI assistant.", code: "unauthenticated" });
+        return;
+      }
       const res = await fetch(url, {
         method: "POST",
-        headers: { "content-type": "application/json", accept: "text/event-stream" },
+        headers: {
+          "content-type": "application/json",
+          accept: "text/event-stream",
+          authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ conversationId: cid, content: trimmed }),
-        credentials: "include",
       });
       if (!res.ok || !res.body) {
         let payload: QaErrorPayload = { error: `AI request failed (${res.status})` };
