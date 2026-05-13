@@ -1,7 +1,8 @@
-import { pgTable, integer, doublePrecision, text, timestamp, serial, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, integer, doublePrecision, text, timestamp, serial, index, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 export const positionsTable = pgTable("positions", {
   id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
   ticker: text("ticker").notNull(),
   strike: doublePrecision("strike").notNull(),
   expiry: text("expiry").notNull(),
@@ -16,6 +17,8 @@ export const positionsTable = pgTable("positions", {
   rolledFromId: integer("rolled_from_id").references((): AnyPgColumn => positionsTable.id, {
     onDelete: "set null",
   }),
-});
+}, (t) => ({
+  userIdx: index("positions_user_idx").on(t.userId),
+}));
 
 export type PositionRow = typeof positionsTable.$inferSelect;
