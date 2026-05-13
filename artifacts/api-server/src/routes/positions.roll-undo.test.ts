@@ -106,7 +106,6 @@ vi.mock("drizzle-orm", async (importOriginal) => {
   const actual = await importOriginal<typeof import("drizzle-orm")>();
   return {
     ...actual,
-    // Tag the where-clauses so our buildDb stub can interpret them.
     eq: (col: { _name?: string }, val: unknown) => {
       if (col?._name === "rolledFromId") {
         return { __kind: "eq-rolledFromId", id: val as number };
@@ -114,6 +113,8 @@ vi.mock("drizzle-orm", async (importOriginal) => {
       return { __kind: "eq", id: val as number };
     },
     inArray: (_col: unknown, ids: number[]) => ({ __kind: "inArray", ids }),
+    and: (...clauses: Array<{ __kind?: string; ids?: number[]; id?: number }>) =>
+      clauses.find((c) => c?.__kind === "inArray" || c?.__kind === "eq-rolledFromId") ?? clauses[0],
   };
 });
 
@@ -150,8 +151,6 @@ afterEach(() => {
 });
 
 function seedPostRollPair() {
-  // Mirrors the post-roll DB shape: a closed parent (id=10) and a freshly
-  // opened child (id=11) linked back via rolledFromId.
   positionsStore.rows = [
     {
       id: 10,
