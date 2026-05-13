@@ -2,7 +2,7 @@ import express, { type Express } from "express";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-interface ConvRow { id: number; title: string; createdAt: Date }
+interface ConvRow { id: number; userId: string; title: string; createdAt: Date }
 interface MsgRow {
   id: number;
   conversationId: number;
@@ -42,6 +42,7 @@ vi.mock("@workspace/db", () => {
           if (table.__t === "conversations") {
             const row: ConvRow = {
               id: stores.nextConvId++,
+              userId: (vals.userId as string) ?? "test-user",
               title: (vals.title as string) ?? "New",
               createdAt: new Date(),
             };
@@ -100,6 +101,8 @@ vi.mock("../middlewares/auth", () => ({
 vi.mock("drizzle-orm", () => ({
   eq: (col: { __c?: string }, val: unknown) => (r: Record<string, unknown>) =>
     r[col.__c ?? ""] === val,
+  and: (...predicates: Array<(r: Record<string, unknown>) => boolean>) =>
+    (r: Record<string, unknown>) => predicates.every((p) => p(r)),
   asc: (col: unknown) => col,
   desc: (col: unknown) => col,
 }));
@@ -165,7 +168,7 @@ describe("GET /api/qa/conversations/:id", () => {
   });
 
   it("returns the conversation with serialised messages in order", async () => {
-    stores.conversations.push({ id: 1, title: "x", createdAt: new Date("2026-05-01") });
+    stores.conversations.push({ id: 1, userId: "test-user", title: "x", createdAt: new Date("2026-05-01") });
     stores.nextConvId = 2;
     stores.messages.push(
       {
@@ -195,7 +198,7 @@ describe("POST /api/qa/messages", () => {
   });
 
   it("persists user + assistant messages on success", async () => {
-    stores.conversations.push({ id: 1, title: "x", createdAt: new Date() });
+    stores.conversations.push({ id: 1, userId: "test-user", title: "x", createdAt: new Date() });
     stores.nextConvId = 2;
     runAgentMock.mockResolvedValue({
       text: "Sure, here's the answer.",
@@ -213,7 +216,7 @@ describe("POST /api/qa/messages", () => {
   });
 
   it("returns 503 with a code when the agent reports the AI is unavailable", async () => {
-    stores.conversations.push({ id: 1, title: "x", createdAt: new Date() });
+    stores.conversations.push({ id: 1, userId: "test-user", title: "x", createdAt: new Date() });
     stores.nextConvId = 2;
     const { QaUnavailableError } = await import("../lib/qa/agent");
     runAgentMock.mockRejectedValue(new QaUnavailableError("rate_limit", "slow down"));
@@ -236,7 +239,7 @@ describe("POST /api/qa/messages/stream", () => {
   });
 
   it("streams text + tool events as SSE frames and persists both messages", async () => {
-    stores.conversations.push({ id: 1, title: "x", createdAt: new Date() });
+    stores.conversations.push({ id: 1, userId: "test-user", title: "x", createdAt: new Date() });
     stores.nextConvId = 2;
     runStreamingAgentMock.mockImplementation(
       async (_history: unknown, _msg: unknown, emit: (e: unknown) => void) => {
@@ -274,7 +277,7 @@ describe("POST /api/qa/messages/stream", () => {
   });
 
   it("emits an error frame and skips the assistant write when the agent fails", async () => {
-    stores.conversations.push({ id: 1, title: "x", createdAt: new Date() });
+    stores.conversations.push({ id: 1, userId: "test-user", title: "x", createdAt: new Date() });
     stores.nextConvId = 2;
     const { QaUnavailableError } = await import("../lib/qa/agent");
     runStreamingAgentMock.mockRejectedValue(

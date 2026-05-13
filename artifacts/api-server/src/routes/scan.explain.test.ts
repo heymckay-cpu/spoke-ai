@@ -130,6 +130,7 @@ vi.mock("@workspace/db", () => {
 
 vi.mock("../lib/scanRunner", () => ({
   getCachedScan: () => null,
+  getCachedScanForUser: () => null,
 }));
 
 vi.mock("../middlewares/tier", () => ({

@@ -12,12 +12,17 @@ const positionsRows: Array<{
   closedAt: Date | null;
 }> = [];
 
+vi.mock("../middlewares/auth", () => ({
+  requireUser: (_req: unknown, _res: unknown, next: () => void) => next(),
+  getUserId: () => "test-user",
+}));
+
 vi.mock("@workspace/db", () => {
-  const positionsTable = { id: "id" } as const;
+  const positionsTable = { id: "id", userId: "userId" } as const;
   const db = {
     select: () => ({
       from: () => ({
-        where: () => positionsRows,
+        where: () => Promise.resolve(positionsRows),
       }),
     }),
   };
