@@ -566,8 +566,17 @@ export function CandidatesPage() {
                       )}
                       data-testid={`row-candidate-${c.ticker}-${i}`}
                     >
-                      <td className="px-3 py-2">
-                        <div className="flex flex-wrap items-center gap-1.5">
+                      <td className="px-3 py-2 align-middle">
+                        <div className="flex flex-col items-start gap-0.5">
+                          <ConcentrationChip
+                            variant="open"
+                            ticker={c.ticker}
+                            strike={c.strike}
+                            contracts={getContracts(c)}
+                            positions={positions}
+                            settings={concentration}
+                            sectorMap={sectorMap}
+                          />
                           <Link
                             href={`/dashboard/chain/${c.ticker}`}
                             onClick={(e) => e.stopPropagation()}
@@ -577,6 +586,7 @@ export function CandidatesPage() {
                             {c.ticker}
                           </Link>
                           <ConcentrationChip
+                            variant="thresholds"
                             ticker={c.ticker}
                             strike={c.strike}
                             contracts={getContracts(c)}

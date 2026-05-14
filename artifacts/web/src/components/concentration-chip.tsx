@@ -24,6 +24,10 @@ export interface ConcentrationChipProps {
   /** Optional provider-resolved ticker→sector map. Falls back to the
    * static curated table when omitted or when a ticker is missing. */
   sectorMap?: SectorMap;
+  /** Which subset of chips to render. Defaults to all of them on a single
+   * wrapping line. Use "open" to render only the "+N open" pill, or
+   * "thresholds" to render only the ticker / sector concentration warnings. */
+  variant?: "all" | "open" | "thresholds";
 }
 
 /**
@@ -42,6 +46,7 @@ export function ConcentrationChip({
   positions,
   settings,
   sectorMap,
+  variant = "all",
 }: ConcentrationChipProps) {
   const overlap = describeOverlap({ ticker, strike }, positions, undefined, sectorMap);
   const assessment = wouldExceedThreshold(
@@ -57,6 +62,11 @@ export function ConcentrationChip({
   if (!hasOverlap && !assessment.tickerExceeds && !assessment.sectorExceeds) {
     return null;
   }
+  const showOpen = hasOverlap && variant !== "thresholds";
+  const showThresholds = variant !== "open";
+  if (!showOpen && !(showThresholds && (assessment.tickerExceeds || assessment.sectorExceeds))) {
+    return null;
+  }
 
   const tickerPct = (assessment.postTickerPct * 100).toFixed(0);
   const sectorPct = (assessment.postSectorPct * 100).toFixed(0);
@@ -65,8 +75,8 @@ export function ConcentrationChip({
 
   return (
     <TooltipProvider delayDuration={120}>
-      <span className="inline-flex flex-wrap items-center gap-1 align-middle">
-        {hasOverlap && (
+      <span className="inline-flex flex-nowrap items-center gap-1 whitespace-nowrap align-middle">
+        {showOpen && (
           <Tooltip>
             <TooltipTrigger asChild>
               <span
@@ -85,7 +95,7 @@ export function ConcentrationChip({
             </TooltipContent>
           </Tooltip>
         )}
-        {assessment.tickerExceeds && (
+        {showThresholds && assessment.tickerExceeds && (
           <Tooltip>
             <TooltipTrigger asChild>
               <span
@@ -109,7 +119,7 @@ export function ConcentrationChip({
             </TooltipContent>
           </Tooltip>
         )}
-        {assessment.sectorExceeds && (
+        {showThresholds && assessment.sectorExceeds && (
           <Tooltip>
             <TooltipTrigger asChild>
               <span
