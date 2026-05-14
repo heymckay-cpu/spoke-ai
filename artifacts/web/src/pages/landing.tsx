@@ -35,11 +35,11 @@ interface Feature {
 }
 
 const Brand = () => (
-  <div className="flex items-center gap-2.5">
-    <img src={spokeMark} alt="" aria-hidden="true" className="h-8 w-8 object-contain" />
+  <div className="flex items-center gap-3">
+    <img src={spokeMark} alt="" aria-hidden="true" className="h-10 w-10 object-contain" />
     <span className="flex items-baseline gap-1.5 leading-none">
-      <span className="text-lg font-semibold tracking-tight text-white">Spoke</span>
-      <span className="text-[10px] font-medium uppercase tracking-[0.22em] text-indigo-300">
+      <span className="text-xl font-semibold tracking-tight text-white">Spoke</span>
+      <span className="text-xs font-medium uppercase tracking-[0.22em] text-indigo-300">
         AI
       </span>
     </span>
@@ -432,9 +432,9 @@ export function LandingPage() {
       <div className="relative">
       {/* Top nav */}
       <header className="sticky top-0 z-40 border-b border-white/5 bg-slate-950/70 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
+        <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-6">
           <Brand />
-          <nav className="hidden items-center gap-8 text-sm text-slate-300 md:flex">
+          <nav className="hidden items-center gap-10 text-base text-slate-300 md:flex">
             <a href="#features" className="hover:text-white" data-testid="link-nav-features">
               Features
             </a>
@@ -442,11 +442,11 @@ export function LandingPage() {
               Pricing
             </a>
           </nav>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <button
               type="button"
               onClick={goLogin}
-              className="rounded-md px-3 py-1.5 text-sm text-slate-300 hover:text-white"
+              className="rounded-md px-4 py-2 text-base text-slate-300 hover:text-white"
               data-testid="button-nav-signin"
             >
               Sign in
@@ -454,7 +454,7 @@ export function LandingPage() {
             <button
               type="button"
               onClick={goLogin}
-              className="rounded-md bg-indigo-500 px-3.5 py-1.5 text-sm font-medium text-white shadow-[0_0_30px_-5px_rgba(99,102,241,0.6)] transition hover:bg-indigo-400"
+              className="rounded-md bg-indigo-500 px-4 py-2 text-base font-medium text-white shadow-[0_0_30px_-5px_rgba(99,102,241,0.6)] transition hover:bg-indigo-400"
               data-testid="button-nav-getstarted"
             >
               Get started
