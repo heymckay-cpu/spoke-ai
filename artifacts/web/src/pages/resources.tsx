@@ -299,22 +299,25 @@ const SECTIONS: Section[] = [
         heading: "What triggers an alert",
         blocks: [
           {
-            kind: "ul",
-            items: [
-              "An open put goes in-the-money (price drops below the strike).",
-              "A position is within your near-expiry window with no roll or close action taken yet.",
-              "An earnings event lands inside an open contract's window after you opened it.",
+            kind: "p",
+            text: "The background scanner runs against your open sold puts and emits two kinds of alert:",
+          },
+          {
+            kind: "kv",
+            pairs: [
+              { term: "ITM", def: "An open put has gone in-the-money — the underlying is now trading at or below your strike." },
+              { term: "Expiring soon", def: "An open put is approaching its expiry window without a roll or close action yet." },
             ],
           },
         ],
       },
       {
         id: "alert-controls",
-        heading: "Where to see them and how to silence",
+        heading: "Where to see them",
         blocks: [
           {
             kind: "p",
-            text: "The bell icon in the top-right of the app shell shows a count of unread alerts. Click it for the dropdown, or visit the Settings page to enable email delivery and tune which categories you want to receive.",
+            text: "Alerts appear in the bell icon in the top-right of the app shell. Use the Email Alerts card on the Settings page to opt in to email delivery for these notifications.",
           },
         ],
       },
@@ -332,7 +335,13 @@ const SECTIONS: Section[] = [
         blocks: [
           {
             kind: "p",
-            text: "Spoke AI ships with a tiered plan structure. The Plan card at the top of Settings always shows your current tier, your usage for the month (scans run, AI questions asked), and a link to upgrade if you're approaching the cap.",
+            text: "Spoke AI ships with a tiered plan structure. The Plan card at the top of Settings shows your current tier alongside a capability matrix — which features each tier unlocks.",
+          },
+          {
+            kind: "callout",
+            tone: "info",
+            title: "Test mode",
+            text: "Billing is not yet enabled. The Plan card includes a tier switcher you can use to preview which features are gated at each level — no payment required.",
           },
         ],
       },
