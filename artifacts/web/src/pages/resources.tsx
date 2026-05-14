@@ -112,6 +112,35 @@ const SECTIONS: Section[] = [
         ],
       },
       {
+        id: "candidate-detail",
+        heading: "Candidate detail drawer",
+        blocks: [
+          {
+            kind: "p",
+            text: "Click any row in the candidates list to open a detail drawer with everything you need to evaluate the trade in one place. The drawer pulls live quotes, your existing positions, and your holdings so the recommendation reflects what you actually own.",
+          },
+          {
+            kind: "kv",
+            pairs: [
+              { term: "Header", def: "Ticker, current spot, strike, expiry date and DTE — plus a link arrow that jumps to the full option chain for that ticker." },
+              { term: "Recommendation card", def: "A plain-language verdict — Sell to open, Hold, Roll out / take assignment, Avoid, or \"You already own shares — sell a call instead\" — derived from your current exposure, the candidate's metrics, and any open put legs you have on the same ticker." },
+              { term: "AI Rationale", def: "A longer Claude-generated narrative explaining the verdict, including a bulleted list of the key drivers. Hit Regenerate to ask for a fresh take; results are cached per candidate so repeat opens are instant." },
+              { term: "Holdings panel", def: "Appears only if you already own shares of the ticker — shows shares, average cost, market value and unrealized P/L so you can decide between stacking a put and writing a covered call instead." },
+              { term: "Open put legs", def: "Every short put you currently have open in this ticker, with premium, bid, captured profit % so far, OTM/ITM status, and a Roll button that opens the roll advisor." },
+              { term: "Trade details", def: "Per-contract economics for the candidate — Premium (credit per contract), Collateral (cash secured), Static %, Annualized %, Breakeven, and Δ / IV with a rough probability of profit." },
+              { term: "52-week IV", def: "A small sparkline of historical implied vol with the current percentile. Marked \"provisional\" until enough snapshots have accumulated to build a real range." },
+              { term: "Heads up", def: "Contextual warnings — for example, a high IV Rank note flagging that premium is rich but volatility tends to revert, or earnings risk inside the contract window." },
+            ],
+          },
+          {
+            kind: "callout",
+            tone: "tip",
+            title: "Spoke AI never places trades",
+            text: "Every recommendation in the drawer is advisory. Use the displayed ticket as a reference, then enter the order in your broker yourself.",
+          },
+        ],
+      },
+      {
         id: "earnings-filter",
         heading: "Earnings filter (Hide / Show only / Include)",
         blocks: [
