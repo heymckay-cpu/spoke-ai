@@ -5,9 +5,10 @@ import {
   type CandidateExplanation,
   CandidateExplanationVerdict,
 } from "@workspace/api-client-react";
-import { AlertTriangle, CheckCircle2, RefreshCw, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Lock, RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SpokeSpinner } from "@/components/spoke-spinner";
+import { useCapability } from "@/hooks/use-capability";
 import { cn } from "@/lib/utils";
 
 type Verdict = (typeof CandidateExplanationVerdict)[keyof typeof CandidateExplanationVerdict];
@@ -60,19 +61,42 @@ export function VerdictBadge({
 export interface AiCandidateExplanationProps {
   candidate: Candidate;
   variant?: "inline" | "full";
-  /** Auto-fetch on mount instead of waiting for a click. */
+  /**
+   * Auto-fetch on mount/candidate-change. Defaults to false so we don't
+   * bill an LLM call on every drawer open — the user has to click "Explain
+   * with Claude" first.
+   */
   autoLoad?: boolean;
   className?: string;
 }
 
+const SPEND_HINT_FULL =
+  "Uses one Claude call (~a few cents). Cached for repeat opens of the same contract.";
+const SPEND_HINT_INLINE = "~1 Claude call · cached after";
+
 export function AiCandidateExplanation({
   candidate,
   variant = "full",
-  autoLoad = true,
+  autoLoad = false,
   className,
 }: AiCandidateExplanationProps) {
   const mutation = useExplainCandidate();
-  const data: CandidateExplanation | undefined = mutation.data;
+  const { allowed: aiAllowed, loading: tierLoading } = useCapability("ai.explainer");
+
+  const candidateKey = `${candidate.ticker}|${candidate.strike}|${candidate.expiry}`;
+
+  // Guard against a stale in-flight response landing on the wrong candidate:
+  // even if a previous request resolves after the user switches contracts,
+  // we ignore its payload at render time by matching on the response's own
+  // ticker/strike/expiry rather than mutating shared mutation state.
+  const rawData: CandidateExplanation | undefined = mutation.data;
+  const data: CandidateExplanation | undefined =
+    rawData &&
+    rawData.ticker === candidate.ticker &&
+    rawData.strike === candidate.strike &&
+    rawData.expiry === candidate.expiry
+      ? rawData
+      : undefined;
 
   const fetchExplain = (regenerate = false) => {
     mutation.mutate({
@@ -85,20 +109,69 @@ export function AiCandidateExplanation({
     });
   };
 
-  // Reset and refetch when the candidate identity changes.
+  // When the candidate identity changes, drop the previous mutation result so
+  // the CTA reappears, and — for entitled users with autoLoad — kick off a
+  // single fresh fetch.
   useEffect(() => {
-    if (!autoLoad) return;
     mutation.reset();
-    mutation.mutate({
-      data: {
-        ticker: candidate.ticker,
-        strike: candidate.strike,
-        expiry: candidate.expiry,
-      },
-    });
+    if (autoLoad && !tierLoading && aiAllowed) {
+      fetchExplain();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candidate.ticker, candidate.strike, candidate.expiry, autoLoad]);
+  }, [candidateKey, autoLoad, tierLoading, aiAllowed]);
 
+  // ---- Free tier: friendly upsell, no network call ---------------------
+  if (!tierLoading && !aiAllowed) {
+    if (variant === "inline") {
+      return (
+        <div
+          className={cn(
+            "flex items-center gap-2 text-xs text-muted-foreground",
+            className,
+          )}
+          data-testid="ai-explain-upsell-inline"
+        >
+          <Lock className="h-3 w-3 shrink-0" aria-hidden />
+          <span>
+            Claude explanations are a Pro feature.{" "}
+            <a
+              href="/dashboard/settings/plan"
+              className="font-medium text-primary hover:underline"
+            >
+              Upgrade
+            </a>
+          </span>
+        </div>
+      );
+    }
+    return (
+      <div
+        className={cn(
+          "flex items-start gap-3 rounded-lg border border-dashed border-border bg-muted/30 p-4",
+          className,
+        )}
+        data-testid="ai-explain-upsell"
+      >
+        <div className="rounded-md bg-accent/60 p-2 text-accent-foreground">
+          <Lock className="h-4 w-4" aria-hidden />
+        </div>
+        <div className="flex-1 space-y-1">
+          <div className="text-sm font-semibold tracking-tight">
+            Unlock Claude's take on this trade
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Plain-English breakdown of why this contract is (or isn't) a good
+            wheel candidate. Included with the Pro plan.
+          </p>
+        </div>
+        <Button asChild size="sm" variant="default" className="shrink-0">
+          <a href="/dashboard/settings/plan">Upgrade</a>
+        </Button>
+      </div>
+    );
+  }
+
+  // ---- Loading state ---------------------------------------------------
   if (mutation.isPending && !data) {
     return (
       <div
@@ -115,6 +188,7 @@ export function AiCandidateExplanation({
     );
   }
 
+  // ---- Error state -----------------------------------------------------
   if (mutation.isError && !data) {
     return (
       <div
@@ -138,7 +212,64 @@ export function AiCandidateExplanation({
     );
   }
 
-  if (!data) return null;
+  // ---- Idle: render CTA so the LLM call is opt-in ----------------------
+  if (!data) {
+    if (variant === "inline") {
+      return (
+        <div
+          className={cn(
+            "flex items-center justify-between gap-2 text-xs",
+            className,
+          )}
+          data-testid="ai-explain-cta-inline"
+        >
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 gap-1.5 px-2 text-xs"
+            onClick={() => fetchExplain()}
+            disabled={tierLoading}
+            data-testid="ai-explain-generate"
+          >
+            <Sparkles className="h-3 w-3 text-primary" />
+            Explain with Claude
+          </Button>
+          <span className="text-[10px] text-muted-foreground">{SPEND_HINT_INLINE}</span>
+        </div>
+      );
+    }
+    return (
+      <div
+        className={cn(
+          "flex items-start justify-between gap-3 rounded-lg border border-dashed border-border bg-card/40 p-4",
+          className,
+        )}
+        data-testid="ai-explain-cta"
+      >
+        <div className="flex items-start gap-3">
+          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <div className="space-y-1">
+            <div className="text-sm font-semibold tracking-tight">
+              AI rationale
+            </div>
+            <p className="text-xs text-muted-foreground">{SPEND_HINT_FULL}</p>
+          </div>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="default"
+          className="shrink-0"
+          onClick={() => fetchExplain()}
+          disabled={tierLoading}
+          data-testid="ai-explain-generate"
+        >
+          Explain with Claude
+        </Button>
+      </div>
+    );
+  }
 
   if (variant === "inline") {
     return (
