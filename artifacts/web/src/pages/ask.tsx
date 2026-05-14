@@ -65,16 +65,16 @@ export function AskPage() {
         <div className="flex h-[calc(100vh-5rem)] gap-0">
           <QaConversationsRail
             activeId={conversationId}
-            onSelect={(id) => navigate(`/ask/${id}`)}
-            onNew={() => navigate("/ask")}
-            onActiveDeleted={() => navigate("/ask")}
+            onSelect={(id) => navigate(`/dashboard/ask/${id}`)}
+            onNew={() => navigate("/dashboard/ask")}
+            onActiveDeleted={() => navigate("/dashboard/ask")}
             collapsed={collapsed}
             onToggleCollapsed={setCollapsed}
           />
           <QaPanel
             className="flex-1"
             conversationId={conversationId}
-            onConversationCreated={(id) => navigate(`/ask/${id}`, { replace: true })}
+            onConversationCreated={(id) => navigate(`/dashboard/ask/${id}`, { replace: true })}
           />
         </div>
       </GatedFeature>
