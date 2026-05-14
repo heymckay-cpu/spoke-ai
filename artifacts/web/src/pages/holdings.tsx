@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   AlertTriangle,
   Briefcase,
   DollarSign,
   Phone,
+  Shapes,
   TrendingUp,
   Trash2,
 } from "lucide-react";
@@ -18,6 +19,8 @@ import {
   type CallCandidate,
   type CallScanResult,
 } from "@workspace/api-client-react";
+import { resolveSector } from "@workspace/portfolio";
+import { useSectorMap } from "@/hooks/use-sector-map";
 import { AppShell } from "@/components/app-shell";
 import { AddHoldingDialog } from "@/components/add-holding-dialog";
 import { Button } from "@/components/ui/button";
@@ -121,6 +124,32 @@ export function HoldingsPage() {
     totalUnrealizedPnl: 0,
   };
 
+  const sectorTickers = useMemo(
+    () => holdings.map((h) => h.ticker),
+    [holdings],
+  );
+  const sectorMap = useSectorMap(sectorTickers);
+
+  const sectorBreakdown = useMemo(() => {
+    const bySector = new Map<string, { value: number; count: number }>();
+    let total = 0;
+    for (const h of holdings) {
+      const value = h.marketValue ?? h.avgCost * h.shares;
+      const sector = resolveSector(h.ticker, sectorMap);
+      const cur = bySector.get(sector) ?? { value: 0, count: 0 };
+      cur.value += value;
+      cur.count += 1;
+      bySector.set(sector, cur);
+      total += value;
+    }
+    return {
+      total,
+      rows: Array.from(bySector.entries())
+        .map(([sector, v]) => ({ sector, ...v }))
+        .sort((a, b) => b.value - a.value),
+    };
+  }, [holdings, sectorMap]);
+
   const invalidate = () => {
     // Clear any stale covered-call results — they reference holdings that may
     // have just been added, removed, or had their share count changed.
@@ -183,6 +212,46 @@ export function HoldingsPage() {
           />
         </div>
 
+        {holdings.length > 0 && sectorBreakdown.rows.length > 0 && (
+          <Card
+            className="overflow-hidden border-card-border"
+            data-testid="card-sector-breakdown"
+          >
+            <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 border-b border-border bg-card/95 py-3">
+              <div className="flex items-center gap-2">
+                <Shapes className="h-4 w-4 text-primary" />
+                <CardTitle className="text-sm font-medium">By sector</CardTitle>
+              </div>
+              <div className="text-[11px] text-muted-foreground tabular-nums">
+                {sectorBreakdown.rows.length} sector
+                {sectorBreakdown.rows.length === 1 ? "" : "s"} ·{" "}
+                {fmtCompactMoney(sectorBreakdown.total)}
+              </div>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-2 p-4">
+              {sectorBreakdown.rows.map((row) => {
+                const pct =
+                  sectorBreakdown.total > 0
+                    ? (row.value / sectorBreakdown.total) * 100
+                    : 0;
+                return (
+                  <div
+                    key={row.sector}
+                    className="flex items-center gap-2 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px]"
+                    data-testid={`chip-sector-${row.sector}`}
+                  >
+                    <span className="font-medium">{row.sector}</span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {fmtCompactMoney(row.value)} · {fmtPct(pct, 0)} ·{" "}
+                      {row.count} pos
+                    </span>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
+
         <div className="flex flex-wrap items-center justify-end gap-2">
           {holdings.some((h) => h.shares >= 100) && (
             <Button
@@ -243,6 +312,9 @@ export function HoldingsPage() {
                     <th className="px-3 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                       Ticker
                     </th>
+                    <th className="px-3 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Sector
+                    </th>
                     <th className="px-3 py-2.5 text-right text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                       Shares
                     </th>
@@ -280,6 +352,12 @@ export function HoldingsPage() {
                       >
                         <td className="px-3 py-2 font-semibold tracking-tight">
                           {h.ticker}
+                        </td>
+                        <td
+                          className="px-3 py-2 text-xs text-muted-foreground"
+                          data-testid={`cell-sector-${h.ticker}`}
+                        >
+                          {resolveSector(h.ticker, sectorMap)}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           {fmtInt(h.shares)}
