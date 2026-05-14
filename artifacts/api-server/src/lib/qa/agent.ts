@@ -129,6 +129,28 @@ function classifyError(err: unknown): QaErrorCode {
   return "unknown";
 }
 
+// Distil the first user message into a short, human-readable conversation
+// title. We deliberately stay deterministic / model-free here so auto-titling
+// works even when the LLM is rate-limited or offline. It picks the first
+// sentence-ish chunk, strips trailing punctuation, and trims to ~60 chars.
+export function summariseTitle(content: string): string {
+  const cleaned = content.replace(/```[\s\S]*?```/g, " ").replace(/\s+/g, " ").trim();
+  if (!cleaned) return "New conversation";
+  // Prefer the first sentence — split on terminal punctuation but keep the
+  // chunk reasonable in length. Falls back to the whole string when there's
+  // no terminator.
+  const firstSentence = cleaned.split(/(?<=[.!?])\s+/u)[0] ?? cleaned;
+  const candidate = (firstSentence.length < 12 ? cleaned : firstSentence).trim();
+  const stripped = candidate.replace(/[\s.!?,;:–—-]+$/u, "").trim();
+  const max = 60;
+  if (stripped.length <= max) return stripped || "New conversation";
+  // Truncate on a word boundary when possible.
+  const sliced = stripped.slice(0, max);
+  const lastSpace = sliced.lastIndexOf(" ");
+  const cut = lastSpace > max * 0.5 ? sliced.slice(0, lastSpace) : sliced;
+  return cut.trim() + "…";
+}
+
 export function parseAttachments(text: string): { stripped: string; attachments: QaAttachment[] } {
   // Pull out ```attachment\n{...}\n``` fenced blocks. Anything that fails to
   // parse is left in the text so the user still sees it (better than a

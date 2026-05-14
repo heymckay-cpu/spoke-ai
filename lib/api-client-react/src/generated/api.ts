@@ -26,6 +26,7 @@ import type {
   CandidateExplanation,
   Chain,
   ChainExpirations,
+  DeleteQaConversation404,
   DeleteResult,
   ExplainCandidate404,
   ExplainCandidateInput,
@@ -41,6 +42,7 @@ import type {
   HoldingUpdate,
   HoldingsList,
   IvHistory,
+  ListQaConversationsParams,
   LogoutSuccess,
   MobileTokenExchangeRequest,
   MobileTokenExchangeSuccess,
@@ -54,11 +56,14 @@ import type {
   PositionsStats,
   QaConversation,
   QaConversationInput,
+  QaConversationList,
+  QaConversationUpdate,
   QaConversationWithMessages,
   QaSendMessageInput,
   QaSendMessageResult,
   QaUnavailable,
   Quote,
+  RenameQaConversation404,
   RollPositionInput,
   RollPositionResult,
   RollQuote,
@@ -3330,6 +3335,111 @@ export const useSetTier = <
 };
 
 /**
+ * Returns conversations ordered by most-recent activity (last message
+time, falling back to created time). Each item includes a short
+preview of the latest message so the rail can render without a
+per-conversation fetch.
+
+ * @summary List recent Q&A conversations (paginated, newest first)
+ */
+export const getListQaConversationsUrl = (
+  params?: ListQaConversationsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/qa/conversations?${stringifiedParams}`
+    : `/api/qa/conversations`;
+};
+
+export const listQaConversations = async (
+  params?: ListQaConversationsParams,
+  options?: RequestInit,
+): Promise<QaConversationList> => {
+  return customFetch<QaConversationList>(getListQaConversationsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListQaConversationsQueryKey = (
+  params?: ListQaConversationsParams,
+) => {
+  return [`/api/qa/conversations`, ...(params ? [params] : [])] as const;
+};
+
+export const getListQaConversationsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listQaConversations>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListQaConversationsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listQaConversations>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListQaConversationsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listQaConversations>>
+  > = ({ signal }) =>
+    listQaConversations(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listQaConversations>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListQaConversationsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listQaConversations>>
+>;
+export type ListQaConversationsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List recent Q&A conversations (paginated, newest first)
+ */
+
+export function useListQaConversations<
+  TData = Awaited<ReturnType<typeof listQaConversations>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListQaConversationsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listQaConversations>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListQaConversationsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
  * @summary Create a new Q&A conversation
  */
 export const getCreateQaConversationUrl = () => {
@@ -3501,6 +3611,179 @@ export function useGetQaConversation<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Rename a Q&A conversation
+ */
+export const getRenameQaConversationUrl = (id: number) => {
+  return `/api/qa/conversations/${id}`;
+};
+
+export const renameQaConversation = async (
+  id: number,
+  qaConversationUpdate: QaConversationUpdate,
+  options?: RequestInit,
+): Promise<QaConversation> => {
+  return customFetch<QaConversation>(getRenameQaConversationUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(qaConversationUpdate),
+  });
+};
+
+export const getRenameQaConversationMutationOptions = <
+  TError = ErrorType<RenameQaConversation404>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof renameQaConversation>>,
+    TError,
+    { id: number; data: BodyType<QaConversationUpdate> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof renameQaConversation>>,
+  TError,
+  { id: number; data: BodyType<QaConversationUpdate> },
+  TContext
+> => {
+  const mutationKey = ["renameQaConversation"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof renameQaConversation>>,
+    { id: number; data: BodyType<QaConversationUpdate> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return renameQaConversation(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RenameQaConversationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof renameQaConversation>>
+>;
+export type RenameQaConversationMutationBody = BodyType<QaConversationUpdate>;
+export type RenameQaConversationMutationError =
+  ErrorType<RenameQaConversation404>;
+
+/**
+ * @summary Rename a Q&A conversation
+ */
+export const useRenameQaConversation = <
+  TError = ErrorType<RenameQaConversation404>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof renameQaConversation>>,
+    TError,
+    { id: number; data: BodyType<QaConversationUpdate> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof renameQaConversation>>,
+  TError,
+  { id: number; data: BodyType<QaConversationUpdate> },
+  TContext
+> => {
+  return useMutation(getRenameQaConversationMutationOptions(options));
+};
+
+/**
+ * @summary Delete a Q&A conversation (and all its messages)
+ */
+export const getDeleteQaConversationUrl = (id: number) => {
+  return `/api/qa/conversations/${id}`;
+};
+
+export const deleteQaConversation = async (
+  id: number,
+  options?: RequestInit,
+): Promise<DeleteResult> => {
+  return customFetch<DeleteResult>(getDeleteQaConversationUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteQaConversationMutationOptions = <
+  TError = ErrorType<DeleteQaConversation404>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteQaConversation>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteQaConversation>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteQaConversation"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteQaConversation>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteQaConversation(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteQaConversationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteQaConversation>>
+>;
+
+export type DeleteQaConversationMutationError =
+  ErrorType<DeleteQaConversation404>;
+
+/**
+ * @summary Delete a Q&A conversation (and all its messages)
+ */
+export const useDeleteQaConversation = <
+  TError = ErrorType<DeleteQaConversation404>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteQaConversation>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteQaConversation>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteQaConversationMutationOptions(options));
+};
 
 /**
  * Runs the read-only tool-use agent loop with Claude over the user's

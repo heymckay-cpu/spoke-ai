@@ -225,6 +225,11 @@ function Router() {
           <AskPage />
         </ProtectedRoute>
       </Route>
+      <Route path="/dashboard/ask/:conversationId">
+        <ProtectedRoute>
+          <AskPage />
+        </ProtectedRoute>
+      </Route>
       <Route path="/dashboard/resources">
         <ResourcesPage />
       </Route>

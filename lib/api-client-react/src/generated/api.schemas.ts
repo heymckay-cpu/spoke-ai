@@ -1181,6 +1181,37 @@ export interface QaConversationInput {
   title?: string;
 }
 
+export interface QaConversationUpdate {
+  /**
+   * @minLength 1
+   * @maxLength 200
+   */
+  title: string;
+}
+
+export interface QaConversationListItem {
+  id: number;
+  title: string;
+  createdAt: string;
+  /**
+   * ISO timestamp of the most recent message in the conversation, or null when empty.
+   * @nullable
+   */
+  lastMessageAt: string | null;
+  /**
+   * Short truncated preview of the most recent message text.
+   * @nullable
+   */
+  lastMessagePreview: string | null;
+  messageCount: number;
+}
+
+export interface QaConversationList {
+  conversations: QaConversationListItem[];
+  /** True when more rows exist past the requested limit+offset window. */
+  hasMore: boolean;
+}
+
 export interface QaConversation {
   id: number;
   title: string;
@@ -1377,7 +1408,27 @@ export type GetPositionAdvisor404 = {
   error: string;
 };
 
+export type ListQaConversationsParams = {
+  /**
+   * @minimum 1
+   * @maximum 100
+   */
+  limit?: number;
+  /**
+   * @minimum 0
+   */
+  offset?: number;
+};
+
 export type GetQaConversation404 = {
+  error: string;
+};
+
+export type RenameQaConversation404 = {
+  error: string;
+};
+
+export type DeleteQaConversation404 = {
   error: string;
 };
 

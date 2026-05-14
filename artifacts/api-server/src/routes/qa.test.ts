@@ -35,6 +35,13 @@ vi.mock("@workspace/db", () => {
   const conversationsT = proxy("conversations");
   const messagesT = proxy("messages");
 
+  type Pred = (r: Record<string, unknown>) => boolean;
+
+  const tableRows = (t: { __t: string }): Array<Record<string, unknown>> =>
+    (t.__t === "conversations"
+      ? (stores.conversations as unknown as Array<Record<string, unknown>>)
+      : (stores.messages as unknown as Array<Record<string, unknown>>));
+
   const db = {
     insert: (table: { __t: string }) => ({
       values: (vals: Record<string, unknown>) => ({
@@ -62,14 +69,53 @@ vi.mock("@workspace/db", () => {
         },
       }),
     }),
+    update: (table: { __t: string }) => ({
+      set: (patch: Record<string, unknown>) => ({
+        where: (predicate: Pred) => ({
+          returning: async () => {
+            const rows = tableRows(table);
+            const updated: Array<Record<string, unknown>> = [];
+            for (const r of rows) {
+              if (predicate(r)) {
+                Object.assign(r, patch);
+                updated.push(r);
+              }
+            }
+            return updated;
+          },
+        }),
+      }),
+    }),
+    delete: (table: { __t: string }) => ({
+      where: (predicate: Pred) => ({
+        returning: async () => {
+          const rows = tableRows(table);
+          const removed: Array<Record<string, unknown>> = [];
+          for (let i = rows.length - 1; i >= 0; i -= 1) {
+            const r = rows[i];
+            if (predicate(r)) {
+              removed.push(r);
+              rows.splice(i, 1);
+            }
+          }
+          // Cascade delete messages when removing a conversation.
+          if (table.__t === "conversations") {
+            const removedIds = new Set(removed.map((r) => r.id as number));
+            for (let i = stores.messages.length - 1; i >= 0; i -= 1) {
+              if (removedIds.has(stores.messages[i].conversationId)) {
+                stores.messages.splice(i, 1);
+              }
+            }
+          }
+          return removed.reverse();
+        },
+      }),
+    }),
     select: () => {
       let table: { __t: string } = { __t: "" };
-      let predicate: ((r: Record<string, unknown>) => boolean) | null = null;
+      let predicate: Pred | null = null;
       const exec = async () => {
-        const rows =
-          table.__t === "conversations"
-            ? stores.conversations
-            : stores.messages;
+        const rows = tableRows(table);
         return predicate ? rows.filter(predicate as (r: unknown) => boolean) : [...rows];
       };
       const chain: Record<string, unknown> = {};
@@ -77,7 +123,7 @@ vi.mock("@workspace/db", () => {
         table = t;
         return chain;
       };
-      chain.where = (p?: (r: Record<string, unknown>) => boolean) => {
+      chain.where = (p?: Pred) => {
         if (typeof p === "function") predicate = p;
         return chain;
       };
@@ -118,9 +164,19 @@ vi.mock("../lib/qa/agent", () => {
       this.name = "QaUnavailableError";
     }
   }
+  // Re-implement summariseTitle here so the route's auto-title logic exercises
+  // a deterministic stub without dragging in tools.ts (which pulls drizzle's
+  // `sql` helper that the drizzle mock above doesn't expose).
+  const summariseTitle = (content: string): string => {
+    const c = content.replace(/\s+/g, " ").trim();
+    if (!c) return "New conversation";
+    const max = 60;
+    return c.length <= max ? c : c.slice(0, max) + "…";
+  };
   return {
     runQaAgent: (...args: unknown[]) => runAgentMock(...args),
     runQaAgentStreaming: (...args: unknown[]) => runStreamingAgentMock(...args),
+    summariseTitle,
     QaUnavailableError,
   };
 });
@@ -158,6 +214,114 @@ describe("POST /api/qa/conversations", () => {
       .post("/api/qa/conversations")
       .send({ title: "PLTR analysis" });
     expect(r.body.title).toBe("PLTR analysis");
+  });
+});
+
+describe("GET /api/qa/conversations", () => {
+  it("returns an empty list when no conversations exist", async () => {
+    const r = await request(app).get("/api/qa/conversations");
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ conversations: [], hasMore: false });
+  });
+
+  it("orders by most-recent activity and includes preview + count", async () => {
+    stores.conversations.push(
+      { id: 1, title: "older", createdAt: new Date("2026-01-01") },
+      { id: 2, title: "newer", createdAt: new Date("2026-02-01") },
+    );
+    stores.nextConvId = 3;
+    stores.messages.push(
+      {
+        id: 1, conversationId: 1, role: "user", content: "hello there",
+        attachments: [], createdAt: new Date("2026-05-10"),
+      },
+      {
+        id: 2, conversationId: 1, role: "assistant", content: "hi",
+        attachments: [], createdAt: new Date("2026-05-11"),
+      },
+      {
+        id: 3, conversationId: 2, role: "user", content: "older convo last activity",
+        attachments: [], createdAt: new Date("2026-03-01"),
+      },
+    );
+    const r = await request(app).get("/api/qa/conversations");
+    expect(r.status).toBe(200);
+    expect(r.body.conversations.map((c: { id: number }) => c.id)).toEqual([1, 2]);
+    expect(r.body.conversations[0]).toMatchObject({
+      id: 1,
+      title: "older",
+      messageCount: 2,
+      lastMessagePreview: "hi",
+    });
+    expect(r.body.hasMore).toBe(false);
+  });
+
+  it("paginates with limit + offset and reports hasMore", async () => {
+    for (let i = 1; i <= 5; i += 1) {
+      stores.conversations.push({
+        id: i,
+        title: `c${i}`,
+        createdAt: new Date(`2026-01-0${i}`),
+      });
+    }
+    stores.nextConvId = 6;
+    const r = await request(app).get("/api/qa/conversations?limit=2&offset=0");
+    expect(r.body.conversations).toHaveLength(2);
+    expect(r.body.hasMore).toBe(true);
+    const r2 = await request(app).get("/api/qa/conversations?limit=10&offset=4");
+    expect(r2.body.conversations).toHaveLength(1);
+    expect(r2.body.hasMore).toBe(false);
+  });
+});
+
+describe("PATCH /api/qa/conversations/:id", () => {
+  it("renames an existing conversation", async () => {
+    stores.conversations.push({ id: 1, title: "old", createdAt: new Date() });
+    stores.nextConvId = 2;
+    const r = await request(app)
+      .patch("/api/qa/conversations/1")
+      .send({ title: "Brand new name" });
+    expect(r.status).toBe(200);
+    expect(r.body.title).toBe("Brand new name");
+    expect(stores.conversations[0].title).toBe("Brand new name");
+  });
+
+  it("rejects empty titles", async () => {
+    stores.conversations.push({ id: 1, title: "old", createdAt: new Date() });
+    stores.nextConvId = 2;
+    const r = await request(app)
+      .patch("/api/qa/conversations/1")
+      .send({ title: "   " });
+    expect(r.status).toBe(400);
+  });
+
+  it("returns 404 when the conversation is missing", async () => {
+    const r = await request(app)
+      .patch("/api/qa/conversations/999")
+      .send({ title: "anything" });
+    expect(r.status).toBe(404);
+  });
+});
+
+describe("DELETE /api/qa/conversations/:id", () => {
+  it("removes the conversation and its messages", async () => {
+    stores.conversations.push({ id: 1, title: "x", createdAt: new Date() });
+    stores.nextConvId = 2;
+    stores.messages.push({
+      id: 1, conversationId: 1, role: "user", content: "hi",
+      attachments: [], createdAt: new Date(),
+    });
+    stores.nextMsgId = 2;
+    const r = await request(app).delete("/api/qa/conversations/1");
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ ok: true });
+    expect(stores.conversations).toHaveLength(0);
+    expect(stores.messages).toHaveLength(0);
+  });
+
+  it("returns 404 when the conversation is missing", async () => {
+    const r = await request(app).delete("/api/qa/conversations/999");
+    expect(r.status).toBe(404);
   });
 });
 
@@ -213,6 +377,31 @@ describe("POST /api/qa/messages", () => {
     expect(r.body.assistantMessage.content).toBe("Sure, here's the answer.");
     expect(r.body.assistantMessage.attachments).toHaveLength(1);
     expect(stores.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+  });
+
+  it("auto-titles the conversation from the first user message", async () => {
+    stores.conversations.push({ id: 1, title: "New conversation", createdAt: new Date() });
+    stores.nextConvId = 2;
+    runAgentMock.mockResolvedValue({ text: "ok", attachments: [], toolCalls: [] });
+    await request(app)
+      .post("/api/qa/messages")
+      .send({ conversationId: 1, content: "Show me my worst-performing wheels this quarter please" });
+    expect(stores.conversations[0].title).toContain("Show me my worst-performing wheels");
+  });
+
+  it("preserves a user-set title across follow-up messages", async () => {
+    stores.conversations.push({ id: 1, title: "My PLTR research", createdAt: new Date() });
+    stores.nextConvId = 2;
+    stores.messages.push({
+      id: 1, conversationId: 1, role: "user", content: "first",
+      attachments: [], createdAt: new Date("2026-01-01"),
+    });
+    stores.nextMsgId = 2;
+    runAgentMock.mockResolvedValue({ text: "ok", attachments: [], toolCalls: [] });
+    await request(app)
+      .post("/api/qa/messages")
+      .send({ conversationId: 1, content: "another question" });
+    expect(stores.conversations[0].title).toBe("My PLTR research");
   });
 
   it("returns 503 with a code when the agent reports the AI is unavailable", async () => {

@@ -2002,6 +2002,58 @@ export const SetTierResponse = zod.object({
 });
 
 /**
+ * Returns conversations ordered by most-recent activity (last message
+time, falling back to created time). Each item includes a short
+preview of the latest message so the rail can render without a
+per-conversation fetch.
+
+ * @summary List recent Q&A conversations (paginated, newest first)
+ */
+export const listQaConversationsQueryLimitDefault = 30;
+export const listQaConversationsQueryLimitMax = 100;
+
+export const listQaConversationsQueryOffsetDefault = 0;
+export const listQaConversationsQueryOffsetMin = 0;
+
+export const ListQaConversationsQueryParams = zod.object({
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(listQaConversationsQueryLimitMax)
+    .default(listQaConversationsQueryLimitDefault),
+  offset: zod.coerce
+    .number()
+    .min(listQaConversationsQueryOffsetMin)
+    .default(listQaConversationsQueryOffsetDefault),
+});
+
+export const ListQaConversationsResponse = zod.object({
+  conversations: zod.array(
+    zod.object({
+      id: zod.number(),
+      title: zod.string(),
+      createdAt: zod.string(),
+      lastMessageAt: zod
+        .string()
+        .nullable()
+        .describe(
+          "ISO timestamp of the most recent message in the conversation, or null when empty.",
+        ),
+      lastMessagePreview: zod
+        .string()
+        .nullable()
+        .describe("Short truncated preview of the most recent message text."),
+      messageCount: zod.number(),
+    }),
+  ),
+  hasMore: zod
+    .boolean()
+    .describe(
+      "True when more rows exist past the requested limit+offset window.",
+    ),
+});
+
+/**
  * @summary Create a new Q&A conversation
  */
 export const createQaConversationBodyTitleMax = 200;
@@ -2060,6 +2112,36 @@ export const GetQaConversationResponse = zod.object({
       createdAt: zod.string(),
     }),
   ),
+});
+
+/**
+ * @summary Rename a Q&A conversation
+ */
+export const RenameQaConversationParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const renameQaConversationBodyTitleMax = 200;
+
+export const RenameQaConversationBody = zod.object({
+  title: zod.string().min(1).max(renameQaConversationBodyTitleMax),
+});
+
+export const RenameQaConversationResponse = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  createdAt: zod.string(),
+});
+
+/**
+ * @summary Delete a Q&A conversation (and all its messages)
+ */
+export const DeleteQaConversationParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteQaConversationResponse = zod.object({
+  ok: zod.boolean(),
 });
 
 /**

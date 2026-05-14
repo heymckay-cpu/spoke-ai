@@ -6,6 +6,7 @@ import {
   useCreateQaConversation,
   useGetQaConversation,
   getGetQaConversationQueryKey,
+  getListQaConversationsQueryKey,
   type QaMessage,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -13,11 +14,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { SpokeSpinner } from "@/components/spoke-spinner";
 import { QaMessageBubble } from "@/components/qa-message";
 import { cn } from "@/lib/utils";
-
-// Conversation id is kept in sessionStorage so a page reload preserves
-// scroll-back, but a fresh browser session starts clean. We keep this lazy —
-// no conversation row exists until the user sends their first message.
-const STORAGE_KEY = "wheel.qa.conversationId";
 
 const SUGGESTED_PROMPTS = [
   "Show me my worst-performing wheels this quarter",
@@ -30,6 +26,13 @@ const SUGGESTED_PROMPTS = [
 
 interface QaPanelProps {
   className?: string;
+  /** Active conversation id from the route, or null when starting fresh. */
+  conversationId: number | null;
+  /**
+   * Called when a brand-new conversation is created lazily (the user typed a
+   * first message on `/ask`). The parent should sync the URL to `/ask/<id>`.
+   */
+  onConversationCreated: (id: number) => void;
 }
 
 interface QaErrorPayload {
@@ -73,18 +76,20 @@ function describeError(payload: QaErrorPayload | null | undefined): { title: str
   }
 }
 
-export function QaPanel({ className }: QaPanelProps) {
+export function QaPanel({ className, conversationId, onConversationCreated }: QaPanelProps) {
   const queryClient = useQueryClient();
-  const [conversationId, setConversationId] = useState<number | null>(() => {
-    if (typeof window === "undefined") return null;
-    const raw = window.sessionStorage.getItem(STORAGE_KEY);
-    const id = raw ? Number(raw) : NaN;
-    return Number.isFinite(id) && id > 0 ? id : null;
-  });
   const [draft, setDraft] = useState("");
   const [errorPayload, setErrorPayload] = useState<QaErrorPayload | null>(null);
   const [optimisticUser, setOptimisticUser] = useState<QaMessage | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Reset transient state whenever the route conversation id changes — stale
+  // optimistic bubbles or error banners from another conversation would be
+  // confusing.
+  useEffect(() => {
+    setOptimisticUser(null);
+    setErrorPayload(null);
+  }, [conversationId]);
 
   const conversationQuery = useGetQaConversation(conversationId ?? 0, {
     query: {
@@ -112,11 +117,8 @@ export function QaPanel({ className }: QaPanelProps) {
 
   async function ensureConversationId(): Promise<number> {
     if (conversationId != null) return conversationId;
-    const created = await createMutation.mutateAsync({ data: { title: "Portfolio Q&A" } });
-    if (typeof window !== "undefined") {
-      window.sessionStorage.setItem(STORAGE_KEY, String(created.id));
-    }
-    setConversationId(created.id);
+    const created = await createMutation.mutateAsync({ data: {} });
+    onConversationCreated(created.id);
     return created.id;
   }
 
@@ -195,6 +197,10 @@ export function QaPanel({ className }: QaPanelProps) {
       // Always refetch — on success it picks up the persisted assistant
       // row; on error it at least shows the persisted user message.
       await queryClient.invalidateQueries({ queryKey: getGetQaConversationQueryKey(cid) });
+      // The rail's preview / order needs to reflect the new traffic too.
+      await queryClient.invalidateQueries({
+        queryKey: getListQaConversationsQueryKey({ limit: 50, offset: 0 }),
+      });
       setOptimisticUser(null);
       if (streamErrored) {
         // Surface a generic failure if the stream died without sending an
