@@ -15,8 +15,8 @@ vi.mock("@/components/theme-provider", () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-vi.mock("@/components/notifications-bell", () => ({
-  NotificationsBell: () => <div data-testid="bell-stub" />,
+vi.mock("@/components/notification-bell", () => ({
+  NotificationBell: () => <div data-testid="bell-stub" />,
 }));
 
 function renderAt(path: string) {
