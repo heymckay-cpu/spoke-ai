@@ -540,7 +540,7 @@ export function CandidatesPage() {
                       );
                     })}
                     <th className="w-8" />
-                    <th className="px-2 py-2.5 text-right text-[11px] font-medium uppercase tracking-wider text-muted-foreground" scope="col">
+                    <th className="px-2 py-2.5 text-center text-[11px] font-medium uppercase tracking-wider text-muted-foreground" scope="col">
                       Qty
                     </th>
                   </tr>
