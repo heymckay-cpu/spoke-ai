@@ -68,8 +68,8 @@ const SECTIONS: Section[] = [
         ],
       },
       {
-        id: "the-five-tabs",
-        heading: "The five tabs at a glance",
+        id: "the-tabs",
+        heading: "The tabs at a glance",
         blocks: [
           {
             kind: "kv",
@@ -79,6 +79,7 @@ const SECTIONS: Section[] = [
               { term: "Positions", def: "Every open and closed sold-put trade, plus roll history." },
               { term: "Holdings", def: "Shares you own (often from assignment) and their P/L." },
               { term: "Ask", def: "Plain-English Q&A over your real portfolio data." },
+              { term: "Resources", def: "This in-app user manual." },
               { term: "Settings", def: "Watchlist, screener parameters, alerts, and your plan." },
             ],
           },
