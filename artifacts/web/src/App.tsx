@@ -226,9 +226,7 @@ function Router() {
         </ProtectedRoute>
       </Route>
       <Route path="/dashboard/resources">
-        <ProtectedRoute>
-          <ResourcesPage />
-        </ProtectedRoute>
+        <ResourcesPage />
       </Route>
       <Route component={NotFound} />
     </Switch>

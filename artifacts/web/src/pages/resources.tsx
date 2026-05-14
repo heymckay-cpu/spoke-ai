@@ -19,13 +19,16 @@ import { cn } from "@/lib/utils";
 
 type Tone = "info" | "warning" | "tip";
 
+type IllustrationKind = "earnings-filter" | "advisor";
+
 interface Block {
-  kind: "p" | "ul" | "ol" | "callout" | "kv" | "code";
+  kind: "p" | "ul" | "ol" | "callout" | "kv" | "code" | "illustration";
   text?: string;
   items?: string[];
   pairs?: { term: string; def: string }[];
   tone?: Tone;
   title?: string;
+  illustration?: IllustrationKind;
 }
 
 interface Subsection {
@@ -124,6 +127,10 @@ const SECTIONS: Section[] = [
             ],
           },
           {
+            kind: "illustration",
+            illustration: "earnings-filter",
+          },
+          {
             kind: "callout",
             tone: "tip",
             title: "Why the calendar-clock icon?",
@@ -155,15 +162,7 @@ const SECTIONS: Section[] = [
         blocks: [
           {
             kind: "p",
-            text: "Pick a ticker and an expiration to see every put strike with bid, ask, mid, open interest, volume, and delta. Strikes that match your screener parameters are highlighted so you can see at a glance which contracts your rules would have surfaced.",
-          },
-          {
-            kind: "ul",
-            items: [
-              "Click a strike to open the candidate detail drawer with full math (annualized yield, breakeven, return-if-assigned).",
-              "The drawer also shows IV rank trend and any upcoming earnings inside the window.",
-              "Use it to double-check a contract before placing the order in your broker.",
-            ],
+            text: "Pick a ticker and an expiration to see every put strike with bid, ask, mid, open interest, volume, and delta. Use the chain to double-check a contract from the Candidates page (or to look up strikes outside the screener's top-N) before placing the order in your broker.",
           },
         ],
       },
@@ -191,21 +190,18 @@ const SECTIONS: Section[] = [
         blocks: [
           {
             kind: "p",
-            text: "When a position approaches expiry or moves in-the-money, the Roll Advisor card surfaces a recommendation: roll out to a later week, roll out and down, close for a small loss, or take assignment.",
+            text: "When a position approaches expiry or moves in-the-money, the Roll Advisor card surfaces a recommendation drawn from live chain data and your existing position — typically: roll forward to a later expiry, roll forward and down to a lower strike, close, or take assignment.",
           },
           {
             kind: "ul",
             items: [
-              "Recommendations are computed from live chain data, your remaining premium, current delta, days to expiration, and your portfolio's concentration in that ticker / sector.",
-              "Each suggestion shows the proposed new strike & expiry, the net credit/debit, and the change to your annualized yield — so you can see whether the roll actually improves your position.",
-              "Recommendations are advisory only. Spoke AI never sends orders to your broker — you place the trade yourself.",
+              "Suggestions are advisory. Spoke AI never sends orders to your broker — you place the trade yourself.",
+              "Concentration warnings appear when a roll or new candidate would push you past the per-ticker or per-sector caps you set in Settings.",
             ],
           },
           {
-            kind: "callout",
-            tone: "info",
-            title: "Concentration warnings",
-            text: "If a roll or new candidate would push you past your per-ticker or per-sector concentration cap (set in Settings → Concentration), you'll see a warning chip on the row.",
+            kind: "illustration",
+            illustration: "advisor",
           },
         ],
       },
@@ -285,7 +281,7 @@ const SECTIONS: Section[] = [
               { term: "AI auth failed", def: "The AI provider rejected the request. The key may have rotated — try again in a moment." },
               { term: "Sign in required", def: "You need to be signed in to use the AI assistant." },
               { term: "AI timed out", def: "The model took too long to respond. Try a simpler question or retry." },
-              { term: "AI features unavailable", def: "The AI provider isn't responding right now. Try again in a few minutes — most often a transient proxy hiccup, not a real outage." },
+              { term: "AI features unavailable", def: "The AI provider isn't responding right now. Try again in a few minutes." },
             ],
           },
         ],
@@ -460,7 +456,76 @@ function BlockView({ block }: { block: Block }) {
           <code>{block.text}</code>
         </pre>
       );
+    case "illustration":
+      return <Illustration kind={block.illustration ?? "earnings-filter"} />;
   }
+}
+
+function Illustration({ kind }: { kind: IllustrationKind }) {
+  if (kind === "earnings-filter") {
+    return (
+      <figure
+        className="space-y-2 rounded-lg border border-border bg-card/40 p-4"
+        data-testid="illustration-earnings-filter"
+      >
+        <div className="inline-flex overflow-hidden rounded-md border border-border">
+          {(["Hide", "Show only", "Include"] as const).map((label, i) => (
+            <span
+              key={label}
+              className={cn(
+                "px-3 py-1.5 text-xs font-medium",
+                i === 0
+                  ? "bg-primary/15 text-primary"
+                  : "bg-card text-muted-foreground",
+                i > 0 && "border-l border-border",
+              )}
+            >
+              {label}
+            </span>
+          ))}
+        </div>
+        <figcaption className="text-xs text-muted-foreground">
+          The earnings-filter pill above the candidates list. The active mode is highlighted.
+        </figcaption>
+      </figure>
+    );
+  }
+  // advisor
+  return (
+    <figure
+      className="space-y-3 rounded-lg border border-border bg-card/40 p-4"
+      data-testid="illustration-advisor"
+    >
+      <div className="flex items-start justify-between gap-3 border-b border-border/60 pb-2">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wider text-primary">
+            Roll advisor
+          </div>
+          <div className="text-sm font-medium text-foreground">AAPL · short put</div>
+        </div>
+        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-300">
+          ITM
+        </span>
+      </div>
+      <div className="grid grid-cols-3 gap-3 text-xs">
+        <div>
+          <div className="text-muted-foreground">Suggested</div>
+          <div className="font-medium text-foreground">Roll → +28d</div>
+        </div>
+        <div>
+          <div className="text-muted-foreground">Net credit</div>
+          <div className="font-medium text-emerald-400 tabular-nums">+$1.40</div>
+        </div>
+        <div>
+          <div className="text-muted-foreground">New strike</div>
+          <div className="font-medium text-foreground tabular-nums">$185</div>
+        </div>
+      </div>
+      <figcaption className="text-xs text-muted-foreground">
+        A simplified view of the Roll Advisor card on the Positions page.
+      </figcaption>
+    </figure>
+  );
 }
 
 export function ResourcesPage() {
@@ -477,14 +542,24 @@ export function ResourcesPage() {
     return ids;
   }, []);
 
-  // Highlight the section the user is currently reading.
+  // Highlight the section the user is currently reading and keep the URL
+  // hash in sync so deep-link copy from the address bar always works.
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
         const visible = entries
           .filter((e) => e.isIntersecting)
           .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-        if (visible[0]?.target.id) setActiveId(visible[0].target.id);
+        const nextId = visible[0]?.target.id;
+        if (!nextId) return;
+        setActiveId((prev) => {
+          if (prev === nextId) return prev;
+          if (typeof window !== "undefined" && window.history?.replaceState) {
+            const { pathname, search } = window.location;
+            window.history.replaceState(null, "", `${pathname}${search}#${nextId}`);
+          }
+          return nextId;
+        });
       },
       { rootMargin: "-96px 0px -60% 0px", threshold: [0, 1] },
     );
