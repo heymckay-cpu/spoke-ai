@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useSectorMap } from "@/hooks/use-sector-map";
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
@@ -35,6 +36,7 @@ import {
   Percent,
   Plus,
   Search,
+  Shapes,
   Sparkles,
   TrendingUp,
 } from "lucide-react";
@@ -631,34 +633,43 @@ export function CandidatesPage() {
                                 </TooltipTrigger>
                                 <TooltipContent className="max-w-xs space-y-1.5">
                                   {rowOverlap.openInTicker > 0 && (
-                                    <p className="text-xs">
-                                      You already have {rowOverlap.openInTicker} open{" "}
-                                      {rowOverlap.openInTicker === 1
-                                        ? "position"
-                                        : "positions"}{" "}
-                                      on {c.ticker} (
-                                      {fmtCompactMoney(rowOverlap.tickerCar)} cash at
-                                      risk).
+                                    <p className="flex items-start gap-1.5 text-xs">
+                                      <Layers className="mt-0.5 h-2.5 w-2.5 shrink-0" />
+                                      <span>
+                                        You already have {rowOverlap.openInTicker} open{" "}
+                                        {rowOverlap.openInTicker === 1
+                                          ? "position"
+                                          : "positions"}{" "}
+                                        on {c.ticker} (
+                                        {fmtCompactMoney(rowOverlap.tickerCar)} cash at
+                                        risk).
+                                      </span>
                                     </p>
                                   )}
                                   {rowAssessment.tickerExceeds && (
-                                    <p className="text-xs">
-                                      Adding {getContracts(c)}{" "}
-                                      {getContracts(c) === 1 ? "contract" : "contracts"}{" "}
-                                      would push {c.ticker} to{" "}
-                                      {fmtCompactMoney(rowAssessment.postTickerCar)} (
-                                      {tickerPct}% of{" "}
-                                      {fmtCompactMoney(rowAssessment.postTotalCar)} total
-                                      open cash at risk), above your {limitTicker}%
-                                      per-ticker limit.
+                                    <p className="flex items-start gap-1.5 text-xs">
+                                      <AlertTriangle className="mt-0.5 h-2.5 w-2.5 shrink-0" />
+                                      <span>
+                                        Adding {getContracts(c)}{" "}
+                                        {getContracts(c) === 1 ? "contract" : "contracts"}{" "}
+                                        would push {c.ticker} to{" "}
+                                        {fmtCompactMoney(rowAssessment.postTickerCar)} (
+                                        {tickerPct}% of{" "}
+                                        {fmtCompactMoney(rowAssessment.postTotalCar)} total
+                                        open cash at risk), above your {limitTicker}%
+                                        per-ticker limit.
+                                      </span>
                                     </p>
                                   )}
                                   {rowAssessment.sectorExceeds && (
-                                    <p className="text-xs">
-                                      {rowOverlap.sector} would reach{" "}
-                                      {fmtCompactMoney(rowAssessment.postSectorCar)} (
-                                      {sectorPct}% of total open cash at risk), above
-                                      your {limitSector}% per-sector limit.
+                                    <p className="flex items-start gap-1.5 text-xs">
+                                      <Shapes className="mt-0.5 h-2.5 w-2.5 shrink-0" />
+                                      <span>
+                                        {rowOverlap.sector} would reach{" "}
+                                        {fmtCompactMoney(rowAssessment.postSectorCar)} (
+                                        {sectorPct}% of total open cash at risk), above
+                                        your {limitSector}% per-sector limit.
+                                      </span>
                                     </p>
                                   )}
                                 </TooltipContent>
@@ -675,17 +686,6 @@ export function CandidatesPage() {
                               {c.ticker}
                             </Link>
                           )}
-                          <ConcentrationChip
-                            variant="thresholds"
-                            ticker={c.ticker}
-                            strike={c.strike}
-                            contracts={getContracts(c)}
-                            positions={positions}
-                            settings={concentration}
-                            sectorMap={sectorMap}
-                            overlap={rowOverlap}
-                            assessment={rowAssessment}
-                          />
                         </div>
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{fmtMoney(c.spot)}</td>

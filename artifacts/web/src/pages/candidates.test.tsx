@@ -151,9 +151,11 @@ describe("CandidatesPage concentration chips", () => {
     const overlap = screen.getByTestId("chip-overlap-AAPL");
     expect(overlap.textContent).toContain("+1 open");
     // Adding 1 more contract on top of an existing AAPL position takes the
-    // ticker to 100% of total open CAR — well past the 15% limit.
-    expect(screen.getByTestId("chip-ticker-overload-AAPL")).toBeInTheDocument();
-    // The ticker symbol itself flips into the amber warning style.
+    // ticker to 100% of total open CAR — well past the 15% limit. The
+    // redundant orange "Ticker XX%" chip is no longer rendered; the ticker
+    // symbol itself flips into the amber warning style and the explanation
+    // moves to its hover tooltip.
+    expect(screen.queryByTestId("chip-ticker-overload-AAPL")).not.toBeInTheDocument();
     const tickerLink = screen.getByTestId("link-ticker-AAPL");
     expect(tickerLink.getAttribute("data-warn")).toBe("true");
     expect(tickerLink.className).toMatch(/text-amber-/);
