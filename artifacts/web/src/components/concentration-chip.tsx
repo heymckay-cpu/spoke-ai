@@ -1,7 +1,9 @@
 import { AlertTriangle, Layers, Shapes } from "lucide-react";
 import {
+  buildBreakdown,
   describeOverlap,
   wouldExceedThreshold,
+  type ConcentrationBreakdown,
   type ConcentrationSettings,
   type PositionLike,
   type SectorMap,
@@ -31,14 +33,16 @@ export function computeConcentration(
   positions: readonly PositionLike[],
   settings: ConcentrationSettings,
   sectorMap?: SectorMap,
+  breakdown?: ConcentrationBreakdown,
 ): { overlap: OverlapResult; assessment: AssessmentResult } {
-  const overlap = describeOverlap({ ticker, strike }, positions, undefined, sectorMap);
+  const b = breakdown ?? buildBreakdown(positions, sectorMap);
+  const overlap = describeOverlap({ ticker, strike }, positions, b, sectorMap);
   const assessment = wouldExceedThreshold(
     { ticker, strike },
     contracts,
     settings,
     positions,
-    undefined,
+    b,
     sectorMap,
   );
   return { overlap, assessment };

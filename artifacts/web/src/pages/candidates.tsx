@@ -14,7 +14,7 @@ import {
   useUpdateSettings,
   type Candidate,
 } from "@workspace/api-client-react";
-import { DEFAULT_CONCENTRATION } from "@workspace/portfolio";
+import { buildBreakdown, DEFAULT_CONCENTRATION } from "@workspace/portfolio";
 import { ConcentrationChip, computeConcentration } from "@/components/concentration-chip";
 import {
   Tooltip,
@@ -225,6 +225,13 @@ export function CandidatesPage() {
     return Array.from(set);
   }, [positions, candidatesData]);
   const sectorMap = useSectorMap(sectorTickers);
+  // Build the per-ticker / per-sector CAR breakdown once per render. Both
+  // `describeOverlap` and `wouldExceedThreshold` would otherwise rebuild this
+  // internally for every row, which gets expensive with many candidates.
+  const breakdown = useMemo(
+    () => buildBreakdown(positions, sectorMap),
+    [positions, sectorMap],
+  );
   const settings = settingsQuery;
   const [sort, setSort] = useState<SortState>({ key: "annualized", dir: "desc" });
   const [filter, setFilter] = useState("");
@@ -561,6 +568,7 @@ export function CandidatesPage() {
                         positions,
                         concentration,
                         sectorMap,
+                        breakdown,
                       );
                     const tickerWarn =
                       rowAssessment.tickerExceeds || rowAssessment.sectorExceeds;
