@@ -51,7 +51,7 @@ const clerkAppearance = {
   options: {
     logoPlacement: "inside" as const,
     logoLinkUrl: basePath || "/",
-    logoImageUrl: `${window.location.origin}${basePath}/logo.svg`,
+    logoImageUrl: `${window.location.origin}${basePath}/spoke-mark.png`,
   },
   variables: {
     colorPrimary: "#6366F1",
@@ -82,7 +82,7 @@ const clerkAppearance = {
     formFieldSuccessText: "text-emerald-400",
     alertText: "text-slate-200",
     logoBox: "flex justify-center",
-    logoImage: "h-10 w-auto",
+    logoImage: "h-12 w-12 object-contain",
     socialButtonsBlockButton:
       "border border-white/10 bg-white/[0.02] hover:bg-white/[0.06] text-slate-100",
     formButtonPrimary:
