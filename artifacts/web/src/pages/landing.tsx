@@ -16,8 +16,16 @@ import {
   Wallet,
 } from "lucide-react";
 import spokeMark from "@/assets/spoke-mark.png";
-import newsOutlets from "@/assets/news-outlets.png";
 import { CAPABILITIES, type Tier } from "@workspace/tiers";
+
+const NEWS_OUTLETS = [
+  { name: "Yahoo Finance", className: "font-serif italic text-[26px] tracking-tight" },
+  { name: "Business Insider", className: "font-sans font-black uppercase text-[22px] tracking-[0.02em]" },
+  { name: "The Daily Scanner", className: "font-serif uppercase text-[20px] tracking-[0.18em]" },
+  { name: "Digital Journal", className: "font-sans font-bold uppercase text-[22px] tracking-[0.05em]" },
+  { name: "New York Weekly", className: "font-serif italic text-[24px] tracking-tight" },
+  { name: "MarketWatch", className: "font-sans font-extrabold lowercase text-[24px] tracking-tight" },
+];
 
 interface Feature {
   icon: typeof Sparkles;
@@ -352,13 +360,76 @@ export function LandingPage() {
 
   return (
     <div
-      className="min-h-screen bg-slate-950 text-slate-100"
-      style={{
-        backgroundImage:
-          "radial-gradient(1200px 600px at 80% -200px, rgba(99,102,241,0.18), transparent 60%), radial-gradient(900px 500px at -10% 10%, rgba(56,189,248,0.10), transparent 60%)",
-      }}
+      className="relative min-h-screen overflow-x-clip bg-slate-950 text-slate-100"
       data-testid="page-landing"
     >
+      {/* Ambient page background — grid + diagonal light beam + starfield */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+        {/* Subtle grid */}
+        <div
+          className="absolute inset-0 opacity-[0.07]"
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(148,163,184,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.5) 1px, transparent 1px)",
+            backgroundSize: "56px 56px",
+            maskImage:
+              "radial-gradient(ellipse 1100px 800px at 50% 0%, black 40%, transparent 80%)",
+            WebkitMaskImage:
+              "radial-gradient(ellipse 1100px 800px at 50% 0%, black 40%, transparent 80%)",
+          }}
+        />
+        {/* Soft color washes */}
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage:
+              "radial-gradient(1200px 600px at 80% -200px, rgba(99,102,241,0.18), transparent 60%), radial-gradient(900px 500px at -10% 10%, rgba(56,189,248,0.10), transparent 60%)",
+          }}
+        />
+        {/* Diagonal light beam from top-left, à la Lumino */}
+        <div
+          className="absolute -left-[20%] -top-[10%] h-[140%] w-[55%] rotate-[18deg] opacity-60"
+          style={{
+            backgroundImage:
+              "linear-gradient(90deg, transparent 0%, rgba(165,180,252,0.10) 35%, rgba(165,180,252,0.22) 50%, rgba(165,180,252,0.10) 65%, transparent 100%)",
+            filter: "blur(36px)",
+          }}
+        />
+        <div
+          className="absolute -left-[10%] -top-[5%] h-[120%] w-[20%] rotate-[18deg] opacity-70"
+          style={{
+            backgroundImage:
+              "linear-gradient(90deg, transparent 0%, rgba(199,210,254,0.18) 50%, transparent 100%)",
+            filter: "blur(20px)",
+          }}
+        />
+        {/* Starfield */}
+        <div
+          className="absolute inset-0 opacity-[0.55]"
+          style={{
+            backgroundImage:
+              "radial-gradient(1px 1px at 12% 18%, rgba(255,255,255,0.9), transparent 60%)," +
+              "radial-gradient(1px 1px at 24% 62%, rgba(255,255,255,0.7), transparent 60%)," +
+              "radial-gradient(1.5px 1.5px at 38% 22%, rgba(255,255,255,0.95), transparent 60%)," +
+              "radial-gradient(1px 1px at 47% 78%, rgba(255,255,255,0.6), transparent 60%)," +
+              "radial-gradient(1px 1px at 58% 14%, rgba(255,255,255,0.85), transparent 60%)," +
+              "radial-gradient(1.5px 1.5px at 71% 48%, rgba(255,255,255,0.9), transparent 60%)," +
+              "radial-gradient(1px 1px at 82% 32%, rgba(255,255,255,0.7), transparent 60%)," +
+              "radial-gradient(1px 1px at 91% 70%, rgba(255,255,255,0.8), transparent 60%)," +
+              "radial-gradient(1px 1px at 6% 82%, rgba(255,255,255,0.55), transparent 60%)," +
+              "radial-gradient(1px 1px at 33% 92%, rgba(255,255,255,0.55), transparent 60%)," +
+              "radial-gradient(1px 1px at 66% 88%, rgba(255,255,255,0.55), transparent 60%)," +
+              "radial-gradient(1px 1px at 88% 8%, rgba(255,255,255,0.65), transparent 60%)",
+            backgroundSize: "100% 1400px",
+            backgroundRepeat: "repeat-y",
+            maskImage:
+              "linear-gradient(to bottom, black 0%, black 70%, transparent 100%)",
+            WebkitMaskImage:
+              "linear-gradient(to bottom, black 0%, black 70%, transparent 100%)",
+          }}
+        />
+      </div>
+      <div className="relative">
       {/* Top nav */}
       <header className="sticky top-0 z-40 border-b border-white/5 bg-slate-950/70 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
@@ -465,27 +536,31 @@ export function LandingPage() {
 
       {/* Marquee */}
       <section
-        className="relative overflow-hidden border-b border-white/5 py-10"
+        className="relative border-b border-white/5 py-12"
         aria-label="Featured in"
       >
-        <div className="text-center text-xs uppercase tracking-[0.3em] text-slate-500">
-          As mentioned in
-        </div>
-        <div
-          ref={marqueeRef}
-          className="group relative mt-6 overflow-hidden"
-          data-testid="marquee-news"
-        >
-          <div className="flex w-max animate-[marquee_28s_linear_infinite] items-center gap-16 group-hover:[animation-play-state:paused]">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <img
-                key={i}
-                src={newsOutlets}
-                alt="News outlets that featured Spoke AI"
-                className="h-12 max-w-none opacity-80"
-                draggable={false}
-              />
-            ))}
+        <div className="mx-auto max-w-5xl px-6">
+          <div
+            ref={marqueeRef}
+            className="group relative overflow-hidden"
+            data-testid="marquee-news"
+            style={{
+              maskImage:
+                "linear-gradient(to right, transparent 0, black 12%, black 88%, transparent 100%)",
+              WebkitMaskImage:
+                "linear-gradient(to right, transparent 0, black 12%, black 88%, transparent 100%)",
+            }}
+          >
+            <div className="flex w-max animate-[marquee_36s_linear_infinite] items-center group-hover:[animation-play-state:paused]">
+              {[...NEWS_OUTLETS, ...NEWS_OUTLETS].map((outlet, i) => (
+                <span
+                  key={`${outlet.name}-${i}`}
+                  className={`shrink-0 whitespace-nowrap pr-20 text-slate-300/70 transition hover:text-slate-100 ${outlet.className}`}
+                >
+                  {outlet.name}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
         <style>{`@keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }`}</style>
@@ -633,6 +708,7 @@ export function LandingPage() {
           <div>© {new Date().getFullYear()} Spoke AI</div>
         </div>
       </footer>
+      </div>
     </div>
   );
 }
