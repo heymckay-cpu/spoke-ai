@@ -14,6 +14,7 @@ import { PositionsPage } from "@/pages/positions";
 import { HoldingsPage } from "@/pages/holdings";
 import { SettingsPage } from "@/pages/settings";
 import { AskPage } from "@/pages/ask";
+import { ResourcesPage } from "@/pages/resources";
 import { LandingPage } from "@/pages/landing";
 import NotFound from "@/pages/not-found";
 
@@ -222,6 +223,11 @@ function Router() {
       <Route path="/dashboard/ask">
         <ProtectedRoute>
           <AskPage />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/dashboard/resources">
+        <ProtectedRoute>
+          <ResourcesPage />
         </ProtectedRoute>
       </Route>
       <Route component={NotFound} />
