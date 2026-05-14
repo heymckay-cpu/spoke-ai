@@ -450,6 +450,26 @@ describe("POST /api/qa/messages", () => {
 });
 
 describe("POST /api/qa/messages/stream", () => {
+  it("returns 403 with a tier_required payload when the user lacks ai.qa", async () => {
+    tierMock.mockResolvedValue("pro");
+    stores.conversations.push({ id: 1, userId: "test-user", title: "x", createdAt: new Date() });
+    stores.nextConvId = 2;
+    const r = await request(app)
+      .post("/api/qa/messages/stream")
+      .send({ conversationId: 1, content: "hi" });
+    expect(r.status).toBe(403);
+    expect(r.body).toEqual({
+      code: "tier_required",
+      capability: "ai.qa",
+      required: "ultra",
+      current: "pro",
+    });
+    // The streaming agent should never have been called.
+    expect(runStreamingAgentMock).not.toHaveBeenCalled();
+    // And no message rows should have been written.
+    expect(stores.messages).toHaveLength(0);
+  });
+
   it("returns 404 when the conversation does not exist", async () => {
     const r = await request(app)
       .post("/api/qa/messages/stream")

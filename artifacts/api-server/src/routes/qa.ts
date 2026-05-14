@@ -300,7 +300,7 @@ router.post("/qa/messages", requireCapability("ai.qa"), async (req, res): Promis
   }
 });
 
-router.post("/qa/messages/stream", async (req, res): Promise<void> => {
+router.post("/qa/messages/stream", requireCapability("ai.qa"), async (req, res): Promise<void> => {
   const userId = getUserId(req);
   const parsed = SendQaMessageBody.safeParse(req.body);
   if (!parsed.success) {
