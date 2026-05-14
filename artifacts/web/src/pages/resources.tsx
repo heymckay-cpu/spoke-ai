@@ -515,7 +515,7 @@ const ICON_CALLOUT: Record<Tone, typeof BookOpen> = {
 const TONE_CLASSES: Record<Tone, string> = {
   info: "border-indigo-500/30 bg-indigo-500/5 text-indigo-100",
   warning: "border-amber-500/30 bg-amber-500/5 text-amber-100",
-  tip: "border-orange-500/30 bg-orange-500/5 text-orange-100",
+  tip: "border-amber-500/30 bg-amber-500/5 text-amber-300",
 };
 
 function BlockView({ block }: { block: Block }) {
