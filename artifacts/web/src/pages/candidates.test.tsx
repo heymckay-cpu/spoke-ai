@@ -205,6 +205,67 @@ describe("CandidatesPage concentration chips", () => {
     expect(tickerLink.getAttribute("data-warn")).toBe("false");
     expect(tickerLink.className).not.toMatch(/text-amber-/);
   });
+
+  it("warned ticker still navigates to the chain route on click", () => {
+    mockUseListHoldings.mockReturnValue({ data: { holdings: [] }, isLoading: false });
+    mockUseGetLatestScan.mockReturnValue({
+      data: {
+        scannedAt: "2026-05-13T00:00:00Z",
+        candidates: [baseCandidate],
+        errors: [],
+        tickersScanned: 1,
+        tickersWithCandidate: 1,
+        cached: false,
+        stale: false,
+      },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    mockUseGetScanSummary.mockReturnValue({
+      data: {
+        avgAnnualizedPct: 15,
+        maxAnnualizedPct: 15,
+        candidateCount: 1,
+        totalPremium: 250,
+        totalCollateral: 20_000,
+        earningsFlaggedCount: 0,
+      },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    mockUseGetSettings.mockReturnValue({
+      data: { concentration: { tickerPct: 0.15, sectorPct: 0.3 } },
+      isLoading: false,
+      isError: false,
+    });
+    mockUseListPositions.mockReturnValue({
+      data: {
+        positions: [
+          {
+            id: 1,
+            ticker: "AAPL",
+            strike: 195,
+            expiry: "2026-05-15",
+            premium: 1.5,
+            contracts: 1,
+            openedAt: "2026-04-01T00:00:00Z",
+            status: "open",
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    });
+
+    renderPage();
+    const link = screen.getByTestId("link-ticker-AAPL") as HTMLAnchorElement;
+    // Even when wrapped by TooltipTrigger asChild, the underlying element
+    // must still be an anchor with the correct chain href.
+    expect(link.tagName).toBe("A");
+    expect(link.getAttribute("href")).toBe("/dashboard/chain/AAPL");
+  });
 });
 
 function beforeEachStubs() {
