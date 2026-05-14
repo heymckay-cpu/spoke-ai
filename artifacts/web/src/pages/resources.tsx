@@ -598,7 +598,8 @@ export function ResourcesPage() {
     el.scrollIntoView({ behavior: "smooth", block: "start" });
     setActiveId(id);
     if (typeof window !== "undefined" && window.history?.replaceState) {
-      window.history.replaceState(null, "", `${location}#${id}`);
+      const { pathname, search } = window.location;
+      window.history.replaceState(null, "", `${pathname}${search}#${id}`);
     } else {
       setLocation(`${location}#${id}`, { replace: true });
     }

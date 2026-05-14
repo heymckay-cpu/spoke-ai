@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, fireEvent } from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -68,5 +68,13 @@ describe("AppShell — Resources nav entry", () => {
     expect(ask).toBeGreaterThanOrEqual(0);
     expect(resources).toBe(ask + 1);
     expect(settings).toBe(resources + 1);
+  });
+
+  it("includes a Resources entry in the mobile nav drawer", () => {
+    renderAt("/dashboard");
+    fireEvent.click(screen.getByTestId("button-mobile-nav"));
+    const link = screen.getByTestId("link-mobile-nav-resources");
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute("href")).toContain("/dashboard/resources");
   });
 });
