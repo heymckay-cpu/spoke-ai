@@ -6,8 +6,13 @@ import {
   getListPositionsQueryKey,
   useListHoldings,
   getListHoldingsQueryKey,
+  useGetSettings,
+  getGetSettingsQueryKey,
 } from "@workspace/api-client-react";
 import type { Candidate, Holding, Position } from "@workspace/api-client-react";
+import { DEFAULT_CONCENTRATION } from "@workspace/portfolio";
+import { computeConcentration } from "@/components/concentration-chip";
+import { useSectorMap } from "@/hooks/use-sector-map";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -17,6 +22,7 @@ import {
   Clock,
   Layers,
   Lightbulb,
+  Shapes,
   TrendingUp,
 } from "lucide-react";
 import {
@@ -205,11 +211,17 @@ function Metric({ label, value, hint }: MetricProps) {
 export interface CandidateDetailDrawerProps {
   candidate: Candidate | null;
   onClose: () => void;
+  contracts?: number;
+  onContractsChange?: (n: number) => void;
 }
+
+const MAX_CONTRACTS = 999;
 
 export function CandidateDetailDrawer({
   candidate,
   onClose,
+  contracts,
+  onContractsChange,
 }: CandidateDetailDrawerProps) {
   const qc = useQueryClient();
   const positionsQuery = useListPositions({
@@ -224,6 +236,38 @@ export function CandidateDetailDrawer({
       enabled: candidate != null,
     },
   });
+  const settingsQuery = useGetSettings({
+    query: {
+      queryKey: getGetSettingsQueryKey(),
+      enabled: candidate != null,
+    },
+  });
+  const concentration = settingsQuery.data?.concentration ?? DEFAULT_CONCENTRATION;
+  const allPositions = positionsQuery.data?.positions ?? [];
+  const sectorTickers = useMemo(() => {
+    const set = new Set<string>();
+    if (candidate) set.add(candidate.ticker);
+    for (const p of allPositions) set.add(p.ticker);
+    return Array.from(set);
+  }, [candidate, allPositions]);
+  const sectorMap = useSectorMap(sectorTickers);
+  const qty = Math.max(1, Math.min(MAX_CONTRACTS, Math.floor(contracts ?? 1) || 1));
+  const setQty = (n: number) => {
+    const clamped = Math.max(1, Math.min(MAX_CONTRACTS, Math.floor(n) || 1));
+    onContractsChange?.(clamped);
+  };
+
+  const risk = useMemo(() => {
+    if (!candidate) return null;
+    return computeConcentration(
+      candidate.ticker,
+      candidate.strike,
+      qty,
+      allPositions,
+      concentration,
+      sectorMap,
+    );
+  }, [candidate, qty, allPositions, concentration, sectorMap]);
 
   const openInTicker = useMemo<Position[]>(() => {
     if (!candidate) return [];
@@ -324,6 +368,121 @@ export function CandidateDetailDrawer({
                 </div>
               </div>
             </div>
+
+            {/* Concentration risk panel — mirrors the ticker-row tooltip so
+                users who click into a flagged trade see the same warning
+                front-and-center while reviewing it. Only renders when the
+                trade trips a per-ticker / per-sector cap or overlaps an
+                already-open leg in the same name. */}
+            {risk &&
+              (risk.overlap.openInTicker > 0 ||
+                risk.assessment.tickerExceeds ||
+                risk.assessment.sectorExceeds) && (() => {
+                const { overlap, assessment } = risk;
+                const tickerPct = (assessment.postTickerPct * 100).toFixed(0);
+                const sectorPct = (assessment.postSectorPct * 100).toFixed(0);
+                const limitTicker = (concentration.tickerPct * 100).toFixed(0);
+                const limitSector = (concentration.sectorPct * 100).toFixed(0);
+                return (
+                  <div
+                    className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4"
+                    data-testid="risk-panel"
+                  >
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+                      <div className="flex-1 space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-sm font-semibold text-amber-600 dark:text-amber-400">
+                            Concentration risk
+                          </div>
+                          {onContractsChange && (
+                            <div
+                              className="inline-flex items-center gap-0.5 rounded-md border border-border bg-background"
+                              data-testid="risk-contracts-stepper"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => setQty(qty - 1)}
+                                disabled={qty <= 1}
+                                className="flex h-6 w-6 items-center justify-center rounded-l-md text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent"
+                                title="Decrease contracts"
+                                data-testid="button-risk-contracts-decrement"
+                              >
+                                <span className="text-base leading-none">−</span>
+                              </button>
+                              <input
+                                type="number"
+                                min={1}
+                                max={MAX_CONTRACTS}
+                                value={qty}
+                                onChange={(e) => setQty(Number(e.target.value))}
+                                className="h-6 w-10 border-none bg-transparent text-center text-xs tabular-nums focus:outline-none focus:ring-0 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                aria-label="Contracts"
+                                data-testid="input-risk-contracts"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setQty(qty + 1)}
+                                disabled={qty >= MAX_CONTRACTS}
+                                className="flex h-6 w-6 items-center justify-center rounded-r-md text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent"
+                                title="Increase contracts"
+                                data-testid="button-risk-contracts-increment"
+                              >
+                                <span className="text-base leading-none">+</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        <ul className="space-y-1.5 text-sm text-foreground/90">
+                          {overlap.openInTicker > 0 && (
+                            <li
+                              className="flex items-start gap-2"
+                              data-testid="risk-open-overlap"
+                            >
+                              <Layers className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                              <span>
+                                You already have {overlap.openInTicker} open{" "}
+                                {overlap.openInTicker === 1 ? "position" : "positions"}{" "}
+                                on {candidate.ticker} (
+                                {fmtCompactMoney(overlap.tickerCar)} cash at risk).
+                              </span>
+                            </li>
+                          )}
+                          {assessment.tickerExceeds && (
+                            <li
+                              className="flex items-start gap-2"
+                              data-testid="risk-ticker-exceeds"
+                            >
+                              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                              <span>
+                                Adding {qty} {qty === 1 ? "contract" : "contracts"} would
+                                push {candidate.ticker} to{" "}
+                                {fmtCompactMoney(assessment.postTickerCar)} ({tickerPct}%
+                                of {fmtCompactMoney(assessment.postTotalCar)} total open
+                                cash at risk), above your {limitTicker}% per-ticker limit.
+                              </span>
+                            </li>
+                          )}
+                          {assessment.sectorExceeds && (
+                            <li
+                              className="flex items-start gap-2"
+                              data-testid="risk-sector-exceeds"
+                            >
+                              <Shapes className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                              <span>
+                                {overlap.sector} would reach{" "}
+                                {fmtCompactMoney(assessment.postSectorCar)} ({sectorPct}%
+                                of total open cash at risk), above your {limitSector}%
+                                per-sector limit.
+                              </span>
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
             {/* Claude-generated long-form rationale */}
             <div className="mt-4">

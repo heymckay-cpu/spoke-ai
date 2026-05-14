@@ -816,6 +816,10 @@ export function CandidatesPage() {
       <CandidateDetailDrawer
         candidate={selected}
         onClose={() => setSelected(null)}
+        contracts={selected ? getContracts(selected) : 1}
+        onContractsChange={(n) => {
+          if (selected) setContracts(selected, n);
+        }}
       />
     </AppShell>
   );
