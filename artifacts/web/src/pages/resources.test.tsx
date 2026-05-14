@@ -62,4 +62,11 @@ describe("ResourcesPage", () => {
       expect(screen.getByTestId(`toc-${id}`)).toBeInTheDocument();
     }
   });
+
+  it("renders an anchor target for the deep-linkable earnings-filter subsection", () => {
+    render(<ResourcesPage />);
+    const target = document.getElementById("earnings-filter");
+    expect(target).not.toBeNull();
+    expect(target?.className ?? "").toMatch(/scroll-mt-/);
+  });
 });

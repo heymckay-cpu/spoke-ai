@@ -577,7 +577,7 @@ export function ResourcesPage() {
     const el = sectionRefs.current[hash];
     if (el) {
       requestAnimationFrame(() => {
-        el.scrollIntoView({ behavior: "instant" as ScrollBehavior, block: "start" });
+        el.scrollIntoView({ behavior: "auto", block: "start" });
       });
     }
   }, []);
