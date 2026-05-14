@@ -33,6 +33,8 @@ vi.mock("@workspace/api-client-react", () => ({
   useCreateQaConversation: () => mockUseCreateQaConversation(),
   getGetQaConversationQueryKey: (id: number) =>
     [`/api/qa/conversations/${id}`] as const,
+  getListQaConversationsQueryKey: (params?: unknown) =>
+    [`/api/qa/conversations`, params] as const,
 }));
 
 import { QaPanel } from "./qa-panel";
@@ -77,7 +79,7 @@ describe("QaPanel streaming auth header", () => {
     mockGetToken.mockResolvedValue("clerk-jwt-token");
     mockFetch.mockResolvedValue(makeEmptyStreamResponse());
 
-    render(<QaPanel />);
+    render(<QaPanel onConversationCreated={() => {}} />);
     fireEvent.click(screen.getAllByTestId("qa-suggested-prompt")[0]);
 
     await waitFor(() => {
@@ -96,7 +98,7 @@ describe("QaPanel streaming auth header", () => {
   it("shows the sign-in error and does NOT fire the streaming request when no session token is available", async () => {
     mockUseClerk.mockReturnValue({ session: null });
 
-    render(<QaPanel />);
+    render(<QaPanel onConversationCreated={() => {}} />);
     fireEvent.click(screen.getAllByTestId("qa-suggested-prompt")[0]);
 
     await waitFor(() => {

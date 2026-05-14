@@ -20,6 +20,7 @@ import {
 } from "../lib/qa/agent";
 import { logger } from "../lib/logger";
 import { getUserId } from "../middlewares/auth";
+import { requireCapability } from "../middlewares/tier";
 
 const router: IRouter = Router();
 
@@ -201,7 +202,7 @@ router.delete("/qa/conversations/:id", async (req, res): Promise<void> => {
   res.json({ ok: true });
 });
 
-router.post("/qa/messages", async (req, res): Promise<void> => {
+router.post("/qa/messages", requireCapability("ai.qa"), async (req, res): Promise<void> => {
   const userId = getUserId(req);
   const parsed = SendQaMessageBody.safeParse(req.body);
   if (!parsed.success) {

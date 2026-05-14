@@ -18,6 +18,8 @@ import {
 } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
+import { useCapability } from "@/hooks/use-capability";
+import { type Capability, type Tier } from "@workspace/tiers";
 import { Button } from "@/components/ui/button";
 import { RunScanButton } from "@/components/run-scan-button";
 import { NotificationBell } from "@/components/notification-bell";
@@ -36,7 +38,19 @@ interface NavItem {
   label: string;
   icon: typeof LayoutGrid;
   match: (loc: string) => boolean;
+  /**
+   * Optional capability gate — when set, users without this capability see a
+   * small tier badge next to the label so the upgrade story is visible from
+   * the nav itself, before they click through.
+   */
+  capability?: Capability;
 }
+
+const TIER_BADGE_LABEL: Record<Tier, string> = {
+  free: "Free",
+  pro: "Pro",
+  ultra: "Ultra",
+};
 
 const NAV: NavItem[] = [
   {
@@ -68,6 +82,7 @@ const NAV: NavItem[] = [
     label: "Ask",
     icon: MessageSquare,
     match: (l) => l.startsWith("/dashboard/ask"),
+    capability: "ai.qa",
   },
   {
     href: "/dashboard/resources",
@@ -148,31 +163,13 @@ export function AppShell({ title, breadcrumbs, actions, children }: AppShellProp
         </div>
 
         <nav className="flex-1 space-y-1 p-3">
-          {NAV.map((item) => {
-            const active = item.match(location);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "group flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
-                  active
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-                )}
-                data-testid={`link-nav-${item.label.toLowerCase()}`}
-              >
-                <Icon
-                  className={cn(
-                    "h-4 w-4",
-                    active ? "text-primary" : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
-                  )}
-                />
-                {item.label}
-              </Link>
-            );
-          })}
+          {NAV.map((item) => (
+            <SidebarNavLink
+              key={item.href}
+              item={item}
+              active={item.match(location)}
+            />
+          ))}
         </nav>
 
         <div className="border-t border-sidebar-border p-3">
@@ -231,27 +228,14 @@ export function AppShell({ title, breadcrumbs, actions, children }: AppShellProp
                   </SheetTitle>
                 </SheetHeader>
                 <nav className="space-y-1 p-3">
-                  {NAV.map((item) => {
-                    const active = item.match(location);
-                    const Icon = item.icon;
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        onClick={() => setMobileNavOpen(false)}
-                        className={cn(
-                          "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
-                          active
-                            ? "bg-accent font-medium text-accent-foreground"
-                            : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-                        )}
-                        data-testid={`link-mobile-nav-${item.label.toLowerCase()}`}
-                      >
-                        <Icon className={cn("h-4 w-4", active && "text-primary")} />
-                        {item.label}
-                      </Link>
-                    );
-                  })}
+                  {NAV.map((item) => (
+                    <MobileNavLink
+                      key={item.href}
+                      item={item}
+                      active={item.match(location)}
+                      onNavigate={() => setMobileNavOpen(false)}
+                    />
+                  ))}
                 </nav>
               </SheetContent>
             </Sheet>
@@ -368,5 +352,80 @@ export function AppShell({ title, breadcrumbs, actions, children }: AppShellProp
         <main className="flex-1 px-4 py-6 md:px-8 md:py-8">{children}</main>
       </div>
     </div>
+  );
+}
+
+interface SidebarNavLinkProps {
+  item: NavItem;
+  active: boolean;
+}
+
+/**
+ * Tier badge shown next to a gated nav item for non-entitled users. We
+ * deliberately render nothing while the tier query is loading so the badge
+ * doesn't flash in for entitled users on first paint.
+ */
+function NavTierBadge({ capability }: { capability: Capability }) {
+  const { allowed, loading, required } = useCapability(capability);
+  if (loading || allowed) return null;
+  return (
+    <span
+      className="ml-auto rounded-sm border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary"
+      data-testid={`nav-badge-${capability}`}
+    >
+      {TIER_BADGE_LABEL[required]}
+    </span>
+  );
+}
+
+function SidebarNavLink({ item, active }: SidebarNavLinkProps) {
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      className={cn(
+        "group flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
+        active
+          ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+          : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+      )}
+      data-testid={`link-nav-${item.label.toLowerCase()}`}
+    >
+      <Icon
+        className={cn(
+          "h-4 w-4",
+          active ? "text-primary" : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
+        )}
+      />
+      {item.label}
+      {item.capability && <NavTierBadge capability={item.capability} />}
+    </Link>
+  );
+}
+
+interface MobileNavLinkProps {
+  item: NavItem;
+  active: boolean;
+  onNavigate: () => void;
+}
+
+function MobileNavLink({ item, active, onNavigate }: MobileNavLinkProps) {
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      className={cn(
+        "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
+        active
+          ? "bg-accent font-medium text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+      )}
+      data-testid={`link-mobile-nav-${item.label.toLowerCase()}`}
+    >
+      <Icon className={cn("h-4 w-4", active && "text-primary")} />
+      {item.label}
+      {item.capability && <NavTierBadge capability={item.capability} />}
+    </Link>
   );
 }

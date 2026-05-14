@@ -153,6 +153,13 @@ vi.mock("drizzle-orm", () => ({
   desc: (col: unknown) => col,
 }));
 
+const tierMock = vi.fn();
+vi.mock("../lib/tierStore", () => ({
+  getCurrentTierForUser: () => tierMock(),
+  setUserTier: vi.fn(),
+  defaultTier: () => "free",
+}));
+
 const runAgentMock = vi.fn();
 const runStreamingAgentMock = vi.fn();
 vi.mock("../lib/qa/agent", () => {
@@ -190,6 +197,8 @@ beforeEach(async () => {
   stores.nextMsgId = 1;
   runAgentMock.mockReset();
   runStreamingAgentMock.mockReset();
+  tierMock.mockReset();
+  tierMock.mockResolvedValue("ultra");
   vi.resetModules();
   app = express();
   app.use(express.json());
@@ -354,6 +363,26 @@ describe("GET /api/qa/conversations/:id", () => {
 });
 
 describe("POST /api/qa/messages", () => {
+  it("returns 403 with a tier_required payload when the user lacks ai.qa", async () => {
+    tierMock.mockResolvedValue("pro");
+    stores.conversations.push({ id: 1, title: "x", createdAt: new Date() });
+    stores.nextConvId = 2;
+    const r = await request(app)
+      .post("/api/qa/messages")
+      .send({ conversationId: 1, content: "hi" });
+    expect(r.status).toBe(403);
+    expect(r.body).toEqual({
+      code: "tier_required",
+      capability: "ai.qa",
+      required: "ultra",
+      current: "pro",
+    });
+    // Importantly the agent should never have been called.
+    expect(runAgentMock).not.toHaveBeenCalled();
+    // And no message rows should have been written.
+    expect(stores.messages).toHaveLength(0);
+  });
+
   it("returns 404 when the conversation does not exist", async () => {
     const r = await request(app)
       .post("/api/qa/messages")
@@ -380,7 +409,7 @@ describe("POST /api/qa/messages", () => {
   });
 
   it("auto-titles the conversation from the first user message", async () => {
-    stores.conversations.push({ id: 1, title: "New conversation", createdAt: new Date() });
+    stores.conversations.push({ id: 1, userId: "test-user", title: "New conversation", createdAt: new Date() });
     stores.nextConvId = 2;
     runAgentMock.mockResolvedValue({ text: "ok", attachments: [], toolCalls: [] });
     await request(app)
