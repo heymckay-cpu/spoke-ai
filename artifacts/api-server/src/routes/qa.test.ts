@@ -235,8 +235,8 @@ describe("GET /api/qa/conversations", () => {
 
   it("orders by most-recent activity and includes preview + count", async () => {
     stores.conversations.push(
-      { id: 1, title: "older", createdAt: new Date("2026-01-01") },
-      { id: 2, title: "newer", createdAt: new Date("2026-02-01") },
+      { id: 1, userId: "test-user", title: "older", createdAt: new Date("2026-01-01") },
+      { id: 2, userId: "test-user", title: "newer", createdAt: new Date("2026-02-01") },
     );
     stores.nextConvId = 3;
     stores.messages.push(
@@ -269,6 +269,7 @@ describe("GET /api/qa/conversations", () => {
     for (let i = 1; i <= 5; i += 1) {
       stores.conversations.push({
         id: i,
+        userId: "test-user",
         title: `c${i}`,
         createdAt: new Date(`2026-01-0${i}`),
       });
@@ -285,7 +286,7 @@ describe("GET /api/qa/conversations", () => {
 
 describe("PATCH /api/qa/conversations/:id", () => {
   it("renames an existing conversation", async () => {
-    stores.conversations.push({ id: 1, title: "old", createdAt: new Date() });
+    stores.conversations.push({ id: 1, userId: "test-user", title: "old", createdAt: new Date() });
     stores.nextConvId = 2;
     const r = await request(app)
       .patch("/api/qa/conversations/1")
@@ -296,7 +297,7 @@ describe("PATCH /api/qa/conversations/:id", () => {
   });
 
   it("rejects empty titles", async () => {
-    stores.conversations.push({ id: 1, title: "old", createdAt: new Date() });
+    stores.conversations.push({ id: 1, userId: "test-user", title: "old", createdAt: new Date() });
     stores.nextConvId = 2;
     const r = await request(app)
       .patch("/api/qa/conversations/1")
@@ -314,7 +315,7 @@ describe("PATCH /api/qa/conversations/:id", () => {
 
 describe("DELETE /api/qa/conversations/:id", () => {
   it("removes the conversation and its messages", async () => {
-    stores.conversations.push({ id: 1, title: "x", createdAt: new Date() });
+    stores.conversations.push({ id: 1, userId: "test-user", title: "x", createdAt: new Date() });
     stores.nextConvId = 2;
     stores.messages.push({
       id: 1, conversationId: 1, role: "user", content: "hi",
@@ -365,7 +366,7 @@ describe("GET /api/qa/conversations/:id", () => {
 describe("POST /api/qa/messages", () => {
   it("returns 403 with a tier_required payload when the user lacks ai.qa", async () => {
     tierMock.mockResolvedValue("pro");
-    stores.conversations.push({ id: 1, title: "x", createdAt: new Date() });
+    stores.conversations.push({ id: 1, userId: "test-user", title: "x", createdAt: new Date() });
     stores.nextConvId = 2;
     const r = await request(app)
       .post("/api/qa/messages")
@@ -419,7 +420,7 @@ describe("POST /api/qa/messages", () => {
   });
 
   it("preserves a user-set title across follow-up messages", async () => {
-    stores.conversations.push({ id: 1, title: "My PLTR research", createdAt: new Date() });
+    stores.conversations.push({ id: 1, userId: "test-user", title: "My PLTR research", createdAt: new Date() });
     stores.nextConvId = 2;
     stores.messages.push({
       id: 1, conversationId: 1, role: "user", content: "first",

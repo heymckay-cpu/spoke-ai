@@ -79,7 +79,7 @@ describe("QaPanel streaming auth header", () => {
     mockGetToken.mockResolvedValue("clerk-jwt-token");
     mockFetch.mockResolvedValue(makeEmptyStreamResponse());
 
-    render(<QaPanel onConversationCreated={() => {}} />);
+    render(<QaPanel conversationId={null} onConversationCreated={() => {}} />);
     fireEvent.click(screen.getAllByTestId("qa-suggested-prompt")[0]);
 
     await waitFor(() => {
@@ -98,7 +98,7 @@ describe("QaPanel streaming auth header", () => {
   it("shows the sign-in error and does NOT fire the streaming request when no session token is available", async () => {
     mockUseClerk.mockReturnValue({ session: null });
 
-    render(<QaPanel onConversationCreated={() => {}} />);
+    render(<QaPanel conversationId={null} onConversationCreated={() => {}} />);
     fireEvent.click(screen.getAllByTestId("qa-suggested-prompt")[0]);
 
     await waitFor(() => {
