@@ -63,15 +63,38 @@ describe("ResourcesPage", () => {
     }
   });
 
-  it("documents the row-level risk pills and orange ticker behavior", () => {
+  it("documents the row-level risk signals around the orange ticker, without the removed threshold pills", () => {
     render(<ResourcesPage />);
     const sub = document.getElementById("candidate-risk-pills");
     expect(sub).not.toBeNull();
     const text = sub?.textContent ?? "";
     expect(text).toMatch(/\+N open/);
-    expect(text).toMatch(/Ticker XX%/);
-    expect(text).toMatch(/Sector XX%/);
     expect(text).toMatch(/amber|orange/i);
+    // The "Ticker XX%" / "Sector XX%" pills were removed from the row in
+    // task #102 — make sure the manual no longer references them.
+    expect(text).not.toMatch(/Ticker XX%/);
+    expect(text).not.toMatch(/Sector XX%/);
+  });
+
+  it("documents the new holdings sector view and Ask conversations rail", () => {
+    render(<ResourcesPage />);
+    const sectors = document.getElementById("holdings-sectors");
+    expect(sectors).not.toBeNull();
+    expect(sectors?.textContent ?? "").toMatch(/By sector/i);
+
+    const convos = document.getElementById("ask-conversations");
+    expect(convos).not.toBeNull();
+    const convosText = convos?.textContent ?? "";
+    expect(convosText).toMatch(/Rename/);
+    expect(convosText).toMatch(/Delete/);
+    expect(convosText).toMatch(/\/dashboard\/ask\/<id>/);
+  });
+
+  it("documents that the Ask tab is currently Ultra-only", () => {
+    render(<ResourcesPage />);
+    const tier = document.getElementById("ask-tier");
+    expect(tier).not.toBeNull();
+    expect(tier?.textContent ?? "").toMatch(/Ultra/);
   });
 
   it("renders an anchor target for the deep-linkable earnings-filter subsection", () => {

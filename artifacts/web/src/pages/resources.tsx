@@ -113,25 +113,23 @@ const SECTIONS: Section[] = [
       },
       {
         id: "candidate-risk-pills",
-        heading: "Risk pills on the row",
+        heading: "Risk signals on the row",
         blocks: [
           {
             kind: "p",
-            text: "Below each ticker you may see one or more compact pills that flag concentration risk before you click in. They only appear when the trade actually trips a rule — a clean row stays uncluttered.",
-          },
-          {
-            kind: "kv",
-            pairs: [
-              { term: "+N open", def: "You already have N open short-put positions on this ticker. Hover the pill for the total cash at risk on that name today." },
-              { term: "Ticker XX%", def: "If you sold this contract, your projected per-ticker cash-at-risk would be XX% of total open CAR — above the per-ticker cap you set in Settings → Risk. Hover for the dollar math." },
-              { term: "Sector XX%", def: "Same idea, but at the sector level (e.g. Information Technology). Sector classification falls back to a curated table when your data provider doesn't supply one." },
-            ],
+            text: "Each candidate row shows two complementary risk signals next to the ticker. They only appear when the trade actually trips a rule — a clean row stays uncluttered.",
           },
           {
             kind: "callout",
             tone: "tip",
             title: "Orange ticker = take a closer look",
-            text: "Whenever a per-ticker or per-sector cap would be tripped, the ticker symbol itself turns amber. Hover the ticker to see all applicable warnings — open overlap, per-ticker breach, per-sector breach — combined in one tooltip with the dollar amounts. Clicking the ticker still jumps to the option chain.",
+            text: "Whenever a per-ticker or per-sector concentration cap would be tripped, the ticker symbol itself turns amber. Hover the ticker to see every applicable warning — existing open overlap, per-ticker breach, per-sector breach — combined in one tooltip with the dollar math and the active limits from Settings → Risk. Sector classification falls back to a curated table when your data provider doesn't supply one. Clicking the ticker still jumps to the option chain.",
+          },
+          {
+            kind: "kv",
+            pairs: [
+              { term: "+N open", def: "Small pill above the ticker showing how many open short-put positions you already have on this name. Hover for the total cash at risk on that ticker today. Independent of the orange-ticker warning — you can have overlap without breaching a cap." },
+            ],
           },
         ],
       },
@@ -148,7 +146,8 @@ const SECTIONS: Section[] = [
             pairs: [
               { term: "Header", def: "Ticker, current spot, strike, expiry date and DTE — plus a link arrow that jumps to the full option chain for that ticker." },
               { term: "Recommendation card", def: "A plain-language verdict — Sell to open, Hold, Roll out / take assignment, Avoid, or \"You already own shares — sell a call instead\" — derived from your current exposure, the candidate's metrics, and any open put legs you have on the same ticker." },
-              { term: "AI Rationale", def: "A longer Claude-generated narrative explaining the verdict, including a bulleted list of the key drivers. Hit Regenerate to ask for a fresh take; results are cached per candidate so repeat opens are instant." },
+              { term: "Concentration risk panel", def: "Mirrors the orange-ticker tooltip from the candidate row but inline: lists existing open overlap, the projected per-ticker cash-at-risk after this trade vs. your cap, and the same for the sector. The +/- qty stepper inside the drawer recomputes the assessment live so you can see exactly how many contracts stay within your limits. Only renders when at least one risk signal is present." },
+              { term: "AI Rationale", def: "A longer Claude-generated narrative explaining the verdict. Starts collapsed behind an \"Explain with Claude\" button with a small spend hint (~one Claude call, cached). Click to load; results are cached per candidate so repeat opens are instant. Free-tier users see an upgrade card instead — no AI call is made." },
               { term: "Holdings panel", def: "Appears only if you already own shares of the ticker — shows shares, average cost, market value and unrealized P/L so you can decide between stacking a put and writing a covered call instead." },
               { term: "Open put legs", def: "Every short put you currently have open in this ticker, with premium, bid, captured profit % so far, OTM/ITM status, and a Roll button that opens the roll advisor." },
               { term: "Trade details", def: "Per-contract economics for the candidate — Premium (credit per contract), Collateral (cash secured), Static %, Annualized %, Breakeven, and Δ / IV with a rough probability of profit." },
@@ -281,14 +280,47 @@ const SECTIONS: Section[] = [
           },
         ],
       },
+      {
+        id: "holdings-sectors",
+        heading: "Sector view",
+        blocks: [
+          {
+            kind: "p",
+            text: "The Holdings page shows the sector for each ticker in a dedicated column, and a \"By sector\" summary card above the table groups your book by sector so you can see at a glance how it's balanced.",
+          },
+          {
+            kind: "kv",
+            pairs: [
+              { term: "Sector column", def: "One row per holding, showing the resolved sector (e.g. Information Technology, Health Care). Sector lookup uses your data provider when it supplies one and falls back to a curated table for tickers it doesn't classify, so unknown names still get a reasonable label." },
+              { term: "By sector card", def: "Groups holdings by sector and shows market value, share-of-total percentage, and position count per sector, sorted by value descending. When a live spot price isn't available for a holding, the card falls back to cost basis so the totals stay meaningful." },
+            ],
+          },
+          {
+            kind: "callout",
+            tone: "tip",
+            title: "Same sectors drive concentration warnings",
+            text: "The per-sector cap you set in Settings → Risk uses the same sector mapping shown here. If you see a sector ballooning on the Holdings page, expect the matching candidates to start showing the orange-ticker warning sooner.",
+          },
+        ],
+      },
     ],
   },
   {
     id: "ask",
     title: "Ask (AI assistant)",
     icon: MessageSquare,
-    intro: "A read-only AI analyst with full visibility into your portfolio.",
+    intro: "A read-only AI analyst with full visibility into your portfolio. Currently an Ultra-tier feature.",
     subsections: [
+      {
+        id: "ask-tier",
+        heading: "Who can use it",
+        blocks: [
+          {
+            kind: "p",
+            text: "The Ask tab is gated behind the Ultra plan because every question runs a real model call. Free and Pro users see an upgrade card in place of the chat — the conversations rail and message history are not accessible until you upgrade. The sidebar shows a small \"Ultra\" badge next to the Ask nav item so the requirement is visible from anywhere in the app.",
+          },
+        ],
+      },
       {
         id: "ask-scope",
         heading: "What the AI can — and can't — see",
@@ -299,6 +331,26 @@ const SECTIONS: Section[] = [
               "It can read your open and closed positions, holdings, latest screener results, roll history, and live quotes.",
               "It cannot place trades, cancel orders, or modify settings. Every tool it uses is read-only.",
               "Answers are based ONLY on data returned by those tools. If a tool returns nothing, the AI will say so plainly rather than make something up.",
+            ],
+          },
+        ],
+      },
+      {
+        id: "ask-conversations",
+        heading: "Conversations rail",
+        blocks: [
+          {
+            kind: "p",
+            text: "A collapsible left rail lists your recent Q&A conversations, newest first, with the title and a one-line preview of the most recent message. Use it to jump back into a previous thread without losing context.",
+          },
+          {
+            kind: "kv",
+            pairs: [
+              { term: "New", def: "Starts a fresh conversation. The active conversation only gets a database row once you send your first message — clicking New on an empty chat is free." },
+              { term: "Switch", def: "Click any conversation in the rail to load it. The active conversation id is part of the URL (/dashboard/ask/<id>) so reload, deep-link, and the browser back button all keep you in the right thread." },
+              { term: "Auto-title", def: "New conversations are automatically titled from your first message (first sentence, trimmed at a word boundary). Once you rename a conversation manually, the auto-title stops overwriting it." },
+              { term: "Rename", def: "Inline edit the title in the rail. Press Enter (or the save button) to confirm; Escape or the cancel button discards your edit. Empty titles are rejected." },
+              { term: "Delete", def: "Removes the conversation and all of its messages. You'll be asked to confirm — there's no undo." },
             ],
           },
         ],
@@ -389,13 +441,17 @@ const SECTIONS: Section[] = [
         blocks: [
           {
             kind: "p",
-            text: "Spoke AI ships with a tiered plan structure. The Plan card at the top of Settings shows your current tier alongside a capability matrix — which features each tier unlocks.",
+            text: "Spoke AI ships with a tiered plan structure (Free / Pro / Ultra). The Plan card at the top of Settings shows your current tier alongside a capability matrix — which features each tier unlocks.",
+          },
+          {
+            kind: "p",
+            text: "Gating is enforced both in the UI and on the server. When you hit a feature your current tier doesn't include, you'll see an upgrade card explaining which plan unlocks it and a link to switch. Sidebar items that require a higher tier carry a small badge (e.g. \"Ultra\" next to Ask) so the requirement is visible before you click.",
           },
           {
             kind: "callout",
             tone: "info",
             title: "Test mode",
-            text: "Billing is not yet enabled. The Plan card includes a tier switcher you can use to preview which features are gated at each level — no payment required.",
+            text: "Billing is not yet enabled. The Plan card includes a tier switcher you can use to preview which features are gated at each level — no payment required. A dedicated plan-comparison page with full pricing and per-tier feature breakdowns is on the way; this section will be expanded then.",
           },
         ],
       },
