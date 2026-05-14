@@ -15,6 +15,35 @@ import {
 import { fmtCompactMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+type OverlapResult = ReturnType<typeof describeOverlap>;
+type AssessmentResult = ReturnType<typeof wouldExceedThreshold>;
+
+/**
+ * Compute the chip's overlap + threshold assessment once. The candidate row
+ * also needs these values (to color/explain the ticker), so callers can
+ * compute once and feed both this chip and the row from the same result via
+ * the optional `overlap` / `assessment` props.
+ */
+export function computeConcentration(
+  ticker: string,
+  strike: number,
+  contracts: number,
+  positions: readonly PositionLike[],
+  settings: ConcentrationSettings,
+  sectorMap?: SectorMap,
+): { overlap: OverlapResult; assessment: AssessmentResult } {
+  const overlap = describeOverlap({ ticker, strike }, positions, undefined, sectorMap);
+  const assessment = wouldExceedThreshold(
+    { ticker, strike },
+    contracts,
+    settings,
+    positions,
+    undefined,
+    sectorMap,
+  );
+  return { overlap, assessment };
+}
+
 export interface ConcentrationChipProps {
   ticker: string;
   strike: number;
@@ -28,6 +57,10 @@ export interface ConcentrationChipProps {
    * wrapping line. Use "open" to render only the "+N open" pill, or
    * "thresholds" to render only the ticker / sector concentration warnings. */
   variant?: "all" | "open" | "thresholds";
+  /** Optional precomputed overlap (avoids recomputing per chip variant). */
+  overlap?: OverlapResult;
+  /** Optional precomputed threshold assessment. */
+  assessment?: AssessmentResult;
 }
 
 /**
@@ -47,16 +80,15 @@ export function ConcentrationChip({
   settings,
   sectorMap,
   variant = "all",
+  overlap: overlapProp,
+  assessment: assessmentProp,
 }: ConcentrationChipProps) {
-  const overlap = describeOverlap({ ticker, strike }, positions, undefined, sectorMap);
-  const assessment = wouldExceedThreshold(
-    { ticker, strike },
-    contracts,
-    settings,
-    positions,
-    undefined,
-    sectorMap,
-  );
+  const computed =
+    overlapProp && assessmentProp
+      ? { overlap: overlapProp, assessment: assessmentProp }
+      : computeConcentration(ticker, strike, contracts, positions, settings, sectorMap);
+  const overlap = computed.overlap;
+  const assessment = computed.assessment;
 
   const hasOverlap = overlap.openInTicker > 0;
   if (!hasOverlap && !assessment.tickerExceeds && !assessment.sectorExceeds) {

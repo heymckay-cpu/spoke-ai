@@ -15,7 +15,13 @@ import {
   type Candidate,
 } from "@workspace/api-client-react";
 import { DEFAULT_CONCENTRATION } from "@workspace/portfolio";
-import { ConcentrationChip } from "@/components/concentration-chip";
+import { ConcentrationChip, computeConcentration } from "@/components/concentration-chip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useSectorMap } from "@/hooks/use-sector-map";
 import {
   ArrowDown,
@@ -547,6 +553,23 @@ export function CandidatesPage() {
                 </thead>
                 <tbody>
                   {pageRows.map((c, i) => {
+                    const { overlap: rowOverlap, assessment: rowAssessment } =
+                      computeConcentration(
+                        c.ticker,
+                        c.strike,
+                        getContracts(c),
+                        positions,
+                        concentration,
+                        sectorMap,
+                      );
+                    const tickerWarn =
+                      rowAssessment.tickerExceeds || rowAssessment.sectorExceeds;
+                    const hasAnyRisk =
+                      tickerWarn || rowOverlap.openInTicker > 0;
+                    const tickerPct = (rowAssessment.postTickerPct * 100).toFixed(0);
+                    const sectorPct = (rowAssessment.postSectorPct * 100).toFixed(0);
+                    const limitTicker = (concentration.tickerPct * 100).toFixed(0);
+                    const limitSector = (concentration.sectorPct * 100).toFixed(0);
                     return (
                     <Fragment key={`${c.ticker}-${c.expiry}-${c.strike}-${i}`}>
                     <tr
@@ -576,15 +599,74 @@ export function CandidatesPage() {
                             positions={positions}
                             settings={concentration}
                             sectorMap={sectorMap}
+                            overlap={rowOverlap}
+                            assessment={rowAssessment}
                           />
-                          <Link
-                            href={`/dashboard/chain/${c.ticker}`}
-                            onClick={(e) => e.stopPropagation()}
-                            className="font-semibold tracking-tight text-foreground hover:text-primary"
-                            data-testid={`link-ticker-${c.ticker}`}
-                          >
-                            {c.ticker}
-                          </Link>
+                          {hasAnyRisk ? (
+                            <TooltipProvider delayDuration={120}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Link
+                                    href={`/dashboard/chain/${c.ticker}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className={cn(
+                                      "font-semibold tracking-tight hover:text-primary",
+                                      tickerWarn
+                                        ? "text-amber-600 dark:text-amber-400"
+                                        : "text-foreground",
+                                    )}
+                                    data-testid={`link-ticker-${c.ticker}`}
+                                    data-warn={tickerWarn ? "true" : "false"}
+                                  >
+                                    {c.ticker}
+                                  </Link>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs space-y-1.5">
+                                  {rowOverlap.openInTicker > 0 && (
+                                    <p className="text-xs">
+                                      You already have {rowOverlap.openInTicker} open{" "}
+                                      {rowOverlap.openInTicker === 1
+                                        ? "position"
+                                        : "positions"}{" "}
+                                      on {c.ticker} (
+                                      {fmtCompactMoney(rowOverlap.tickerCar)} cash at
+                                      risk).
+                                    </p>
+                                  )}
+                                  {rowAssessment.tickerExceeds && (
+                                    <p className="text-xs">
+                                      Adding {getContracts(c)}{" "}
+                                      {getContracts(c) === 1 ? "contract" : "contracts"}{" "}
+                                      would push {c.ticker} to{" "}
+                                      {fmtCompactMoney(rowAssessment.postTickerCar)} (
+                                      {tickerPct}% of{" "}
+                                      {fmtCompactMoney(rowAssessment.postTotalCar)} total
+                                      open cash at risk), above your {limitTicker}%
+                                      per-ticker limit.
+                                    </p>
+                                  )}
+                                  {rowAssessment.sectorExceeds && (
+                                    <p className="text-xs">
+                                      {rowOverlap.sector} would reach{" "}
+                                      {fmtCompactMoney(rowAssessment.postSectorCar)} (
+                                      {sectorPct}% of total open cash at risk), above
+                                      your {limitSector}% per-sector limit.
+                                    </p>
+                                  )}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          ) : (
+                            <Link
+                              href={`/dashboard/chain/${c.ticker}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="font-semibold tracking-tight text-foreground hover:text-primary"
+                              data-testid={`link-ticker-${c.ticker}`}
+                              data-warn="false"
+                            >
+                              {c.ticker}
+                            </Link>
+                          )}
                           <ConcentrationChip
                             variant="thresholds"
                             ticker={c.ticker}
@@ -593,6 +675,8 @@ export function CandidatesPage() {
                             positions={positions}
                             settings={concentration}
                             sectorMap={sectorMap}
+                            overlap={rowOverlap}
+                            assessment={rowAssessment}
                           />
                         </div>
                       </td>

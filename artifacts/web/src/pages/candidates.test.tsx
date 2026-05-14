@@ -153,6 +153,57 @@ describe("CandidatesPage concentration chips", () => {
     // Adding 1 more contract on top of an existing AAPL position takes the
     // ticker to 100% of total open CAR — well past the 15% limit.
     expect(screen.getByTestId("chip-ticker-overload-AAPL")).toBeInTheDocument();
+    // The ticker symbol itself flips into the amber warning style.
+    const tickerLink = screen.getByTestId("link-ticker-AAPL");
+    expect(tickerLink.getAttribute("data-warn")).toBe("true");
+    expect(tickerLink.className).toMatch(/text-amber-/);
+  });
+
+  it("keeps the ticker in the default style when no concentration warning fires", () => {
+    mockUseGetLatestScan.mockReturnValue({
+      data: {
+        scannedAt: "2026-05-13T00:00:00Z",
+        candidates: [{ ...baseCandidate, ticker: "MSFT" }],
+        errors: [],
+        tickersScanned: 1,
+        tickersWithCandidate: 1,
+        cached: false,
+        stale: false,
+      },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    mockUseGetScanSummary.mockReturnValue({
+      data: {
+        avgAnnualizedPct: 15,
+        maxAnnualizedPct: 15,
+        candidateCount: 1,
+        totalPremium: 250,
+        totalCollateral: 20_000,
+        earningsFlaggedCount: 0,
+      },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    mockUseGetSettings.mockReturnValue({
+      // Loosen both caps to ~no-op so the new MSFT trade can't trip a
+      // per-ticker or per-sector warning even with no other positions.
+      data: { concentration: { tickerPct: 1.5, sectorPct: 1.5 } },
+      isLoading: false,
+      isError: false,
+    });
+    mockUseListPositions.mockReturnValue({
+      data: { positions: [] },
+      isLoading: false,
+      isError: false,
+    });
+
+    renderPage();
+    const tickerLink = screen.getByTestId("link-ticker-MSFT");
+    expect(tickerLink.getAttribute("data-warn")).toBe("false");
+    expect(tickerLink.className).not.toMatch(/text-amber-/);
   });
 });
 

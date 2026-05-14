@@ -112,6 +112,30 @@ const SECTIONS: Section[] = [
         ],
       },
       {
+        id: "candidate-risk-pills",
+        heading: "Risk pills on the row",
+        blocks: [
+          {
+            kind: "p",
+            text: "Below each ticker you may see one or more compact pills that flag concentration risk before you click in. They only appear when the trade actually trips a rule — a clean row stays uncluttered.",
+          },
+          {
+            kind: "kv",
+            pairs: [
+              { term: "+N open", def: "You already have N open short-put positions on this ticker. Hover the pill for the total cash at risk on that name today." },
+              { term: "Ticker XX%", def: "If you sold this contract, your projected per-ticker cash-at-risk would be XX% of total open CAR — above the per-ticker cap you set in Settings → Risk. Hover for the dollar math." },
+              { term: "Sector XX%", def: "Same idea, but at the sector level (e.g. Information Technology). Sector classification falls back to a curated table when your data provider doesn't supply one." },
+            ],
+          },
+          {
+            kind: "callout",
+            tone: "tip",
+            title: "Orange ticker = take a closer look",
+            text: "Whenever a per-ticker or per-sector cap would be tripped, the ticker symbol itself turns amber. Hover the ticker to see all applicable warnings — open overlap, per-ticker breach, per-sector breach — combined in one tooltip with the dollar amounts. Clicking the ticker still jumps to the option chain.",
+          },
+        ],
+      },
+      {
         id: "candidate-detail",
         heading: "Candidate detail drawer",
         blocks: [

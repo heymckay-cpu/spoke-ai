@@ -63,6 +63,17 @@ describe("ResourcesPage", () => {
     }
   });
 
+  it("documents the row-level risk pills and orange ticker behavior", () => {
+    render(<ResourcesPage />);
+    const sub = document.getElementById("candidate-risk-pills");
+    expect(sub).not.toBeNull();
+    const text = sub?.textContent ?? "";
+    expect(text).toMatch(/\+N open/);
+    expect(text).toMatch(/Ticker XX%/);
+    expect(text).toMatch(/Sector XX%/);
+    expect(text).toMatch(/amber|orange/i);
+  });
+
   it("renders an anchor target for the deep-linkable earnings-filter subsection", () => {
     render(<ResourcesPage />);
     const target = document.getElementById("earnings-filter");
