@@ -1,0 +1,14 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "KHyzyu3MprYb7_7pCGA_-"
+uri = "file://.local/outputs/Spoke-AI-Partner-Pitch.pdf"
+type = "pdf"
+title = "Spoke AI Partner Pitch (PDF)"
+
+[[outputs]]
+id = "gc0m3EHoU1tBN5FDujgrs"
+uri = "file://exports/Spoke-AI-Partner-Pitch.pdf"
+type = "pdf"
+title = "Spoke AI Partner Pitch (PDF)"

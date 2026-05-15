@@ -1,0 +1,66 @@
+[
+  {
+    "id": "9b1c5b3a-7a31-4d1f-8c3a-1c0a9b1d6f01",
+    "position": 1,
+    "filepath": "src/pages/slides/Cover.tsx",
+    "title": "Cover",
+    "description": "Title slide — Spoke AI, Trade the wheel smarter.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "9b1c5b3a-7a31-4d1f-8c3a-1c0a9b1d6f02",
+    "position": 2,
+    "filepath": "src/pages/slides/WhatWeAre.tsx",
+    "title": "What we are",
+    "description": "Three things the product does well: screens, tracks, journals.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "9b1c5b3a-7a31-4d1f-8c3a-1c0a9b1d6f03",
+    "position": 3,
+    "filepath": "src/pages/slides/WhoUsesIt.tsx",
+    "title": "Who uses it",
+    "description": "Two segments: income-focused wheelers and active rollers.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "9b1c5b3a-7a31-4d1f-8c3a-1c0a9b1d6f04",
+    "position": 4,
+    "filepath": "src/pages/slides/YearOneVolume.tsx",
+    "title": "Year-one volume",
+    "description": "Conservative vs target planning numbers.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "9b1c5b3a-7a31-4d1f-8c3a-1c0a9b1d6f05",
+    "position": 5,
+    "filepath": "src/pages/slides/Monetization.tsx",
+    "title": "How we make money",
+    "description": "SaaS subscription tiers — free, pro, future team.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "9b1c5b3a-7a31-4d1f-8c3a-1c0a9b1d6f06",
+    "position": 6,
+    "filepath": "src/pages/slides/WhyGoodPartner.tsx",
+    "title": "Why we'd be a good partner",
+    "description": "Five reasons: cohort, UX, net openings, engineering, single partner.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "9b1c5b3a-7a31-4d1f-8c3a-1c0a9b1d6f07",
+    "position": 7,
+    "filepath": "src/pages/slides/TheAsks.tsx",
+    "title": "The asks",
+    "description": "Sandbox + OAuth path, partner pricing, intros.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "9b1c5b3a-7a31-4d1f-8c3a-1c0a9b1d6f08",
+    "position": 8,
+    "filepath": "src/pages/slides/ThankYou.tsx",
+    "title": "Thank you",
+    "description": "Closing and contact.",
+    "speakerNotes": ""
+  }
+]

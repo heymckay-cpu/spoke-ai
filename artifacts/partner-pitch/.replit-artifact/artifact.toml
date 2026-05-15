@@ -1,0 +1,31 @@
+kind = "slides"
+previewPath = "/partner-pitch/"
+title = "Spoke AI Partner Pitch"
+version = "1.0.0"
+id = "artifacts/partner-pitch"
+router = "path"
+
+[[integratedSkills]]
+name = "slides"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/partner-pitch/" ]
+localPort = 21204
+
+[services.development]
+run = "pnpm --filter @workspace/partner-pitch run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/partner-pitch", "run", "build" ]
+publicDir = "artifacts/partner-pitch/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21204"
+BASE_PATH = "/partner-pitch/"
