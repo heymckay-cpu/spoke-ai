@@ -12,7 +12,7 @@ export default function Cover() {
           spoke.ai
         </div>
         <div className="text-[1vw] font-normal text-muted">
-          Partnership pitch · Tradier &amp; Alpaca
+          Partnership pitch · Tradier
         </div>
       </div>
 
@@ -48,7 +48,7 @@ export default function Cover() {
           <div className="text-muted/70 mb-[0.6vh] uppercase text-[0.75vw] tracking-[0.15em]">
             Prepared for
           </div>
-          <div className="text-text">Tradier · Alpaca partnerships</div>
+          <div className="text-text">Tradier partnerships</div>
         </div>
         <div className="ml-auto text-right">
           <div className="text-muted/70 mb-[0.6vh] uppercase text-[0.75vw] tracking-[0.15em]">

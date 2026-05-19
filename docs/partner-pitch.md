@@ -2,7 +2,7 @@
 
 *Trade the wheel, smarter.*
 
-**For:** Tradier and Alpaca partnerships teams
+**For:** Tradier partnerships team
 **From:** Spoke AI
 **Date:** 2026-05-14
 **Companion doc:** [`brokerage-evaluation.md`](./brokerage-evaluation.md) (internal evaluation; not for distribution)
@@ -78,7 +78,7 @@ A 30-minute follow-up after this pitch is plenty — we'll come with the specifi
 >
 > I'm building **Spoke AI** — a focused web cockpit for retail options traders running the wheel (cash-secured puts → assignment → covered calls → roll). It screens chains for high-yield candidates, tracks positions with IV-rank and earnings context, suggests rolls, and journals closed trades.
 >
-> We're now picking one brokerage partner for live execution and [Tradier / Alpaca] is at the top of our list. Year-one planning has us at ~5k MAU, ~2.5k connected accounts, and a few hundred net-new accounts opened with the partner. Monetization is pure SaaS subscription on our side — no PFOF, no spread capture.
+> We're now picking one brokerage partner for live execution and Tradier is at the top of our list. Year-one planning has us at ~5k MAU, ~2.5k connected accounts, and a few hundred net-new accounts opened with the partner. Monetization is pure SaaS subscription on our side — no PFOF, no spread capture.
 >
 > Could we get 30 minutes to cover three things: (1) sandbox access and the production-OAuth path, (2) any ISV / referral / partner-pricing program that fits a SaaS dashboard sitting on top of customer-owned accounts, and (3) intros to the right partner-engineering and compliance contacts?
 >
