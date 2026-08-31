@@ -77,6 +77,15 @@ vi.mock("../middlewares/auth", () => ({
   getUserId: () => "test-user",
 }));
 
+// The advisor route is tier-gated (ai.advisor → ultra). Default every test
+// to an ultra user; the 403 test below flips this to "pro".
+const tierMock = vi.fn();
+vi.mock("../lib/tierStore", () => ({
+  getCurrentTierForUser: () => tierMock(),
+  setUserTier: vi.fn(),
+  defaultTier: () => "free",
+}));
+
 vi.mock("@workspace/integrations-anthropic-ai", () => ({
   anthropic: {
     messages: {
@@ -106,6 +115,8 @@ beforeEach(() => {
   positionsRows.length = 0;
   chainStub = null;
   anthropicResponse = { shouldThrow: true };
+  tierMock.mockReset();
+  tierMock.mockResolvedValue("ultra");
   clearAdvisorCache();
 });
 
@@ -114,6 +125,18 @@ afterEach(() => {
 });
 
 describe("GET /positions/:id/advisor", () => {
+  it("returns 403 with a tier_required payload when the user lacks ai.advisor", async () => {
+    tierMock.mockResolvedValue("pro");
+    const res = await request(buildApp()).get("/positions/1/advisor");
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({
+      code: "tier_required",
+      capability: "ai.advisor",
+      required: "ultra",
+      current: "pro",
+    });
+  });
+
   it("returns 404 when the position does not exist", async () => {
     const res = await request(buildApp()).get("/positions/999/advisor");
     expect(res.status).toBe(404);

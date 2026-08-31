@@ -69,6 +69,7 @@ export interface ListPositionsArgs {
 }
 
 export async function listPositions(
+  userId: string,
   args: ListPositionsArgs = {},
 ): Promise<{ positions: PositionLite[]; total: number }> {
   const status = args.status ?? "all";
@@ -78,7 +79,7 @@ export async function listPositions(
   const order = args.order ?? "desc";
   const limit = args.limit && args.limit > 0 ? Math.min(args.limit, 200) : 50;
 
-  const filters = [];
+  const filters = [eq(positionsTable.userId, userId)];
   if (ticker) filters.push(eq(positionsTable.ticker, ticker));
   if (sinceDays) {
     const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000);
@@ -88,7 +89,7 @@ export async function listPositions(
   const rows = await db
     .select()
     .from(positionsTable)
-    .where(filters.length > 0 ? and(...filters) : undefined)
+    .where(and(...filters))
     .orderBy(desc(positionsTable.openedAt));
 
   let lite = rows.map(rowToLite);
@@ -126,7 +127,10 @@ export interface PositionStatsArgs {
   sinceDays?: number | null;
 }
 
-export async function getPositionStats(args: PositionStatsArgs = {}): Promise<{
+export async function getPositionStats(
+  userId: string,
+  args: PositionStatsArgs = {},
+): Promise<{
   closedCount: number;
   openCount: number;
   totalRealizedPnl: number;
@@ -142,7 +146,7 @@ export async function getPositionStats(args: PositionStatsArgs = {}): Promise<{
   const ticker = args.ticker ? args.ticker.toUpperCase() : null;
   const sinceDays = args.sinceDays && args.sinceDays > 0 ? args.sinceDays : null;
 
-  const filters = [];
+  const filters = [eq(positionsTable.userId, userId)];
   if (ticker) filters.push(eq(positionsTable.ticker, ticker));
   if (sinceDays) {
     const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000);
@@ -152,7 +156,7 @@ export async function getPositionStats(args: PositionStatsArgs = {}): Promise<{
   const rows = await db
     .select()
     .from(positionsTable)
-    .where(filters.length > 0 ? and(...filters) : undefined);
+    .where(and(...filters));
   const lite = rows.map(rowToLite);
 
   const open = lite.filter((p) => p.status === "open");
@@ -210,7 +214,10 @@ export interface LatestScanArgs {
   limit?: number | null;
 }
 
-export async function latestScan(args: LatestScanArgs = {}): Promise<{
+export async function latestScan(
+  userId: string,
+  args: LatestScanArgs = {},
+): Promise<{
   scannedAt: string | null;
   candidates: Array<Record<string, unknown>>;
   totalCandidates: number;
@@ -223,6 +230,7 @@ export async function latestScan(args: LatestScanArgs = {}): Promise<{
   const [row] = await db
     .select()
     .from(scanSnapshotTable)
+    .where(eq(scanSnapshotTable.userId, userId))
     .orderBy(desc(scanSnapshotTable.scannedAt))
     .limit(1);
   if (!row) return { scannedAt: null, candidates: [], totalCandidates: 0 };
@@ -249,14 +257,19 @@ export interface ListHoldingsArgs {
   ticker?: string | null;
 }
 
-export async function listHoldings(args: ListHoldingsArgs = {}): Promise<{
+export async function listHoldings(
+  userId: string,
+  args: ListHoldingsArgs = {},
+): Promise<{
   holdings: Array<{ id: number; ticker: string; shares: number; avgCost: number; openedAt: string }>;
 }> {
   const ticker = args.ticker ? args.ticker.toUpperCase() : null;
+  const filters = [eq(holdingsTable.userId, userId)];
+  if (ticker) filters.push(eq(holdingsTable.ticker, ticker));
   const rows = await db
     .select()
     .from(holdingsTable)
-    .where(ticker ? eq(holdingsTable.ticker, ticker) : undefined)
+    .where(and(...filters))
     .orderBy(desc(holdingsTable.openedAt));
   return {
     holdings: rows.map((r) => ({
@@ -298,12 +311,19 @@ export interface GetRollChainArgs {
   rootId: number;
 }
 
-export async function getRollChain(args: GetRollChainArgs): Promise<{
+export async function getRollChain(
+  userId: string,
+  args: GetRollChainArgs,
+): Promise<{
   legs: PositionLite[];
 } | { error: string }> {
   if (!args?.rootId) return { error: "rootId is required" };
-  // Walk from root forward; rolledFromId points at parent.
-  const all = await db.select().from(positionsTable);
+  // Walk from root forward; rolledFromId points at parent. Scoped to the
+  // requesting user so one user's agent can never traverse another's chains.
+  const all = await db
+    .select()
+    .from(positionsTable)
+    .where(eq(positionsTable.userId, userId));
   const byId = new Map<number, typeof positionsTable.$inferSelect>();
   for (const r of all) byId.set(r.id, r);
   const childByParent = new Map<number, typeof positionsTable.$inferSelect>();
@@ -326,14 +346,21 @@ export async function getRollChain(args: GetRollChainArgs): Promise<{
 // Allowlist of tool names — the agent loop refuses any tool_use whose name
 // is not in this map. Adding a tool means adding an entry here AND in
 // `TOOL_DEFINITIONS` below.
-export const TOOL_HANDLERS: Record<string, (args: unknown) => Promise<unknown>> = {
-  listPositions: (a) => listPositions((a ?? {}) as ListPositionsArgs),
-  getPositionStats: (a) => getPositionStats((a ?? {}) as PositionStatsArgs),
-  latestScan: (a) => latestScan((a ?? {}) as LatestScanArgs),
-  listHoldings: (a) => listHoldings((a ?? {}) as ListHoldingsArgs),
-  getQuote: (a) => quoteTicker((a ?? {}) as GetQuoteArgs),
-  getRollChain: (a) => getRollChain((a ?? {}) as GetRollChainArgs),
-};
+//
+// Handlers are constructed per-request, bound to the authenticated user, so
+// every DB query the agent can trigger is scoped to that user's rows.
+export function createToolHandlers(
+  userId: string,
+): Record<string, (args: unknown) => Promise<unknown>> {
+  return {
+    listPositions: (a) => listPositions(userId, (a ?? {}) as ListPositionsArgs),
+    getPositionStats: (a) => getPositionStats(userId, (a ?? {}) as PositionStatsArgs),
+    latestScan: (a) => latestScan(userId, (a ?? {}) as LatestScanArgs),
+    listHoldings: (a) => listHoldings(userId, (a ?? {}) as ListHoldingsArgs),
+    getQuote: (a) => quoteTicker((a ?? {}) as GetQuoteArgs),
+    getRollChain: (a) => getRollChain(userId, (a ?? {}) as GetRollChainArgs),
+  };
+}
 
 // Tool definitions in the shape Claude expects (`tools` array on
 // `messages.create`). Schemas are deliberately minimal — Claude is good at

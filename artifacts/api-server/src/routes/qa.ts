@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, qaConversationsTable, qaMessagesTable } from "@workspace/db";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import {
   CreateQaConversationBody,
   DeleteQaConversationParams,
@@ -51,6 +51,7 @@ function previewOf(text: string, max = 140): string {
 }
 
 router.get("/qa/conversations", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const parsed = ListQaConversationsQueryParams.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -58,19 +59,24 @@ router.get("/qa/conversations", async (req, res): Promise<void> => {
   }
   const { limit, offset } = parsed.data;
 
-  // Pull one extra row so we can compute hasMore without a second count query.
   const rows = await db
     .select()
     .from(qaConversationsTable)
+    .where(eq(qaConversationsTable.userId, userId))
     .orderBy(desc(qaConversationsTable.createdAt), desc(qaConversationsTable.id));
 
   // Aggregate per-conversation last message + count in one pass over the
-  // messages table. Cheaper than N round-trips and the message table stays
-  // small in practice.
-  const messages = await db
-    .select()
-    .from(qaMessagesTable)
-    .orderBy(asc(qaMessagesTable.createdAt), asc(qaMessagesTable.id));
+  // messages table, restricted to this user's conversations. Cheaper than
+  // N round-trips and the message table stays small in practice.
+  const conversationIds = rows.map((c) => c.id);
+  const messages =
+    conversationIds.length === 0
+      ? []
+      : await db
+          .select()
+          .from(qaMessagesTable)
+          .where(inArray(qaMessagesTable.conversationId, conversationIds))
+          .orderBy(asc(qaMessagesTable.createdAt), asc(qaMessagesTable.id));
   const stats = new Map<number, { count: number; last: typeof messages[number] | null }>();
   for (const m of messages) {
     const cur = stats.get(m.conversationId) ?? { count: 0, last: null };
@@ -156,6 +162,7 @@ router.get("/qa/conversations/:id", async (req, res): Promise<void> => {
 });
 
 router.patch("/qa/conversations/:id", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const params = RenameQaConversationParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -175,7 +182,7 @@ router.patch("/qa/conversations/:id", async (req, res): Promise<void> => {
   const [updated] = await db
     .update(qaConversationsTable)
     .set({ title })
-    .where(eq(qaConversationsTable.id, id))
+    .where(and(eq(qaConversationsTable.id, id), eq(qaConversationsTable.userId, userId)))
     .returning();
   if (!updated) {
     res.status(404).json({ error: "Conversation not found" });
@@ -185,6 +192,7 @@ router.patch("/qa/conversations/:id", async (req, res): Promise<void> => {
 });
 
 router.delete("/qa/conversations/:id", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
   const params = DeleteQaConversationParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -193,7 +201,7 @@ router.delete("/qa/conversations/:id", async (req, res): Promise<void> => {
   const id = params.data.id;
   const deleted = await db
     .delete(qaConversationsTable)
-    .where(eq(qaConversationsTable.id, id))
+    .where(and(eq(qaConversationsTable.id, id), eq(qaConversationsTable.userId, userId)))
     .returning();
   if (deleted.length === 0) {
     res.status(404).json({ error: "Conversation not found" });
@@ -265,7 +273,7 @@ router.post("/qa/messages", requireCapability("ai.qa"), async (req, res): Promis
     .map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
 
   try {
-    const result = await runQaAgent(history, content);
+    const result = await runQaAgent(history, content, userId);
     const [assistantRow] = await db
       .insert(qaMessagesTable)
       .values({
@@ -369,7 +377,7 @@ router.post("/qa/messages/stream", requireCapability("ai.qa"), async (req, res):
   send({ type: "user_message", message: serialiseMessage(userRow) });
 
   try {
-    const result = await runQaAgentStreaming(history, content, (event) => {
+    const result = await runQaAgentStreaming(history, content, userId, (event) => {
       send(event as unknown as Record<string, unknown>);
     });
     const [assistantRow] = await db

@@ -1,5 +1,5 @@
 import { anthropic, AnthropicNotConfiguredError } from "@workspace/integrations-anthropic-ai";
-import { TOOL_DEFINITIONS, TOOL_HANDLERS } from "./tools";
+import { TOOL_DEFINITIONS, createToolHandlers } from "./tools";
 
 // Run a tool-use loop with Claude until it stops calling tools (or we hit a
 // max-iteration safety cap). Returns the final assistant text plus any
@@ -175,7 +175,9 @@ export function parseAttachments(text: string): { stripped: string; attachments:
 export async function runQaAgent(
   history: QaHistoryMessage[],
   userMessage: string,
+  userId: string,
 ): Promise<QaAgentResult> {
+  const toolHandlers = createToolHandlers(userId);
   // Anthropic message-format chat history. Tool-use turns get appended on
   // each iteration; we keep going until the model returns end_turn (or we
   // hit MAX_ITERATIONS as a safety net).
@@ -223,7 +225,7 @@ export async function runQaAgent(
     const toolResults: Array<{ type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }> = [];
     for (const use of toolUses) {
       toolCalls.push({ name: use.name, input: use.input });
-      const handler = TOOL_HANDLERS[use.name];
+      const handler = toolHandlers[use.name];
       if (!handler) {
         toolResults.push({
           type: "tool_result",
@@ -279,8 +281,10 @@ interface AnthropicWithStream {
 export async function runQaAgentStreaming(
   history: QaHistoryMessage[],
   userMessage: string,
+  userId: string,
   emit: (event: QaStreamEvent) => void,
 ): Promise<QaAgentResult> {
+  const toolHandlers = createToolHandlers(userId);
   type LoopMessage = { role: "user" | "assistant"; content: unknown };
   const messages: LoopMessage[] = [
     ...history.map((h) => ({ role: h.role as "user" | "assistant", content: h.content })),
@@ -346,7 +350,7 @@ export async function runQaAgentStreaming(
     const toolResults: Array<{ type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }> = [];
     for (const use of toolUses) {
       toolCalls.push({ name: use.name, input: use.input });
-      const handler = TOOL_HANDLERS[use.name];
+      const handler = toolHandlers[use.name];
       if (!handler) {
         toolResults.push({
           type: "tool_result",

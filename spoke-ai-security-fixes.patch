@@ -1,0 +1,779 @@
+diff --git a/artifacts/api-server/src/lib/polygonProvider.ts b/artifacts/api-server/src/lib/polygonProvider.ts
+index ee130c4..493edcc 100644
+--- a/artifacts/api-server/src/lib/polygonProvider.ts
++++ b/artifacts/api-server/src/lib/polygonProvider.ts
+@@ -15,6 +15,7 @@
+ // disk cache layer in market.ts already coalesces duplicate requests.
+ 
+ import { sectorFromSicCode } from "@workspace/data";
++import YahooFinance from "yahoo-finance2";
+ import { logger } from "./logger";
+ import type { MarketProvider } from "./market";
+ 
+@@ -159,12 +160,40 @@ function makeQuote(apiKey: string) {
+   };
+ }
+ 
++// Earnings calendar is not exposed on Polygon's free/options tiers in a
++// shape we can portably consume, and returning an empty block silently
++// disables the screener's earnings filter for every user on the live
++// provider. Earnings *dates* are slow-moving reference data (not live
++// market data), so we delegate quoteSummary to Yahoo, which serves them
++// reliably. The disk cache in market.ts still coalesces these calls, and
++// any Yahoo failure degrades to the old "no earnings date" behaviour
++// rather than breaking the scan.
++let yahooForSummary: InstanceType<typeof YahooFinance> | null = null;
++
++function getYahooForSummary(): InstanceType<typeof YahooFinance> {
++  if (!yahooForSummary) {
++    yahooForSummary = new YahooFinance({
++      suppressNotices: ["yahooSurvey", "ripHistorical"],
++    });
++  }
++  return yahooForSummary;
++}
++
+ function makeQuoteSummary() {
+-  // Earnings calendar is not exposed on Polygon's free/options tiers in a
+-  // shape we can portably consume. Return an empty calendarEvents block so
+-  // downstream code falls through to its `null` branch.
+-  return async (..._args: unknown[]): Promise<unknown> => {
+-    return { calendarEvents: { earnings: { earningsDate: undefined } } };
++  return async (...args: unknown[]): Promise<unknown> => {
++    try {
++      const yf = getYahooForSummary();
++      const quoteSummary = yf.quoteSummary.bind(yf) as (
++        ...a: unknown[]
++      ) => Promise<unknown>;
++      return await quoteSummary(...args);
++    } catch (err) {
++      logger.warn(
++        { err, ticker: args[0] },
++        "polygon: yahoo quoteSummary fallback failed; earnings date unavailable",
++      );
++      return { calendarEvents: { earnings: { earningsDate: undefined } } };
++    }
+   };
+ }
+ 
+diff --git a/artifacts/api-server/src/lib/qa/agent-loop.test.ts b/artifacts/api-server/src/lib/qa/agent-loop.test.ts
+index 99c4a16..4d569b5 100644
+--- a/artifacts/api-server/src/lib/qa/agent-loop.test.ts
++++ b/artifacts/api-server/src/lib/qa/agent-loop.test.ts
+@@ -12,15 +12,20 @@ vi.mock("@workspace/integrations-anthropic-ai", () => ({
+   AnthropicNotConfiguredError: class extends Error {},
+ }));
+ 
++const handlersForUser = vi.fn();
++
+ vi.mock("./tools", () => ({
+   TOOL_DEFINITIONS: [
+     { name: "listPositions", description: "", input_schema: { type: "object", properties: {} } },
+   ],
+-  TOOL_HANDLERS: {
+-    listPositions: vi.fn(async (input: unknown) => ({
+-      total: 1,
+-      positions: [{ id: 1, ticker: (input as { ticker?: string })?.ticker ?? "AAPL", status: "open" }],
+-    })),
++  createToolHandlers: (userId: string) => {
++    handlersForUser(userId);
++    return {
++      listPositions: vi.fn(async (input: unknown) => ({
++        total: 1,
++        positions: [{ id: 1, ticker: (input as { ticker?: string })?.ticker ?? "AAPL", status: "open" }],
++      })),
++    };
+   },
+ }));
+ 
+@@ -47,7 +52,7 @@ describe("runQaAgent loop", () => {
+       });
+ 
+     const { runQaAgent } = await import("./agent");
+-    const result = await runQaAgent([], "How many open AAPL positions do I have?");
++    const result = await runQaAgent([], "How many open AAPL positions do I have?", "user-1");
+ 
+     expect(result.text).toBe("You have 1 open AAPL position.");
+     expect(result.toolCalls).toEqual([
+@@ -84,7 +89,7 @@ describe("runQaAgent loop", () => {
+         content: [{ type: "text", text: "I can't do that." }],
+       });
+     const { runQaAgent } = await import("./agent");
+-    const result = await runQaAgent([], "delete position 1");
++    const result = await runQaAgent([], "delete position 1", "user-1");
+     expect(result.text).toBe("I can't do that.");
+     const secondCall = createMock.mock.calls[1][0] as {
+       messages: Array<{ role: string; content: unknown }>;
+@@ -105,7 +110,7 @@ describe("runQaAgent loop", () => {
+     const { runQaAgent, QaUnavailableError } = await import("./agent");
+     let caught: unknown = null;
+     try {
+-      await runQaAgent([], "anything");
++      await runQaAgent([], "anything", "user-1");
+     } catch (e) {
+       caught = e;
+     }
+@@ -125,7 +130,7 @@ describe("runQaAgent loop", () => {
+       content: [{ type: "text", text: `Here it is:\n\n\`\`\`attachment\n${att}\n\`\`\`` }],
+     });
+     const { runQaAgent } = await import("./agent");
+-    const result = await runQaAgent([], "open positions");
++    const result = await runQaAgent([], "open positions", "user-1");
+     expect(result.attachments).toHaveLength(1);
+     expect(result.attachments[0].title).toBe("Open positions");
+     expect(result.text).toContain("Here it is:");
+diff --git a/artifacts/api-server/src/lib/qa/agent.ts b/artifacts/api-server/src/lib/qa/agent.ts
+index 1656b3e..732fcea 100644
+--- a/artifacts/api-server/src/lib/qa/agent.ts
++++ b/artifacts/api-server/src/lib/qa/agent.ts
+@@ -1,5 +1,5 @@
+ import { anthropic, AnthropicNotConfiguredError } from "@workspace/integrations-anthropic-ai";
+-import { TOOL_DEFINITIONS, TOOL_HANDLERS } from "./tools";
++import { TOOL_DEFINITIONS, createToolHandlers } from "./tools";
+ 
+ // Run a tool-use loop with Claude until it stops calling tools (or we hit a
+ // max-iteration safety cap). Returns the final assistant text plus any
+@@ -175,7 +175,9 @@ export function parseAttachments(text: string): { stripped: string; attachments:
+ export async function runQaAgent(
+   history: QaHistoryMessage[],
+   userMessage: string,
++  userId: string,
+ ): Promise<QaAgentResult> {
++  const toolHandlers = createToolHandlers(userId);
+   // Anthropic message-format chat history. Tool-use turns get appended on
+   // each iteration; we keep going until the model returns end_turn (or we
+   // hit MAX_ITERATIONS as a safety net).
+@@ -223,7 +225,7 @@ export async function runQaAgent(
+     const toolResults: Array<{ type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }> = [];
+     for (const use of toolUses) {
+       toolCalls.push({ name: use.name, input: use.input });
+-      const handler = TOOL_HANDLERS[use.name];
++      const handler = toolHandlers[use.name];
+       if (!handler) {
+         toolResults.push({
+           type: "tool_result",
+@@ -279,8 +281,10 @@ interface AnthropicWithStream {
+ export async function runQaAgentStreaming(
+   history: QaHistoryMessage[],
+   userMessage: string,
++  userId: string,
+   emit: (event: QaStreamEvent) => void,
+ ): Promise<QaAgentResult> {
++  const toolHandlers = createToolHandlers(userId);
+   type LoopMessage = { role: "user" | "assistant"; content: unknown };
+   const messages: LoopMessage[] = [
+     ...history.map((h) => ({ role: h.role as "user" | "assistant", content: h.content })),
+@@ -346,7 +350,7 @@ export async function runQaAgentStreaming(
+     const toolResults: Array<{ type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }> = [];
+     for (const use of toolUses) {
+       toolCalls.push({ name: use.name, input: use.input });
+-      const handler = TOOL_HANDLERS[use.name];
++      const handler = toolHandlers[use.name];
+       if (!handler) {
+         toolResults.push({
+           type: "tool_result",
+diff --git a/artifacts/api-server/src/lib/qa/tools.test.ts b/artifacts/api-server/src/lib/qa/tools.test.ts
+index a77fb23..72864c6 100644
+--- a/artifacts/api-server/src/lib/qa/tools.test.ts
++++ b/artifacts/api-server/src/lib/qa/tools.test.ts
+@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+ 
+ interface PositionRow {
+   id: number;
++  userId: string;
+   ticker: string;
+   strike: number;
+   expiry: string;
+@@ -23,6 +24,7 @@ interface PositionRow {
+ 
+ interface HoldingRow {
+   id: number;
++  userId: string;
+   ticker: string;
+   shares: number;
+   avgCost: number;
+@@ -32,6 +34,7 @@ interface HoldingRow {
+ 
+ interface ScanRow {
+   id: number;
++  userId: string;
+   scannedAt: Date;
+   candidates: Array<Record<string, unknown>>;
+   errors: unknown[];
+@@ -130,6 +133,7 @@ const day = (s: string): Date => new Date(`${s}T00:00:00Z`);
+ 
+ const pos = (over: Partial<PositionRow> & { id: number; ticker: string }): PositionRow => ({
+   id: over.id,
++  userId: over.userId ?? "user-1",
+   ticker: over.ticker,
+   strike: over.strike ?? 100,
+   expiry: over.expiry ?? "2026-06-19",
+@@ -151,7 +155,7 @@ describe("listPositions tool", () => {
+       pos({ id: 2, ticker: "MSFT", closedAt: day("2026-05-01"), closePrice: 0.5 }),
+     ];
+     const { listPositions } = await import("./tools");
+-    const out = await listPositions({ status: "open" });
++    const out = await listPositions("user-1", { status: "open" });
+     expect(out.positions.map((p) => p.id)).toEqual([1]);
+     expect(out.positions[0].status).toBe("open");
+   });
+@@ -161,7 +165,7 @@ describe("listPositions tool", () => {
+       pos({ id: 1, ticker: "PLTR", premium: 2.0, contracts: 2, closedAt: day("2026-05-01"), closePrice: 0.5 }),
+     ];
+     const { listPositions } = await import("./tools");
+-    const out = await listPositions({ status: "closed" });
++    const out = await listPositions("user-1", { status: "closed" });
+     expect(out.positions[0].realizedPnl).toBeCloseTo((2.0 - 0.5) * 100 * 2);
+     expect(out.positions[0].premiumCollected).toBeCloseTo(400);
+   });
+@@ -169,7 +173,7 @@ describe("listPositions tool", () => {
+   it("respects the limit (capped at 200)", async () => {
+     stores.positions = Array.from({ length: 5 }, (_, i) => pos({ id: i + 1, ticker: "AAPL" }));
+     const { listPositions } = await import("./tools");
+-    const out = await listPositions({ limit: 3 });
++    const out = await listPositions("user-1", { limit: 3 });
+     expect(out.positions).toHaveLength(3);
+     expect(out.total).toBe(5);
+   });
+@@ -184,7 +188,7 @@ describe("getPositionStats tool", () => {
+       pos({ id: 4, ticker: "AAPL" }),
+     ];
+     const { getPositionStats } = await import("./tools");
+-    const stats = await getPositionStats({});
++    const stats = await getPositionStats("user-1", {});
+     expect(stats.closedCount).toBe(3);
+     expect(stats.openCount).toBe(1);
+     expect(stats.winCount).toBe(2);
+@@ -202,7 +206,7 @@ describe("getPositionStats tool", () => {
+       pos({ id: 2, ticker: "PLTR", closedAt: day("2026-05-01"), closePrice: 0.5 }),
+     ];
+     const { getPositionStats } = await import("./tools");
+-    const stats = await getPositionStats({ ticker: "pltr" });
++    const stats = await getPositionStats("user-1", { ticker: "pltr" });
+     expect(stats.closedCount).toBe(1);
+     expect(stats.byTicker.map((t) => t.ticker)).toEqual(["PLTR"]);
+   });
+@@ -211,7 +215,7 @@ describe("getPositionStats tool", () => {
+ describe("latestScan tool", () => {
+   it("returns empty when no snapshot exists", async () => {
+     const { latestScan } = await import("./tools");
+-    const out = await latestScan({});
++    const out = await latestScan("user-1", {});
+     expect(out.scannedAt).toBeNull();
+     expect(out.candidates).toEqual([]);
+   });
+@@ -220,6 +224,7 @@ describe("latestScan tool", () => {
+     stores.scans = [
+       {
+         id: 1,
++        userId: "user-1",
+         scannedAt: day("2026-05-13"),
+         errors: [],
+         tickersScanned: 3,
+@@ -233,7 +238,7 @@ describe("latestScan tool", () => {
+       },
+     ];
+     const { latestScan } = await import("./tools");
+-    const out = await latestScan({ ticker: "aapl", minIvRank: 50, withEarnings: "exclude" });
++    const out = await latestScan("user-1", { ticker: "aapl", minIvRank: 50, withEarnings: "exclude" });
+     expect(out.candidates).toHaveLength(1);
+     expect(out.candidates[0].ticker).toBe("AAPL");
+   });
+@@ -248,7 +253,7 @@ describe("getRollChain tool", () => {
+       pos({ id: 99, ticker: "MSFT" }),
+     ];
+     const { getRollChain } = await import("./tools");
+-    const out = await getRollChain({ rootId: 1 });
++    const out = await getRollChain("user-1", { rootId: 1 });
+     expect("legs" in out).toBe(true);
+     if ("legs" in out) {
+       expect(out.legs.map((l) => l.id)).toEqual([1, 2, 3]);
+@@ -257,15 +262,15 @@ describe("getRollChain tool", () => {
+ 
+   it("returns an error for a missing root", async () => {
+     const { getRollChain } = await import("./tools");
+-    const out = await getRollChain({ rootId: 999 });
++    const out = await getRollChain("user-1", { rootId: 999 });
+     expect("error" in out).toBe(true);
+   });
+ });
+ 
+-describe("TOOL_HANDLERS allowlist", () => {
++describe("tool handlers allowlist", () => {
+   it("exposes only the documented read-only tools", async () => {
+-    const { TOOL_HANDLERS, TOOL_DEFINITIONS } = await import("./tools");
+-    const allowed = new Set(Object.keys(TOOL_HANDLERS));
++    const { createToolHandlers, TOOL_DEFINITIONS } = await import("./tools");
++    const allowed = new Set(Object.keys(createToolHandlers("user-1")));
+     const documented = new Set(TOOL_DEFINITIONS.map((t) => t.name));
+     expect(allowed).toEqual(documented);
+     // Sanity: every name is an obviously read-only verb.
+@@ -274,3 +279,66 @@ describe("TOOL_HANDLERS allowlist", () => {
+     }
+   });
+ });
++
++describe("per-user isolation", () => {
++  it("listPositions never returns another user's rows", async () => {
++    stores.positions = [
++      pos({ id: 1, ticker: "AAPL" }),
++      pos({ id: 2, ticker: "MSFT", userId: "user-2" }),
++    ];
++    const { listPositions } = await import("./tools");
++    const out = await listPositions("user-1", {});
++    expect(out.positions.map((p) => p.id)).toEqual([1]);
++    expect(out.total).toBe(1);
++  });
++
++  it("getPositionStats aggregates only the requesting user's rows", async () => {
++    stores.positions = [
++      pos({ id: 1, ticker: "AAPL", closedAt: day("2026-05-01"), closePrice: 0.5 }),
++      pos({ id: 2, ticker: "AAPL", userId: "user-2", closedAt: day("2026-05-01"), closePrice: 0.1 }),
++    ];
++    const { getPositionStats } = await import("./tools");
++    const stats = await getPositionStats("user-1", {});
++    expect(stats.closedCount).toBe(1);
++  });
++
++  it("latestScan only reads the requesting user's snapshots", async () => {
++    stores.scans = [
++      {
++        id: 1,
++        userId: "user-2",
++        scannedAt: day("2026-05-13"),
++        errors: [],
++        tickersScanned: 1,
++        tickersWithCandidate: 1,
++        hiddenByEarningsCount: 0,
++        candidates: [{ ticker: "NVDA" }],
++      },
++    ];
++    const { latestScan } = await import("./tools");
++    const out = await latestScan("user-1", {});
++    expect(out.scannedAt).toBeNull();
++    expect(out.candidates).toEqual([]);
++  });
++
++  it("getRollChain refuses to walk another user's chain", async () => {
++    stores.positions = [
++      pos({ id: 1, ticker: "AAPL", userId: "user-2" }),
++      pos({ id: 2, ticker: "AAPL", userId: "user-2", rolledFromId: 1 }),
++    ];
++    const { getRollChain } = await import("./tools");
++    const out = await getRollChain("user-1", { rootId: 1 });
++    expect("error" in out).toBe(true);
++  });
++
++  it("createToolHandlers binds the user id so handler calls are scoped", async () => {
++    stores.positions = [
++      pos({ id: 1, ticker: "AAPL" }),
++      pos({ id: 2, ticker: "MSFT", userId: "user-2" }),
++    ];
++    const { createToolHandlers } = await import("./tools");
++    const handlers = createToolHandlers("user-2");
++    const out = (await handlers["listPositions"]({})) as { positions: Array<{ id: number }> };
++    expect(out.positions.map((p) => p.id)).toEqual([2]);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/qa/tools.ts b/artifacts/api-server/src/lib/qa/tools.ts
+index f8c594d..c2750a5 100644
+--- a/artifacts/api-server/src/lib/qa/tools.ts
++++ b/artifacts/api-server/src/lib/qa/tools.ts
+@@ -69,6 +69,7 @@ export interface ListPositionsArgs {
+ }
+ 
+ export async function listPositions(
++  userId: string,
+   args: ListPositionsArgs = {},
+ ): Promise<{ positions: PositionLite[]; total: number }> {
+   const status = args.status ?? "all";
+@@ -78,7 +79,7 @@ export async function listPositions(
+   const order = args.order ?? "desc";
+   const limit = args.limit && args.limit > 0 ? Math.min(args.limit, 200) : 50;
+ 
+-  const filters = [];
++  const filters = [eq(positionsTable.userId, userId)];
+   if (ticker) filters.push(eq(positionsTable.ticker, ticker));
+   if (sinceDays) {
+     const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000);
+@@ -88,7 +89,7 @@ export async function listPositions(
+   const rows = await db
+     .select()
+     .from(positionsTable)
+-    .where(filters.length > 0 ? and(...filters) : undefined)
++    .where(and(...filters))
+     .orderBy(desc(positionsTable.openedAt));
+ 
+   let lite = rows.map(rowToLite);
+@@ -126,7 +127,10 @@ export interface PositionStatsArgs {
+   sinceDays?: number | null;
+ }
+ 
+-export async function getPositionStats(args: PositionStatsArgs = {}): Promise<{
++export async function getPositionStats(
++  userId: string,
++  args: PositionStatsArgs = {},
++): Promise<{
+   closedCount: number;
+   openCount: number;
+   totalRealizedPnl: number;
+@@ -142,7 +146,7 @@ export async function getPositionStats(args: PositionStatsArgs = {}): Promise<{
+   const ticker = args.ticker ? args.ticker.toUpperCase() : null;
+   const sinceDays = args.sinceDays && args.sinceDays > 0 ? args.sinceDays : null;
+ 
+-  const filters = [];
++  const filters = [eq(positionsTable.userId, userId)];
+   if (ticker) filters.push(eq(positionsTable.ticker, ticker));
+   if (sinceDays) {
+     const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000);
+@@ -152,7 +156,7 @@ export async function getPositionStats(args: PositionStatsArgs = {}): Promise<{
+   const rows = await db
+     .select()
+     .from(positionsTable)
+-    .where(filters.length > 0 ? and(...filters) : undefined);
++    .where(and(...filters));
+   const lite = rows.map(rowToLite);
+ 
+   const open = lite.filter((p) => p.status === "open");
+@@ -210,7 +214,10 @@ export interface LatestScanArgs {
+   limit?: number | null;
+ }
+ 
+-export async function latestScan(args: LatestScanArgs = {}): Promise<{
++export async function latestScan(
++  userId: string,
++  args: LatestScanArgs = {},
++): Promise<{
+   scannedAt: string | null;
+   candidates: Array<Record<string, unknown>>;
+   totalCandidates: number;
+@@ -223,6 +230,7 @@ export async function latestScan(args: LatestScanArgs = {}): Promise<{
+   const [row] = await db
+     .select()
+     .from(scanSnapshotTable)
++    .where(eq(scanSnapshotTable.userId, userId))
+     .orderBy(desc(scanSnapshotTable.scannedAt))
+     .limit(1);
+   if (!row) return { scannedAt: null, candidates: [], totalCandidates: 0 };
+@@ -249,14 +257,19 @@ export interface ListHoldingsArgs {
+   ticker?: string | null;
+ }
+ 
+-export async function listHoldings(args: ListHoldingsArgs = {}): Promise<{
++export async function listHoldings(
++  userId: string,
++  args: ListHoldingsArgs = {},
++): Promise<{
+   holdings: Array<{ id: number; ticker: string; shares: number; avgCost: number; openedAt: string }>;
+ }> {
+   const ticker = args.ticker ? args.ticker.toUpperCase() : null;
++  const filters = [eq(holdingsTable.userId, userId)];
++  if (ticker) filters.push(eq(holdingsTable.ticker, ticker));
+   const rows = await db
+     .select()
+     .from(holdingsTable)
+-    .where(ticker ? eq(holdingsTable.ticker, ticker) : undefined)
++    .where(and(...filters))
+     .orderBy(desc(holdingsTable.openedAt));
+   return {
+     holdings: rows.map((r) => ({
+@@ -298,12 +311,19 @@ export interface GetRollChainArgs {
+   rootId: number;
+ }
+ 
+-export async function getRollChain(args: GetRollChainArgs): Promise<{
++export async function getRollChain(
++  userId: string,
++  args: GetRollChainArgs,
++): Promise<{
+   legs: PositionLite[];
+ } | { error: string }> {
+   if (!args?.rootId) return { error: "rootId is required" };
+-  // Walk from root forward; rolledFromId points at parent.
+-  const all = await db.select().from(positionsTable);
++  // Walk from root forward; rolledFromId points at parent. Scoped to the
++  // requesting user so one user's agent can never traverse another's chains.
++  const all = await db
++    .select()
++    .from(positionsTable)
++    .where(eq(positionsTable.userId, userId));
+   const byId = new Map<number, typeof positionsTable.$inferSelect>();
+   for (const r of all) byId.set(r.id, r);
+   const childByParent = new Map<number, typeof positionsTable.$inferSelect>();
+@@ -326,14 +346,21 @@ export async function getRollChain(args: GetRollChainArgs): Promise<{
+ // Allowlist of tool names — the agent loop refuses any tool_use whose name
+ // is not in this map. Adding a tool means adding an entry here AND in
+ // `TOOL_DEFINITIONS` below.
+-export const TOOL_HANDLERS: Record<string, (args: unknown) => Promise<unknown>> = {
+-  listPositions: (a) => listPositions((a ?? {}) as ListPositionsArgs),
+-  getPositionStats: (a) => getPositionStats((a ?? {}) as PositionStatsArgs),
+-  latestScan: (a) => latestScan((a ?? {}) as LatestScanArgs),
+-  listHoldings: (a) => listHoldings((a ?? {}) as ListHoldingsArgs),
+-  getQuote: (a) => quoteTicker((a ?? {}) as GetQuoteArgs),
+-  getRollChain: (a) => getRollChain((a ?? {}) as GetRollChainArgs),
+-};
++//
++// Handlers are constructed per-request, bound to the authenticated user, so
++// every DB query the agent can trigger is scoped to that user's rows.
++export function createToolHandlers(
++  userId: string,
++): Record<string, (args: unknown) => Promise<unknown>> {
++  return {
++    listPositions: (a) => listPositions(userId, (a ?? {}) as ListPositionsArgs),
++    getPositionStats: (a) => getPositionStats(userId, (a ?? {}) as PositionStatsArgs),
++    latestScan: (a) => latestScan(userId, (a ?? {}) as LatestScanArgs),
++    listHoldings: (a) => listHoldings(userId, (a ?? {}) as ListHoldingsArgs),
++    getQuote: (a) => quoteTicker((a ?? {}) as GetQuoteArgs),
++    getRollChain: (a) => getRollChain(userId, (a ?? {}) as GetRollChainArgs),
++  };
++}
+ 
+ // Tool definitions in the shape Claude expects (`tools` array on
+ // `messages.create`). Schemas are deliberately minimal — Claude is good at
+diff --git a/artifacts/api-server/src/routes/positions.advisor.test.ts b/artifacts/api-server/src/routes/positions.advisor.test.ts
+index 0f04516..bc13c96 100644
+--- a/artifacts/api-server/src/routes/positions.advisor.test.ts
++++ b/artifacts/api-server/src/routes/positions.advisor.test.ts
+@@ -77,6 +77,15 @@ vi.mock("../middlewares/auth", () => ({
+   getUserId: () => "test-user",
+ }));
+ 
++// The advisor route is tier-gated (ai.advisor → ultra). Default every test
++// to an ultra user; the 403 test below flips this to "pro".
++const tierMock = vi.fn();
++vi.mock("../lib/tierStore", () => ({
++  getCurrentTierForUser: () => tierMock(),
++  setUserTier: vi.fn(),
++  defaultTier: () => "free",
++}));
++
+ vi.mock("@workspace/integrations-anthropic-ai", () => ({
+   anthropic: {
+     messages: {
+@@ -106,6 +115,8 @@ beforeEach(() => {
+   positionsRows.length = 0;
+   chainStub = null;
+   anthropicResponse = { shouldThrow: true };
++  tierMock.mockReset();
++  tierMock.mockResolvedValue("ultra");
+   clearAdvisorCache();
+ });
+ 
+@@ -114,6 +125,18 @@ afterEach(() => {
+ });
+ 
+ describe("GET /positions/:id/advisor", () => {
++  it("returns 403 with a tier_required payload when the user lacks ai.advisor", async () => {
++    tierMock.mockResolvedValue("pro");
++    const res = await request(buildApp()).get("/positions/1/advisor");
++    expect(res.status).toBe(403);
++    expect(res.body).toMatchObject({
++      code: "tier_required",
++      capability: "ai.advisor",
++      required: "ultra",
++      current: "pro",
++    });
++  });
++
+   it("returns 404 when the position does not exist", async () => {
+     const res = await request(buildApp()).get("/positions/999/advisor");
+     expect(res.status).toBe(404);
+diff --git a/artifacts/api-server/src/routes/positions.ts b/artifacts/api-server/src/routes/positions.ts
+index 3449792..f654989 100644
+--- a/artifacts/api-server/src/routes/positions.ts
++++ b/artifacts/api-server/src/routes/positions.ts
+@@ -26,6 +26,7 @@ import { getExpirations, getOptionChain, getSpot } from "../lib/market";
+ import { clearAlertMarkers, deleteNotificationsForPosition } from "../lib/alerts";
+ import { getAdvisor } from "../lib/advisor";
+ import { GetPositionAdvisorParams, GetPositionAdvisorResponse } from "@workspace/api-zod";
++import { requireCapability } from "../middlewares/tier";
+ 
+ const router: IRouter = Router();
+ 
+@@ -807,7 +808,7 @@ router.get(
+   },
+ );
+ 
+-router.get("/positions/:id/advisor", async (req, res): Promise<void> => {
++router.get("/positions/:id/advisor", requireCapability("ai.advisor"), async (req, res): Promise<void> => {
+   const userId = getUserId(req);
+   const params = GetPositionAdvisorParams.safeParse(req.params);
+   if (!params.success) {
+diff --git a/artifacts/api-server/src/routes/qa.test.ts b/artifacts/api-server/src/routes/qa.test.ts
+index 1745d7f..6704dfe 100644
+--- a/artifacts/api-server/src/routes/qa.test.ts
++++ b/artifacts/api-server/src/routes/qa.test.ts
+@@ -149,6 +149,8 @@ vi.mock("drizzle-orm", () => ({
+     r[col.__c ?? ""] === val,
+   and: (...predicates: Array<(r: Record<string, unknown>) => boolean>) =>
+     (r: Record<string, unknown>) => predicates.every((p) => p(r)),
++  inArray: (col: { __c?: string }, vals: unknown[]) => (r: Record<string, unknown>) =>
++    vals.includes(r[col.__c ?? ""]),
+   asc: (col: unknown) => col,
+   desc: (col: unknown) => col,
+ }));
+@@ -282,9 +284,36 @@ describe("GET /api/qa/conversations", () => {
+     expect(r2.body.conversations).toHaveLength(1);
+     expect(r2.body.hasMore).toBe(false);
+   });
++
++  it("never lists another user's conversations or previews", async () => {
++    stores.conversations.push(
++      { id: 1, userId: "test-user", title: "mine", createdAt: new Date("2026-01-01") },
++      { id: 2, userId: "someone-else", title: "theirs", createdAt: new Date("2026-02-01") },
++    );
++    stores.nextConvId = 3;
++    stores.messages.push({
++      id: 1, conversationId: 2, role: "user", content: "private message from another user",
++      attachments: [], createdAt: new Date("2026-05-10"),
++    });
++    stores.nextMsgId = 2;
++    const r = await request(app).get("/api/qa/conversations");
++    expect(r.status).toBe(200);
++    expect(r.body.conversations.map((c: { id: number }) => c.id)).toEqual([1]);
++    expect(JSON.stringify(r.body)).not.toContain("private message");
++  });
+ });
+ 
+ describe("PATCH /api/qa/conversations/:id", () => {
++  it("refuses to rename another user's conversation", async () => {
++    stores.conversations.push({ id: 1, userId: "someone-else", title: "theirs", createdAt: new Date() });
++    stores.nextConvId = 2;
++    const r = await request(app)
++      .patch("/api/qa/conversations/1")
++      .send({ title: "hijacked" });
++    expect(r.status).toBe(404);
++    expect(stores.conversations[0].title).toBe("theirs");
++  });
++
+   it("renames an existing conversation", async () => {
+     stores.conversations.push({ id: 1, userId: "test-user", title: "old", createdAt: new Date() });
+     stores.nextConvId = 2;
+@@ -314,6 +343,14 @@ describe("PATCH /api/qa/conversations/:id", () => {
+ });
+ 
+ describe("DELETE /api/qa/conversations/:id", () => {
++  it("refuses to delete another user's conversation", async () => {
++    stores.conversations.push({ id: 1, userId: "someone-else", title: "theirs", createdAt: new Date() });
++    stores.nextConvId = 2;
++    const r = await request(app).delete("/api/qa/conversations/1");
++    expect(r.status).toBe(404);
++    expect(stores.conversations).toHaveLength(1);
++  });
++
+   it("removes the conversation and its messages", async () => {
+     stores.conversations.push({ id: 1, userId: "test-user", title: "x", createdAt: new Date() });
+     stores.nextConvId = 2;
+@@ -481,7 +518,7 @@ describe("POST /api/qa/messages/stream", () => {
+     stores.conversations.push({ id: 1, userId: "test-user", title: "x", createdAt: new Date() });
+     stores.nextConvId = 2;
+     runStreamingAgentMock.mockImplementation(
+-      async (_history: unknown, _msg: unknown, emit: (e: unknown) => void) => {
++      async (_history: unknown, _msg: unknown, _userId: unknown, emit: (e: unknown) => void) => {
+         emit({ type: "tool_start", name: "listPositions", label: "Looking up your positions…" });
+         emit({ type: "tool_end", name: "listPositions" });
+         emit({ type: "text", delta: "Here is " });
+diff --git a/artifacts/api-server/src/routes/qa.ts b/artifacts/api-server/src/routes/qa.ts
+index c010cf1..c2c273a 100644
+--- a/artifacts/api-server/src/routes/qa.ts
++++ b/artifacts/api-server/src/routes/qa.ts
+@@ -1,6 +1,6 @@
+ import { Router, type IRouter } from "express";
+ import { db, qaConversationsTable, qaMessagesTable } from "@workspace/db";
+-import { and, asc, desc, eq } from "drizzle-orm";
++import { and, asc, desc, eq, inArray } from "drizzle-orm";
+ import {
+   CreateQaConversationBody,
+   DeleteQaConversationParams,
+@@ -51,6 +51,7 @@ function previewOf(text: string, max = 140): string {
+ }
+ 
+ router.get("/qa/conversations", async (req, res): Promise<void> => {
++  const userId = getUserId(req);
+   const parsed = ListQaConversationsQueryParams.safeParse(req.query);
+   if (!parsed.success) {
+     res.status(400).json({ error: parsed.error.message });
+@@ -58,19 +59,24 @@ router.get("/qa/conversations", async (req, res): Promise<void> => {
+   }
+   const { limit, offset } = parsed.data;
+ 
+-  // Pull one extra row so we can compute hasMore without a second count query.
+   const rows = await db
+     .select()
+     .from(qaConversationsTable)
++    .where(eq(qaConversationsTable.userId, userId))
+     .orderBy(desc(qaConversationsTable.createdAt), desc(qaConversationsTable.id));
+ 
+   // Aggregate per-conversation last message + count in one pass over the
+-  // messages table. Cheaper than N round-trips and the message table stays
+-  // small in practice.
+-  const messages = await db
+-    .select()
+-    .from(qaMessagesTable)
+-    .orderBy(asc(qaMessagesTable.createdAt), asc(qaMessagesTable.id));
++  // messages table, restricted to this user's conversations. Cheaper than
++  // N round-trips and the message table stays small in practice.
++  const conversationIds = rows.map((c) => c.id);
++  const messages =
++    conversationIds.length === 0
++      ? []
++      : await db
++          .select()
++          .from(qaMessagesTable)
++          .where(inArray(qaMessagesTable.conversationId, conversationIds))
++          .orderBy(asc(qaMessagesTable.createdAt), asc(qaMessagesTable.id));
+   const stats = new Map<number, { count: number; last: typeof messages[number] | null }>();
+   for (const m of messages) {
+     const cur = stats.get(m.conversationId) ?? { count: 0, last: null };
+@@ -156,6 +162,7 @@ router.get("/qa/conversations/:id", async (req, res): Promise<void> => {
+ });
+ 
+ router.patch("/qa/conversations/:id", async (req, res): Promise<void> => {
++  const userId = getUserId(req);
+   const params = RenameQaConversationParams.safeParse(req.params);
+   if (!params.success) {
+     res.status(400).json({ error: params.error.message });
+@@ -175,7 +182,7 @@ router.patch("/qa/conversations/:id", async (req, res): Promise<void> => {
+   const [updated] = await db
+     .update(qaConversationsTable)
+     .set({ title })
+-    .where(eq(qaConversationsTable.id, id))
++    .where(and(eq(qaConversationsTable.id, id), eq(qaConversationsTable.userId, userId)))
+     .returning();
+   if (!updated) {
+     res.status(404).json({ error: "Conversation not found" });
+@@ -185,6 +192,7 @@ router.patch("/qa/conversations/:id", async (req, res): Promise<void> => {
+ });
+ 
+ router.delete("/qa/conversations/:id", async (req, res): Promise<void> => {
++  const userId = getUserId(req);
+   const params = DeleteQaConversationParams.safeParse(req.params);
+   if (!params.success) {
+     res.status(400).json({ error: params.error.message });
+@@ -193,7 +201,7 @@ router.delete("/qa/conversations/:id", async (req, res): Promise<void> => {
+   const id = params.data.id;
+   const deleted = await db
+     .delete(qaConversationsTable)
+-    .where(eq(qaConversationsTable.id, id))
++    .where(and(eq(qaConversationsTable.id, id), eq(qaConversationsTable.userId, userId)))
+     .returning();
+   if (deleted.length === 0) {
+     res.status(404).json({ error: "Conversation not found" });
+@@ -265,7 +273,7 @@ router.post("/qa/messages", requireCapability("ai.qa"), async (req, res): Promis
+     .map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
+ 
+   try {
+-    const result = await runQaAgent(history, content);
++    const result = await runQaAgent(history, content, userId);
+     const [assistantRow] = await db
+       .insert(qaMessagesTable)
+       .values({
+@@ -369,7 +377,7 @@ router.post("/qa/messages/stream", requireCapability("ai.qa"), async (req, res):
+   send({ type: "user_message", message: serialiseMessage(userRow) });
+ 
+   try {
+-    const result = await runQaAgentStreaming(history, content, (event) => {
++    const result = await runQaAgentStreaming(history, content, userId, (event) => {
+       send(event as unknown as Record<string, unknown>);
+     });
+     const [assistantRow] = await db

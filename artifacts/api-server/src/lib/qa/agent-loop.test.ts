@@ -12,15 +12,20 @@ vi.mock("@workspace/integrations-anthropic-ai", () => ({
   AnthropicNotConfiguredError: class extends Error {},
 }));
 
+const handlersForUser = vi.fn();
+
 vi.mock("./tools", () => ({
   TOOL_DEFINITIONS: [
     { name: "listPositions", description: "", input_schema: { type: "object", properties: {} } },
   ],
-  TOOL_HANDLERS: {
-    listPositions: vi.fn(async (input: unknown) => ({
-      total: 1,
-      positions: [{ id: 1, ticker: (input as { ticker?: string })?.ticker ?? "AAPL", status: "open" }],
-    })),
+  createToolHandlers: (userId: string) => {
+    handlersForUser(userId);
+    return {
+      listPositions: vi.fn(async (input: unknown) => ({
+        total: 1,
+        positions: [{ id: 1, ticker: (input as { ticker?: string })?.ticker ?? "AAPL", status: "open" }],
+      })),
+    };
   },
 }));
 
@@ -47,7 +52,7 @@ describe("runQaAgent loop", () => {
       });
 
     const { runQaAgent } = await import("./agent");
-    const result = await runQaAgent([], "How many open AAPL positions do I have?");
+    const result = await runQaAgent([], "How many open AAPL positions do I have?", "user-1");
 
     expect(result.text).toBe("You have 1 open AAPL position.");
     expect(result.toolCalls).toEqual([
@@ -84,7 +89,7 @@ describe("runQaAgent loop", () => {
         content: [{ type: "text", text: "I can't do that." }],
       });
     const { runQaAgent } = await import("./agent");
-    const result = await runQaAgent([], "delete position 1");
+    const result = await runQaAgent([], "delete position 1", "user-1");
     expect(result.text).toBe("I can't do that.");
     const secondCall = createMock.mock.calls[1][0] as {
       messages: Array<{ role: string; content: unknown }>;
@@ -105,7 +110,7 @@ describe("runQaAgent loop", () => {
     const { runQaAgent, QaUnavailableError } = await import("./agent");
     let caught: unknown = null;
     try {
-      await runQaAgent([], "anything");
+      await runQaAgent([], "anything", "user-1");
     } catch (e) {
       caught = e;
     }
@@ -125,7 +130,7 @@ describe("runQaAgent loop", () => {
       content: [{ type: "text", text: `Here it is:\n\n\`\`\`attachment\n${att}\n\`\`\`` }],
     });
     const { runQaAgent } = await import("./agent");
-    const result = await runQaAgent([], "open positions");
+    const result = await runQaAgent([], "open positions", "user-1");
     expect(result.attachments).toHaveLength(1);
     expect(result.attachments[0].title).toBe("Open positions");
     expect(result.text).toContain("Here it is:");

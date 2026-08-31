@@ -26,6 +26,7 @@ import { getExpirations, getOptionChain, getSpot } from "../lib/market";
 import { clearAlertMarkers, deleteNotificationsForPosition } from "../lib/alerts";
 import { getAdvisor } from "../lib/advisor";
 import { GetPositionAdvisorParams, GetPositionAdvisorResponse } from "@workspace/api-zod";
+import { requireCapability } from "../middlewares/tier";
 
 const router: IRouter = Router();
 
@@ -807,7 +808,7 @@ router.get(
   },
 );
 
-router.get("/positions/:id/advisor", async (req, res): Promise<void> => {
+router.get("/positions/:id/advisor", requireCapability("ai.advisor"), async (req, res): Promise<void> => {
   const userId = getUserId(req);
   const params = GetPositionAdvisorParams.safeParse(req.params);
   if (!params.success) {

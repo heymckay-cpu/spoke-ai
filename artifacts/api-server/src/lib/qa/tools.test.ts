@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 interface PositionRow {
   id: number;
+  userId: string;
   ticker: string;
   strike: number;
   expiry: string;
@@ -23,6 +24,7 @@ interface PositionRow {
 
 interface HoldingRow {
   id: number;
+  userId: string;
   ticker: string;
   shares: number;
   avgCost: number;
@@ -32,6 +34,7 @@ interface HoldingRow {
 
 interface ScanRow {
   id: number;
+  userId: string;
   scannedAt: Date;
   candidates: Array<Record<string, unknown>>;
   errors: unknown[];
@@ -130,6 +133,7 @@ const day = (s: string): Date => new Date(`${s}T00:00:00Z`);
 
 const pos = (over: Partial<PositionRow> & { id: number; ticker: string }): PositionRow => ({
   id: over.id,
+  userId: over.userId ?? "user-1",
   ticker: over.ticker,
   strike: over.strike ?? 100,
   expiry: over.expiry ?? "2026-06-19",
@@ -151,7 +155,7 @@ describe("listPositions tool", () => {
       pos({ id: 2, ticker: "MSFT", closedAt: day("2026-05-01"), closePrice: 0.5 }),
     ];
     const { listPositions } = await import("./tools");
-    const out = await listPositions({ status: "open" });
+    const out = await listPositions("user-1", { status: "open" });
     expect(out.positions.map((p) => p.id)).toEqual([1]);
     expect(out.positions[0].status).toBe("open");
   });
@@ -161,7 +165,7 @@ describe("listPositions tool", () => {
       pos({ id: 1, ticker: "PLTR", premium: 2.0, contracts: 2, closedAt: day("2026-05-01"), closePrice: 0.5 }),
     ];
     const { listPositions } = await import("./tools");
-    const out = await listPositions({ status: "closed" });
+    const out = await listPositions("user-1", { status: "closed" });
     expect(out.positions[0].realizedPnl).toBeCloseTo((2.0 - 0.5) * 100 * 2);
     expect(out.positions[0].premiumCollected).toBeCloseTo(400);
   });
@@ -169,7 +173,7 @@ describe("listPositions tool", () => {
   it("respects the limit (capped at 200)", async () => {
     stores.positions = Array.from({ length: 5 }, (_, i) => pos({ id: i + 1, ticker: "AAPL" }));
     const { listPositions } = await import("./tools");
-    const out = await listPositions({ limit: 3 });
+    const out = await listPositions("user-1", { limit: 3 });
     expect(out.positions).toHaveLength(3);
     expect(out.total).toBe(5);
   });
@@ -184,7 +188,7 @@ describe("getPositionStats tool", () => {
       pos({ id: 4, ticker: "AAPL" }),
     ];
     const { getPositionStats } = await import("./tools");
-    const stats = await getPositionStats({});
+    const stats = await getPositionStats("user-1", {});
     expect(stats.closedCount).toBe(3);
     expect(stats.openCount).toBe(1);
     expect(stats.winCount).toBe(2);
@@ -202,7 +206,7 @@ describe("getPositionStats tool", () => {
       pos({ id: 2, ticker: "PLTR", closedAt: day("2026-05-01"), closePrice: 0.5 }),
     ];
     const { getPositionStats } = await import("./tools");
-    const stats = await getPositionStats({ ticker: "pltr" });
+    const stats = await getPositionStats("user-1", { ticker: "pltr" });
     expect(stats.closedCount).toBe(1);
     expect(stats.byTicker.map((t) => t.ticker)).toEqual(["PLTR"]);
   });
@@ -211,7 +215,7 @@ describe("getPositionStats tool", () => {
 describe("latestScan tool", () => {
   it("returns empty when no snapshot exists", async () => {
     const { latestScan } = await import("./tools");
-    const out = await latestScan({});
+    const out = await latestScan("user-1", {});
     expect(out.scannedAt).toBeNull();
     expect(out.candidates).toEqual([]);
   });
@@ -220,6 +224,7 @@ describe("latestScan tool", () => {
     stores.scans = [
       {
         id: 1,
+        userId: "user-1",
         scannedAt: day("2026-05-13"),
         errors: [],
         tickersScanned: 3,
@@ -233,7 +238,7 @@ describe("latestScan tool", () => {
       },
     ];
     const { latestScan } = await import("./tools");
-    const out = await latestScan({ ticker: "aapl", minIvRank: 50, withEarnings: "exclude" });
+    const out = await latestScan("user-1", { ticker: "aapl", minIvRank: 50, withEarnings: "exclude" });
     expect(out.candidates).toHaveLength(1);
     expect(out.candidates[0].ticker).toBe("AAPL");
   });
@@ -248,7 +253,7 @@ describe("getRollChain tool", () => {
       pos({ id: 99, ticker: "MSFT" }),
     ];
     const { getRollChain } = await import("./tools");
-    const out = await getRollChain({ rootId: 1 });
+    const out = await getRollChain("user-1", { rootId: 1 });
     expect("legs" in out).toBe(true);
     if ("legs" in out) {
       expect(out.legs.map((l) => l.id)).toEqual([1, 2, 3]);
@@ -257,20 +262,83 @@ describe("getRollChain tool", () => {
 
   it("returns an error for a missing root", async () => {
     const { getRollChain } = await import("./tools");
-    const out = await getRollChain({ rootId: 999 });
+    const out = await getRollChain("user-1", { rootId: 999 });
     expect("error" in out).toBe(true);
   });
 });
 
-describe("TOOL_HANDLERS allowlist", () => {
+describe("tool handlers allowlist", () => {
   it("exposes only the documented read-only tools", async () => {
-    const { TOOL_HANDLERS, TOOL_DEFINITIONS } = await import("./tools");
-    const allowed = new Set(Object.keys(TOOL_HANDLERS));
+    const { createToolHandlers, TOOL_DEFINITIONS } = await import("./tools");
+    const allowed = new Set(Object.keys(createToolHandlers("user-1")));
     const documented = new Set(TOOL_DEFINITIONS.map((t) => t.name));
     expect(allowed).toEqual(documented);
     // Sanity: every name is an obviously read-only verb.
     for (const name of allowed) {
       expect(name).toMatch(/^(list|get|latest|quote)/);
     }
+  });
+});
+
+describe("per-user isolation", () => {
+  it("listPositions never returns another user's rows", async () => {
+    stores.positions = [
+      pos({ id: 1, ticker: "AAPL" }),
+      pos({ id: 2, ticker: "MSFT", userId: "user-2" }),
+    ];
+    const { listPositions } = await import("./tools");
+    const out = await listPositions("user-1", {});
+    expect(out.positions.map((p) => p.id)).toEqual([1]);
+    expect(out.total).toBe(1);
+  });
+
+  it("getPositionStats aggregates only the requesting user's rows", async () => {
+    stores.positions = [
+      pos({ id: 1, ticker: "AAPL", closedAt: day("2026-05-01"), closePrice: 0.5 }),
+      pos({ id: 2, ticker: "AAPL", userId: "user-2", closedAt: day("2026-05-01"), closePrice: 0.1 }),
+    ];
+    const { getPositionStats } = await import("./tools");
+    const stats = await getPositionStats("user-1", {});
+    expect(stats.closedCount).toBe(1);
+  });
+
+  it("latestScan only reads the requesting user's snapshots", async () => {
+    stores.scans = [
+      {
+        id: 1,
+        userId: "user-2",
+        scannedAt: day("2026-05-13"),
+        errors: [],
+        tickersScanned: 1,
+        tickersWithCandidate: 1,
+        hiddenByEarningsCount: 0,
+        candidates: [{ ticker: "NVDA" }],
+      },
+    ];
+    const { latestScan } = await import("./tools");
+    const out = await latestScan("user-1", {});
+    expect(out.scannedAt).toBeNull();
+    expect(out.candidates).toEqual([]);
+  });
+
+  it("getRollChain refuses to walk another user's chain", async () => {
+    stores.positions = [
+      pos({ id: 1, ticker: "AAPL", userId: "user-2" }),
+      pos({ id: 2, ticker: "AAPL", userId: "user-2", rolledFromId: 1 }),
+    ];
+    const { getRollChain } = await import("./tools");
+    const out = await getRollChain("user-1", { rootId: 1 });
+    expect("error" in out).toBe(true);
+  });
+
+  it("createToolHandlers binds the user id so handler calls are scoped", async () => {
+    stores.positions = [
+      pos({ id: 1, ticker: "AAPL" }),
+      pos({ id: 2, ticker: "MSFT", userId: "user-2" }),
+    ];
+    const { createToolHandlers } = await import("./tools");
+    const handlers = createToolHandlers("user-2");
+    const out = (await handlers["listPositions"]({})) as { positions: Array<{ id: number }> };
+    expect(out.positions.map((p) => p.id)).toEqual([2]);
   });
 });

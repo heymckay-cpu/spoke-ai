@@ -15,6 +15,7 @@
 // disk cache layer in market.ts already coalesces duplicate requests.
 
 import { sectorFromSicCode } from "@workspace/data";
+import YahooFinance from "yahoo-finance2";
 import { logger } from "./logger";
 import type { MarketProvider } from "./market";
 
@@ -159,12 +160,40 @@ function makeQuote(apiKey: string) {
   };
 }
 
+// Earnings calendar is not exposed on Polygon's free/options tiers in a
+// shape we can portably consume, and returning an empty block silently
+// disables the screener's earnings filter for every user on the live
+// provider. Earnings *dates* are slow-moving reference data (not live
+// market data), so we delegate quoteSummary to Yahoo, which serves them
+// reliably. The disk cache in market.ts still coalesces these calls, and
+// any Yahoo failure degrades to the old "no earnings date" behaviour
+// rather than breaking the scan.
+let yahooForSummary: InstanceType<typeof YahooFinance> | null = null;
+
+function getYahooForSummary(): InstanceType<typeof YahooFinance> {
+  if (!yahooForSummary) {
+    yahooForSummary = new YahooFinance({
+      suppressNotices: ["yahooSurvey", "ripHistorical"],
+    });
+  }
+  return yahooForSummary;
+}
+
 function makeQuoteSummary() {
-  // Earnings calendar is not exposed on Polygon's free/options tiers in a
-  // shape we can portably consume. Return an empty calendarEvents block so
-  // downstream code falls through to its `null` branch.
-  return async (..._args: unknown[]): Promise<unknown> => {
-    return { calendarEvents: { earnings: { earningsDate: undefined } } };
+  return async (...args: unknown[]): Promise<unknown> => {
+    try {
+      const yf = getYahooForSummary();
+      const quoteSummary = yf.quoteSummary.bind(yf) as (
+        ...a: unknown[]
+      ) => Promise<unknown>;
+      return await quoteSummary(...args);
+    } catch (err) {
+      logger.warn(
+        { err, ticker: args[0] },
+        "polygon: yahoo quoteSummary fallback failed; earnings date unavailable",
+      );
+      return { calendarEvents: { earnings: { earningsDate: undefined } } };
+    }
   };
 }
 

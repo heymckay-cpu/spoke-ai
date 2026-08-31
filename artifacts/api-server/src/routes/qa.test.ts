@@ -149,6 +149,8 @@ vi.mock("drizzle-orm", () => ({
     r[col.__c ?? ""] === val,
   and: (...predicates: Array<(r: Record<string, unknown>) => boolean>) =>
     (r: Record<string, unknown>) => predicates.every((p) => p(r)),
+  inArray: (col: { __c?: string }, vals: unknown[]) => (r: Record<string, unknown>) =>
+    vals.includes(r[col.__c ?? ""]),
   asc: (col: unknown) => col,
   desc: (col: unknown) => col,
 }));
@@ -282,9 +284,36 @@ describe("GET /api/qa/conversations", () => {
     expect(r2.body.conversations).toHaveLength(1);
     expect(r2.body.hasMore).toBe(false);
   });
+
+  it("never lists another user's conversations or previews", async () => {
+    stores.conversations.push(
+      { id: 1, userId: "test-user", title: "mine", createdAt: new Date("2026-01-01") },
+      { id: 2, userId: "someone-else", title: "theirs", createdAt: new Date("2026-02-01") },
+    );
+    stores.nextConvId = 3;
+    stores.messages.push({
+      id: 1, conversationId: 2, role: "user", content: "private message from another user",
+      attachments: [], createdAt: new Date("2026-05-10"),
+    });
+    stores.nextMsgId = 2;
+    const r = await request(app).get("/api/qa/conversations");
+    expect(r.status).toBe(200);
+    expect(r.body.conversations.map((c: { id: number }) => c.id)).toEqual([1]);
+    expect(JSON.stringify(r.body)).not.toContain("private message");
+  });
 });
 
 describe("PATCH /api/qa/conversations/:id", () => {
+  it("refuses to rename another user's conversation", async () => {
+    stores.conversations.push({ id: 1, userId: "someone-else", title: "theirs", createdAt: new Date() });
+    stores.nextConvId = 2;
+    const r = await request(app)
+      .patch("/api/qa/conversations/1")
+      .send({ title: "hijacked" });
+    expect(r.status).toBe(404);
+    expect(stores.conversations[0].title).toBe("theirs");
+  });
+
   it("renames an existing conversation", async () => {
     stores.conversations.push({ id: 1, userId: "test-user", title: "old", createdAt: new Date() });
     stores.nextConvId = 2;
@@ -314,6 +343,14 @@ describe("PATCH /api/qa/conversations/:id", () => {
 });
 
 describe("DELETE /api/qa/conversations/:id", () => {
+  it("refuses to delete another user's conversation", async () => {
+    stores.conversations.push({ id: 1, userId: "someone-else", title: "theirs", createdAt: new Date() });
+    stores.nextConvId = 2;
+    const r = await request(app).delete("/api/qa/conversations/1");
+    expect(r.status).toBe(404);
+    expect(stores.conversations).toHaveLength(1);
+  });
+
   it("removes the conversation and its messages", async () => {
     stores.conversations.push({ id: 1, userId: "test-user", title: "x", createdAt: new Date() });
     stores.nextConvId = 2;
@@ -481,7 +518,7 @@ describe("POST /api/qa/messages/stream", () => {
     stores.conversations.push({ id: 1, userId: "test-user", title: "x", createdAt: new Date() });
     stores.nextConvId = 2;
     runStreamingAgentMock.mockImplementation(
-      async (_history: unknown, _msg: unknown, emit: (e: unknown) => void) => {
+      async (_history: unknown, _msg: unknown, _userId: unknown, emit: (e: unknown) => void) => {
         emit({ type: "tool_start", name: "listPositions", label: "Looking up your positions…" });
         emit({ type: "tool_end", name: "listPositions" });
         emit({ type: "text", delta: "Here is " });
