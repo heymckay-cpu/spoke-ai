@@ -1002,6 +1002,97 @@ export interface CandidateExplanation {
   cached?: boolean;
 }
 
+export type QuiverCongressTradeTransaction =
+  (typeof QuiverCongressTradeTransaction)[keyof typeof QuiverCongressTradeTransaction];
+
+export const QuiverCongressTradeTransaction = {
+  buy: "buy",
+  sell: "sell",
+} as const;
+
+export interface QuiverCongressTrade {
+  name: string;
+  /** @nullable */
+  chamber?: string | null;
+  /** @nullable */
+  party?: string | null;
+  transaction: QuiverCongressTradeTransaction;
+  /**
+   * Disclosed dollar range, e.g. "$1,001 - $15,000"
+   * @nullable
+   */
+  amountRange?: string | null;
+  /**
+   * ISO date the trade occurred
+   * @nullable
+   */
+  tradeDate?: string | null;
+  /**
+   * ISO date the trade was publicly disclosed
+   * @nullable
+   */
+  disclosedDate?: string | null;
+  /**
+   * Days between trade and public disclosure
+   * @nullable
+   */
+  lagDays?: number | null;
+}
+
+export interface QuiverCongressSummary {
+  buys: number;
+  sells: number;
+  /** @nullable */
+  lastTradeDate?: string | null;
+  /** @nullable */
+  medianLagDays?: number | null;
+  recent: QuiverCongressTrade[];
+}
+
+export interface QuiverInsiderSummary {
+  buys: number;
+  sells: number;
+  boughtValue: number;
+  soldValue: number;
+  /** @nullable */
+  lastActivityDate?: string | null;
+}
+
+export interface QuiverAmountSummary {
+  count: number;
+  totalAmount: number;
+  /** @nullable */
+  lastDate?: string | null;
+}
+
+export interface QuiverScoreComponent {
+  key: string;
+  label: string;
+  /** Signed points applied to the 50-neutral baseline */
+  contribution: number;
+  detail: string;
+}
+
+export interface QuiverSignals {
+  ticker: string;
+  /** False when the server has no QUIVER_API_KEY; all sections are null. */
+  configured: boolean;
+  /** @nullable */
+  fetchedAt?: string | null;
+  windowDays: number;
+  congress?: QuiverCongressSummary | null;
+  insiders?: QuiverInsiderSummary | null;
+  govContracts?: QuiverAmountSummary | null;
+  lobbying?: QuiverAmountSummary | null;
+  /**
+   * 0..100 activity tilt, 50 = neutral. Null when no dataset loaded.
+   * @nullable
+   */
+  score?: number | null;
+  scoreComponents: QuiverScoreComponent[];
+  notes: string[];
+}
+
 export interface CallScanResult {
   scannedAt: string;
   candidates: CallCandidate[];

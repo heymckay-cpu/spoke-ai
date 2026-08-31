@@ -1,0 +1,1776 @@
+diff --git a/artifacts/api-server/src/lib/quiver/client.ts b/artifacts/api-server/src/lib/quiver/client.ts
+new file mode 100644
+index 0000000..4fa94b5
+--- /dev/null
++++ b/artifacts/api-server/src/lib/quiver/client.ts
+@@ -0,0 +1,82 @@
++// Thin HTTP client for the Quiver Quantitative REST API.
++//
++// Auth is a static token in the `Authorization: Token <key>` header,
++// configured via QUIVER_API_KEY. All consumers must tolerate the key being
++// absent — the feature degrades to "not configured" rather than erroring,
++// so the app runs fine without a Quiver subscription.
++//
++// Endpoint shapes follow Quiver's official python-api client
++// (github.com/Quiver-Quantitative/python-api): base `/beta`, per-ticker
++// historical endpoints plus `live/insiders?ticker=`.
++
++import { logger } from "../logger";
++
++const QUIVER_BASE = "https://api.quiverquant.com/beta";
++const REQUEST_TIMEOUT_MS = 10_000;
++
++export function isQuiverConfigured(): boolean {
++  return Boolean(process.env.QUIVER_API_KEY);
++}
++
++export class QuiverNotConfiguredError extends Error {
++  constructor() {
++    super("QUIVER_API_KEY is not set");
++    this.name = "QuiverNotConfiguredError";
++  }
++}
++
++/**
++ * GET a Quiver endpoint and parse the JSON body. `pathAndQuery` starts with
++ * `/`, e.g. `/historical/congresstrading/AAPL`.
++ *
++ * Throws on network errors, timeouts, non-2xx responses, and unparseable
++ * bodies — callers that aggregate multiple datasets catch per-dataset so a
++ * single failing endpoint degrades to a missing section, not a failed scan.
++ */
++export async function quiverGet<T>(pathAndQuery: string): Promise<T> {
++  const apiKey = process.env.QUIVER_API_KEY;
++  if (!apiKey) throw new QuiverNotConfiguredError();
++
++  const controller = new AbortController();
++  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
++  try {
++    const res = await fetch(`${QUIVER_BASE}${pathAndQuery}`, {
++      headers: {
++        accept: "application/json",
++        Authorization: `Token ${apiKey}`,
++      },
++      signal: controller.signal,
++    });
++    if (!res.ok) {
++      const text = await res.text().catch(() => "");
++      throw new Error(
++        `quiver ${res.status} ${res.statusText}: ${text.slice(0, 200)}`,
++      );
++    }
++    return (await res.json()) as T;
++  } catch (err) {
++    if (err instanceof Error && err.name === "AbortError") {
++      throw new Error(`quiver request timed out after ${REQUEST_TIMEOUT_MS}ms`);
++    }
++    throw err;
++  } finally {
++    clearTimeout(timer);
++  }
++}
++
++/**
++ * Fetch a per-ticker dataset, returning null (and logging) on any failure so
++ * aggregation can continue with the sections that did load.
++ */
++export async function quiverGetOrNull<T>(
++  pathAndQuery: string,
++  dataset: string,
++): Promise<T | null> {
++  try {
++    return await quiverGet<T>(pathAndQuery);
++  } catch (err) {
++    if (err instanceof QuiverNotConfiguredError) throw err;
++    logger.warn({ err, dataset, pathAndQuery }, "quiver: dataset fetch failed");
++    return null;
++  }
++}
+diff --git a/artifacts/api-server/src/lib/quiver/signals.test.ts b/artifacts/api-server/src/lib/quiver/signals.test.ts
+new file mode 100644
+index 0000000..5b3d236
+--- /dev/null
++++ b/artifacts/api-server/src/lib/quiver/signals.test.ts
+@@ -0,0 +1,188 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import {
++  computeScore,
++  normalizeAmounts,
++  normalizeCongress,
++  normalizeInsiders,
++  CONGRESS_WINDOW_DAYS,
++} from "./signals";
++
++// Fixed "now" so window math is deterministic.
++const NOW = new Date("2026-08-31T12:00:00Z");
++
++const daysAgo = (n: number): string => {
++  const d = new Date(NOW);
++  d.setUTCDate(d.getUTCDate() - n);
++  return d.toISOString().slice(0, 10);
++};
++
++beforeEach(() => {
++  vi.unstubAllEnvs();
++});
++
++afterEach(() => {
++  vi.unstubAllEnvs();
++});
++
++describe("normalizeCongress", () => {
++  it("classifies purchases and sales, computes disclosure lag, and sorts newest first", () => {
++    const rows = [
++      {
++        Representative: "Jane Doe",
++        Transaction: "Purchase",
++        TransactionDate: daysAgo(10),
++        ReportDate: daysAgo(3),
++        Range: "$1,001 - $15,000",
++        Party: "D",
++        House: "Representatives",
++      },
++      {
++        Representative: "John Roe",
++        Transaction: "Sale (Full)",
++        TransactionDate: daysAgo(30),
++        ReportDate: daysAgo(2),
++        Range: "$15,001 - $50,000",
++      },
++    ];
++    const out = normalizeCongress(rows, NOW);
++    expect(out.buys).toBe(1);
++    expect(out.sells).toBe(1);
++    expect(out.recent[0].name).toBe("Jane Doe");
++    expect(out.recent[0].lagDays).toBe(7);
++    expect(out.recent[1].lagDays).toBe(28);
++    expect(out.lastTradeDate).toBe(daysAgo(10));
++    expect(out.medianLagDays).toBe(Math.round((7 + 28) / 2));
++  });
++
++  it("drops trades outside the lookback window and rows it cannot interpret", () => {
++    const rows = [
++      {
++        Representative: "Old Trade",
++        Transaction: "Purchase",
++        TransactionDate: daysAgo(CONGRESS_WINDOW_DAYS + 10),
++        ReportDate: daysAgo(CONGRESS_WINDOW_DAYS + 1),
++      },
++      { Representative: "No transaction type", TransactionDate: daysAgo(5) },
++      { Transaction: "Exchange", TransactionDate: daysAgo(5) },
++    ];
++    const out = normalizeCongress(rows, NOW);
++    expect(out.buys).toBe(0);
++    expect(out.sells).toBe(0);
++    expect(out.recent).toHaveLength(0);
++  });
++
++  it("caps the recent list at 5", () => {
++    const rows = Array.from({ length: 8 }, (_, i) => ({
++      Representative: `Member ${i}`,
++      Transaction: "Purchase",
++      TransactionDate: daysAgo(i + 1),
++      ReportDate: daysAgo(0),
++    }));
++    const out = normalizeCongress(rows, NOW);
++    expect(out.buys).toBe(8);
++    expect(out.recent).toHaveLength(5);
++  });
++});
++
++describe("normalizeInsiders", () => {
++  it("splits P/S codes and dollar-weights activity", () => {
++    const rows = [
++      { TransactionCode: "P", Shares: 1000, PricePerShare: 50, Date: daysAgo(5) },
++      { TransactionCode: "S", Shares: 200, PricePerShare: 40, Date: daysAgo(9) },
++      { TransactionCode: "M", Shares: 999, PricePerShare: 1, Date: daysAgo(2) }, // option exercise — ignored
++    ];
++    const out = normalizeInsiders(rows, NOW);
++    expect(out.buys).toBe(1);
++    expect(out.sells).toBe(1);
++    expect(out.boughtValue).toBe(50_000);
++    expect(out.soldValue).toBe(8_000);
++    expect(out.lastActivityDate).toBe(daysAgo(5));
++  });
++
++  it("parses numeric strings with currency formatting", () => {
++    const rows = [
++      { TransactionCode: "P", Shares: "1,500", PricePerShare: "$12.50", Date: daysAgo(1) },
++    ];
++    const out = normalizeInsiders(rows, NOW);
++    expect(out.boughtValue).toBe(18_750);
++  });
++});
++
++describe("normalizeAmounts", () => {
++  it("sums amounts inside the window and tracks the latest date", () => {
++    const rows = [
++      { Date: daysAgo(30), Amount: 1_000_000 },
++      { Date: daysAgo(400), Amount: 9_000_000 }, // outside 365d window
++      { Date: daysAgo(10), Amount: "2,500,000" },
++    ];
++    const out = normalizeAmounts(rows, NOW, 365);
++    expect(out.count).toBe(2);
++    expect(out.totalAmount).toBe(3_500_000);
++    expect(out.lastDate).toBe(daysAgo(10));
++  });
++});
++
++describe("computeScore", () => {
++  const emptyCongress = { buys: 0, sells: 0, lastTradeDate: null, medianLagDays: null, recent: [] };
++  const emptyInsiders = { buys: 0, sells: 0, boughtValue: 0, soldValue: 0, lastActivityDate: null };
++
++  it("returns null when no dataset loaded", () => {
++    const { score, components } = computeScore(null, null, null);
++    expect(score).toBeNull();
++    expect(components).toEqual([]);
++  });
++
++  it("is 50-neutral with no activity", () => {
++    const { score } = computeScore(emptyCongress, emptyInsiders, {
++      count: 0,
++      totalAmount: 0,
++      lastDate: null,
++    });
++    expect(score).toBe(50);
++  });
++
++  it("tilts up on net congressional buying, capped at +20", () => {
++    const { score, components } = computeScore(
++      { ...emptyCongress, buys: 10, sells: 0 },
++      null,
++      null,
++    );
++    expect(score).toBe(70);
++    expect(components[0].contribution).toBe(20);
++  });
++
++  it("tilts down on net selling and clamps to the 0..100 range", () => {
++    const { score } = computeScore(
++      { ...emptyCongress, buys: 0, sells: 10 },
++      { ...emptyInsiders, buys: 0, sells: 20, soldValue: 1_000_000 },
++      null,
++    );
++    expect(score).toBe(50 - 20 - 15);
++  });
++
++  it("weighs insider buys double and adds gov-contract presence", () => {
++    const { score, components } = computeScore(
++      null,
++      { ...emptyInsiders, buys: 2, sells: 1, boughtValue: 100_000, soldValue: 10_000 },
++      { count: 3, totalAmount: 5_000_000, lastDate: daysAgo(20) },
++    );
++    // insiders: (2*2 - 1) * 3 = +9; contracts: min(10, 3*2) = +6
++    expect(score).toBe(50 + 9 + 6);
++    expect(components.map((c) => c.key)).toEqual(["insiders", "govContracts"]);
++  });
++});
++
++describe("getQuiverSignals without a key", () => {
++  it("returns configured:false and never touches the network", async () => {
++    vi.stubEnv("QUIVER_API_KEY", "");
++    const fetchSpy = vi.spyOn(globalThis, "fetch");
++    const { getQuiverSignals } = await import("./signals");
++    const out = await getQuiverSignals("aapl");
++    expect(out.configured).toBe(false);
++    expect(out.ticker).toBe("AAPL");
++    expect(out.score).toBeNull();
++    expect(out.congress).toBeNull();
++    expect(fetchSpy).not.toHaveBeenCalled();
++    fetchSpy.mockRestore();
++  });
++});
+diff --git a/artifacts/api-server/src/lib/quiver/signals.ts b/artifacts/api-server/src/lib/quiver/signals.ts
+new file mode 100644
+index 0000000..4d1ab2b
+--- /dev/null
++++ b/artifacts/api-server/src/lib/quiver/signals.ts
+@@ -0,0 +1,416 @@
++// Aggregates Quiver's raw alternative-data feeds into a compact per-ticker
++// "signals" summary for the candidate drawer and (later) the AI explainer.
++//
++// Honesty rules baked into this module:
++//  - Congressional trades are disclosed up to 45 days after the trade
++//    (STOCK Act), and insider filings ~2 business days after. Every trade we
++//    surface carries its disclosure lag so the UI can say "traded X, we
++//    learned about it Y days later". These are confirmation/filter signals,
++//    not real-time alpha.
++//  - The composite score is a transparent activity tilt (0..100, 50 =
++//    neutral) computed from counts and dollar-weighted activity in the
++//    lookback window. The formula lives in `computeScore` below and each
++//    component's contribution is returned so the UI can show its work.
++//
++// Raw Quiver rows vary in field naming across datasets and over time, so
++// every extractor reads defensively from a list of known key spellings and
++// drops rows it cannot interpret.
++
++import * as fs from "node:fs";
++import * as path from "node:path";
++import { logger } from "../logger";
++import { isQuiverConfigured, quiverGetOrNull } from "./client";
++
++export const CONGRESS_WINDOW_DAYS = 90;
++export const CONTRACTS_WINDOW_DAYS = 365;
++export const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // Quiver data is slow-moving.
++
++export interface QuiverCongressTrade {
++  name: string;
++  chamber: string | null;
++  party: string | null;
++  transaction: "buy" | "sell";
++  amountRange: string | null;
++  tradeDate: string | null; // YYYY-MM-DD
++  disclosedDate: string | null; // YYYY-MM-DD
++  lagDays: number | null; // disclosedDate - tradeDate
++}
++
++export interface QuiverCongressSummary {
++  buys: number;
++  sells: number;
++  lastTradeDate: string | null;
++  medianLagDays: number | null;
++  recent: QuiverCongressTrade[]; // newest first, capped
++}
++
++export interface QuiverInsiderSummary {
++  buys: number;
++  sells: number;
++  boughtValue: number; // shares * price, USD, best-effort
++  soldValue: number;
++  lastActivityDate: string | null;
++}
++
++export interface QuiverAmountSummary {
++  count: number;
++  totalAmount: number;
++  lastDate: string | null;
++}
++
++export interface QuiverScoreComponent {
++  key: string;
++  label: string;
++  contribution: number; // signed points applied to the 50-neutral baseline
++  detail: string;
++}
++
++export interface QuiverSignals {
++  ticker: string;
++  configured: boolean;
++  fetchedAt: string | null;
++  windowDays: number;
++  congress: QuiverCongressSummary | null;
++  insiders: QuiverInsiderSummary | null;
++  govContracts: QuiverAmountSummary | null;
++  lobbying: QuiverAmountSummary | null;
++  score: number | null; // 0..100, 50 neutral; null when nothing loaded
++  scoreComponents: QuiverScoreComponent[];
++  notes: string[];
++}
++
++// ---------------------------------------------------------------------------
++// Cache: memory + disk, mirroring the market.ts pattern so signals survive
++// restarts without a DB migration. Keyed by ticker.
++
++interface CacheEntry {
++  value: QuiverSignals;
++  expiresAt: number;
++}
++
++const CACHE_DIR = process.env.MARKET_CACHE_DIR ?? path.join(process.cwd(), ".cache");
++const CACHE_FILE = path.join(CACHE_DIR, "quiver-cache.json");
++const cache = new Map<string, CacheEntry>();
++let flushTimer: NodeJS.Timeout | null = null;
++let diskLoaded = false;
++
++function loadDiskCache(): void {
++  if (diskLoaded) return;
++  diskLoaded = true;
++  try {
++    if (!fs.existsSync(CACHE_FILE)) return;
++    const obj = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8")) as Record<
++      string,
++      CacheEntry
++    >;
++    const now = Date.now();
++    for (const [k, v] of Object.entries(obj)) {
++      if (v && typeof v.expiresAt === "number" && v.expiresAt > now) cache.set(k, v);
++    }
++  } catch (err) {
++    logger.warn({ err }, "quiver: failed to load cache from disk");
++  }
++}
++
++function scheduleFlush(): void {
++  if (flushTimer) return;
++  flushTimer = setTimeout(() => {
++    flushTimer = null;
++    try {
++      fs.mkdirSync(CACHE_DIR, { recursive: true });
++      const obj: Record<string, CacheEntry> = {};
++      const now = Date.now();
++      for (const [k, v] of cache.entries()) {
++        if (v.expiresAt > now) obj[k] = v;
++      }
++      fs.writeFileSync(CACHE_FILE, JSON.stringify(obj));
++    } catch (err) {
++      logger.warn({ err }, "quiver: failed to flush cache to disk");
++    }
++  }, 1000);
++}
++
++export function clearQuiverCache(): void {
++  cache.clear();
++  scheduleFlush();
++}
++
++// ---------------------------------------------------------------------------
++// Defensive field extraction
++
++type Row = Record<string, unknown>;
++
++function str(row: Row, keys: string[]): string | null {
++  for (const k of keys) {
++    const v = row[k];
++    if (typeof v === "string" && v.trim() !== "") return v.trim();
++  }
++  return null;
++}
++
++function num(row: Row, keys: string[]): number | null {
++  for (const k of keys) {
++    const v = row[k];
++    if (typeof v === "number" && Number.isFinite(v)) return v;
++    if (typeof v === "string") {
++      const parsed = Number(v.replace(/[$,]/g, ""));
++      if (Number.isFinite(parsed) && v.trim() !== "") return parsed;
++    }
++  }
++  return null;
++}
++
++/** Normalize a date-ish string to YYYY-MM-DD, else null. */
++function isoDate(raw: string | null): string | null {
++  if (!raw) return null;
++  const d = new Date(raw);
++  if (Number.isNaN(d.getTime())) return null;
++  return d.toISOString().slice(0, 10);
++}
++
++function daysBetween(a: string, b: string): number {
++  return Math.round(
++    (new Date(b).getTime() - new Date(a).getTime()) / (24 * 60 * 60 * 1000),
++  );
++}
++
++function withinDays(dateIso: string | null, days: number, now: Date): boolean {
++  if (!dateIso) return false;
++  const t = new Date(dateIso).getTime();
++  return now.getTime() - t <= days * 24 * 60 * 60 * 1000 && t <= now.getTime() + 24 * 60 * 60 * 1000;
++}
++
++function median(values: number[]): number | null {
++  if (values.length === 0) return null;
++  const s = [...values].sort((a, b) => a - b);
++  const mid = Math.floor(s.length / 2);
++  return s.length % 2 === 1 ? s[mid] : Math.round((s[mid - 1] + s[mid]) / 2);
++}
++
++// ---------------------------------------------------------------------------
++// Per-dataset normalizers (exported for tests)
++
++export function normalizeCongress(rows: Row[], now: Date): QuiverCongressSummary {
++  const trades: QuiverCongressTrade[] = [];
++  for (const row of rows) {
++    const txRaw = str(row, ["Transaction", "transaction", "Type", "type"]);
++    if (!txRaw) continue;
++    const lower = txRaw.toLowerCase();
++    const transaction: "buy" | "sell" | null = lower.includes("purchase")
++      ? "buy"
++      : lower.includes("sale") || lower.includes("sell")
++        ? "sell"
++        : null;
++    if (!transaction) continue;
++
++    const tradeDate = isoDate(
++      str(row, ["TransactionDate", "Traded", "transaction_date", "Date"]),
++    );
++    const disclosedDate = isoDate(
++      str(row, ["ReportDate", "Filed", "report_date", "last_modified"]),
++    );
++    if (!withinDays(tradeDate, CONGRESS_WINDOW_DAYS, now)) continue;
++
++    trades.push({
++      name:
++        str(row, ["Representative", "Name", "representative", "Politician"]) ??
++        "Unknown member",
++      chamber: str(row, ["House", "Chamber", "chamber"]),
++      party: str(row, ["Party", "party"]),
++      transaction,
++      amountRange: str(row, ["Range", "Amount", "range", "amount", "Trade_Size_USD"]),
++      tradeDate,
++      disclosedDate,
++      lagDays:
++        tradeDate && disclosedDate ? Math.max(0, daysBetween(tradeDate, disclosedDate)) : null,
++    });
++  }
++  trades.sort((a, b) => (b.tradeDate ?? "").localeCompare(a.tradeDate ?? ""));
++  return {
++    buys: trades.filter((t) => t.transaction === "buy").length,
++    sells: trades.filter((t) => t.transaction === "sell").length,
++    lastTradeDate: trades[0]?.tradeDate ?? null,
++    medianLagDays: median(
++      trades.map((t) => t.lagDays).filter((l): l is number => l != null),
++    ),
++    recent: trades.slice(0, 5),
++  };
++}
++
++export function normalizeInsiders(rows: Row[], now: Date): QuiverInsiderSummary {
++  let buys = 0;
++  let sells = 0;
++  let boughtValue = 0;
++  let soldValue = 0;
++  let lastActivityDate: string | null = null;
++  for (const row of rows) {
++    const code = (str(row, ["TransactionCode", "transaction_code", "Code"]) ?? "").toUpperCase();
++    const acqDisp = (str(row, ["AcquiredDisposedCode", "acquired_disposed"]) ?? "").toUpperCase();
++    const isBuy = code === "P" || (code === "" && acqDisp === "A");
++    const isSell = code === "S" || (code === "" && acqDisp === "D");
++    if (!isBuy && !isSell) continue;
++
++    const date = isoDate(str(row, ["Date", "TransactionDate", "date", "fileDate"]));
++    if (!withinDays(date, CONGRESS_WINDOW_DAYS, now)) continue;
++
++    const shares = num(row, ["Shares", "shares", "SharesTraded"]) ?? 0;
++    const price = num(row, ["PricePerShare", "price", "Price"]) ?? 0;
++    const value = shares * price;
++    if (isBuy) {
++      buys += 1;
++      boughtValue += value;
++    } else {
++      sells += 1;
++      soldValue += value;
++    }
++    if (date && (!lastActivityDate || date > lastActivityDate)) lastActivityDate = date;
++  }
++  return { buys, sells, boughtValue, soldValue, lastActivityDate };
++}
++
++export function normalizeAmounts(
++  rows: Row[],
++  now: Date,
++  windowDays: number,
++): QuiverAmountSummary {
++  let count = 0;
++  let totalAmount = 0;
++  let lastDate: string | null = null;
++  for (const row of rows) {
++    const date = isoDate(str(row, ["Date", "date", "ReportDate"])) ??
++      // Gov contracts are often keyed by Year/Quarter rather than a date.
++      (num(row, ["Year", "year"]) != null
++        ? `${num(row, ["Year", "year"])}-01-01`
++        : null);
++    if (!withinDays(date, windowDays, now)) continue;
++    count += 1;
++    totalAmount += num(row, ["Amount", "amount", "Spend", "TotalAmount"]) ?? 0;
++    if (date && (!lastDate || date > lastDate)) lastDate = date;
++  }
++  return { count, totalAmount, lastDate };
++}
++
++// ---------------------------------------------------------------------------
++// Composite score — a transparent activity tilt, not an alpha claim.
++
++export function computeScore(
++  congress: QuiverCongressSummary | null,
++  insiders: QuiverInsiderSummary | null,
++  govContracts: QuiverAmountSummary | null,
++): { score: number | null; components: QuiverScoreComponent[] } {
++  if (!congress && !insiders && !govContracts) {
++    return { score: null, components: [] };
++  }
++  const components: QuiverScoreComponent[] = [];
++  let score = 50;
++
++  if (congress) {
++    const net = congress.buys - congress.sells;
++    const contribution = Math.max(-20, Math.min(20, net * 5));
++    score += contribution;
++    components.push({
++      key: "congress",
++      label: "Congressional trading",
++      contribution,
++      detail: `${congress.buys} buy${congress.buys === 1 ? "" : "s"} vs ${congress.sells} sell${congress.sells === 1 ? "" : "s"} in the last ${CONGRESS_WINDOW_DAYS} days (±5 pts per net trade, capped ±20)`,
++    });
++  }
++
++  if (insiders) {
++    const netValue = insiders.boughtValue - insiders.soldValue;
++    // Insider buying is a stronger signal than selling (sales are often
++    // scheduled/diversification), so buys weigh double.
++    const netTilt = insiders.buys * 2 - insiders.sells;
++    const contribution = Math.max(-15, Math.min(20, netTilt * 3));
++    score += contribution;
++    components.push({
++      key: "insiders",
++      label: "Insider activity",
++      contribution,
++      detail: `${insiders.buys} open-market buy${insiders.buys === 1 ? "" : "s"}, ${insiders.sells} sell${insiders.sells === 1 ? "" : "s"} (net ~$${Math.round(Math.abs(netValue)).toLocaleString()} ${netValue >= 0 ? "bought" : "sold"}); buys weigh double`,
++    });
++  }
++
++  if (govContracts && govContracts.count > 0) {
++    const contribution = Math.min(10, govContracts.count * 2);
++    score += contribution;
++    components.push({
++      key: "govContracts",
++      label: "Government contracts",
++      contribution,
++      detail: `${govContracts.count} award${govContracts.count === 1 ? "" : "s"} totalling ~$${Math.round(govContracts.totalAmount).toLocaleString()} in the last ${CONTRACTS_WINDOW_DAYS} days (+2 pts each, capped +10)`,
++    });
++  }
++
++  return { score: Math.max(0, Math.min(100, score)), components };
++}
++
++// ---------------------------------------------------------------------------
++// Public entry point
++
++const STANDARD_NOTES = [
++  `Congressional trades are disclosed up to 45 days after the trade date (STOCK Act) — treat them as confirmation, not real-time signals.`,
++  `The score is a transparent activity tilt (50 = neutral), not a prediction of returns.`,
++];
++
++function unconfigured(ticker: string): QuiverSignals {
++  return {
++    ticker,
++    configured: false,
++    fetchedAt: null,
++    windowDays: CONGRESS_WINDOW_DAYS,
++    congress: null,
++    insiders: null,
++    govContracts: null,
++    lobbying: null,
++    score: null,
++    scoreComponents: [],
++    notes: [],
++  };
++}
++
++export async function getQuiverSignals(tickerRaw: string): Promise<QuiverSignals> {
++  const ticker = tickerRaw.toUpperCase();
++  if (!isQuiverConfigured()) return unconfigured(ticker);
++
++  loadDiskCache();
++  const hit = cache.get(ticker);
++  if (hit && hit.expiresAt > Date.now()) return hit.value;
++
++  const now = new Date();
++  const [congressRows, insiderRows, contractRows, lobbyRows] = await Promise.all([
++    quiverGetOrNull<Row[]>(`/historical/congresstrading/${encodeURIComponent(ticker)}`, "congress"),
++    quiverGetOrNull<Row[]>(`/live/insiders?ticker=${encodeURIComponent(ticker)}`, "insiders"),
++    quiverGetOrNull<Row[]>(`/historical/govcontractsall/${encodeURIComponent(ticker)}`, "govcontracts"),
++    quiverGetOrNull<Row[]>(`/historical/lobbying/${encodeURIComponent(ticker)}`, "lobbying"),
++  ]);
++
++  const congress = Array.isArray(congressRows) ? normalizeCongress(congressRows, now) : null;
++  const insiders = Array.isArray(insiderRows) ? normalizeInsiders(insiderRows, now) : null;
++  const govContracts = Array.isArray(contractRows)
++    ? normalizeAmounts(contractRows, now, CONTRACTS_WINDOW_DAYS)
++    : null;
++  const lobbying = Array.isArray(lobbyRows)
++    ? normalizeAmounts(lobbyRows, now, CONTRACTS_WINDOW_DAYS)
++    : null;
++
++  const { score, components } = computeScore(congress, insiders, govContracts);
++
++  const signals: QuiverSignals = {
++    ticker,
++    configured: true,
++    fetchedAt: now.toISOString(),
++    windowDays: CONGRESS_WINDOW_DAYS,
++    congress,
++    insiders,
++    govContracts,
++    lobbying,
++    score,
++    scoreComponents: components,
++    notes: STANDARD_NOTES,
++  };
++
++  cache.set(ticker, { value: signals, expiresAt: Date.now() + CACHE_TTL_MS });
++  scheduleFlush();
++  return signals;
++}
+diff --git a/artifacts/api-server/src/routes/index.ts b/artifacts/api-server/src/routes/index.ts
+index bf654ac..ea6974e 100644
+--- a/artifacts/api-server/src/routes/index.ts
++++ b/artifacts/api-server/src/routes/index.ts
+@@ -11,6 +11,7 @@ import ivHistoryRouter from "./ivHistory";
+ import tierRouter from "./tier";
+ import qaRouter from "./qa";
+ import sectorsRouter from "./sectors";
++import quiverRouter from "./quiver";
+ import { requireUser } from "../middlewares/auth";
+ 
+ const router: IRouter = Router();
+@@ -32,5 +33,6 @@ router.use(ivHistoryRouter);
+ router.use(tierRouter);
+ router.use(qaRouter);
+ router.use(sectorsRouter);
++router.use(quiverRouter);
+ 
+ export default router;
+diff --git a/artifacts/api-server/src/routes/quiver.test.ts b/artifacts/api-server/src/routes/quiver.test.ts
+new file mode 100644
+index 0000000..2a7ceab
+--- /dev/null
++++ b/artifacts/api-server/src/routes/quiver.test.ts
+@@ -0,0 +1,104 @@
++import express from "express";
++import request from "supertest";
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++
++const signalsMock = vi.fn();
++vi.mock("../lib/quiver/signals", () => ({
++  getQuiverSignals: (ticker: string) => signalsMock(ticker),
++}));
++
++vi.mock("../middlewares/auth", () => ({
++  requireUser: (_req: unknown, _res: unknown, next: () => void) => next(),
++  getUserId: () => "test-user",
++}));
++
++import quiverRouter from "./quiver";
++
++function buildApp() {
++  const app = express();
++  app.use(quiverRouter);
++  return app;
++}
++
++const UNCONFIGURED = {
++  ticker: "AAPL",
++  configured: false,
++  fetchedAt: null,
++  windowDays: 90,
++  congress: null,
++  insiders: null,
++  govContracts: null,
++  lobbying: null,
++  score: null,
++  scoreComponents: [],
++  notes: [],
++};
++
++beforeEach(() => {
++  signalsMock.mockReset();
++});
++
++afterEach(() => {
++  vi.clearAllMocks();
++});
++
++describe("GET /quiver/:ticker", () => {
++  it("returns the signals payload and uppercases the ticker", async () => {
++    signalsMock.mockResolvedValue({
++      ...UNCONFIGURED,
++      configured: true,
++      fetchedAt: "2026-08-31T12:00:00.000Z",
++      congress: {
++        buys: 2,
++        sells: 0,
++        lastTradeDate: "2026-08-20",
++        medianLagDays: 12,
++        recent: [
++          {
++            name: "Jane Doe",
++            chamber: "Representatives",
++            party: "D",
++            transaction: "buy",
++            amountRange: "$1,001 - $15,000",
++            tradeDate: "2026-08-20",
++            disclosedDate: "2026-08-28",
++            lagDays: 8,
++          },
++        ],
++      },
++      insiders: { buys: 1, sells: 0, boughtValue: 50000, soldValue: 0, lastActivityDate: "2026-08-25" },
++      score: 63,
++      scoreComponents: [
++        { key: "congress", label: "Congressional trading", contribution: 10, detail: "2 buys vs 0 sells" },
++      ],
++      notes: ["Congressional trades are disclosed up to 45 days late."],
++    });
++
++    const res = await request(buildApp()).get("/quiver/aapl");
++    expect(res.status).toBe(200);
++    expect(signalsMock).toHaveBeenCalledWith("AAPL");
++    expect(res.body.configured).toBe(true);
++    expect(res.body.congress.recent[0].lagDays).toBe(8);
++    expect(res.body.score).toBe(63);
++  });
++
++  it("passes through the unconfigured shape", async () => {
++    signalsMock.mockResolvedValue(UNCONFIGURED);
++    const res = await request(buildApp()).get("/quiver/AAPL");
++    expect(res.status).toBe(200);
++    expect(res.body.configured).toBe(false);
++    expect(res.body.score).toBeNull();
++  });
++
++  it("rejects malformed tickers without calling the signals layer", async () => {
++    const res = await request(buildApp()).get(`/quiver/${encodeURIComponent("bad ticker!!")}`);
++    expect(res.status).toBe(400);
++    expect(signalsMock).not.toHaveBeenCalled();
++  });
++
++  it("maps signal-layer failures to a 502", async () => {
++    signalsMock.mockRejectedValue(new Error("quiver 500"));
++    const res = await request(buildApp()).get("/quiver/AAPL");
++    expect(res.status).toBe(502);
++  });
++});
+diff --git a/artifacts/api-server/src/routes/quiver.ts b/artifacts/api-server/src/routes/quiver.ts
+new file mode 100644
+index 0000000..dc8c9c3
+--- /dev/null
++++ b/artifacts/api-server/src/routes/quiver.ts
+@@ -0,0 +1,30 @@
++import { Router, type IRouter } from "express";
++import { GetQuiverSignalsResponse } from "@workspace/api-zod";
++import { getQuiverSignals } from "../lib/quiver/signals";
++import { logger } from "../lib/logger";
++
++const router: IRouter = Router();
++
++// Aggregated Quiver alternative-data signals for one ticker. The underlying
++// data is global (not per-user), slow-moving, and cached for 12h server-side,
++// so this endpoint is cheap to call from the candidate drawer. When the
++// server has no QUIVER_API_KEY the response is `configured: false` and the
++// client hides the section entirely.
++router.get("/quiver/:ticker", async (req, res): Promise<void> => {
++  const ticker = String(req.params.ticker ?? "")
++    .trim()
++    .toUpperCase();
++  if (!ticker || !/^[A-Z][A-Z0-9.\-]{0,9}$/.test(ticker)) {
++    res.status(400).json({ error: "ticker is required" });
++    return;
++  }
++  try {
++    const signals = await getQuiverSignals(ticker);
++    res.json(GetQuiverSignalsResponse.parse(signals));
++  } catch (err) {
++    logger.error({ err, ticker }, "quiver signals failed");
++    res.status(502).json({ error: "Quiver data is currently unavailable" });
++  }
++});
++
++export default router;
+diff --git a/artifacts/web/src/components/candidate-detail-drawer.tsx b/artifacts/web/src/components/candidate-detail-drawer.tsx
+index 285cd61..95e3e10 100644
+--- a/artifacts/web/src/components/candidate-detail-drawer.tsx
++++ b/artifacts/web/src/components/candidate-detail-drawer.tsx
+@@ -37,6 +37,7 @@ import { Separator } from "@/components/ui/separator";
+ import { SpokeSpinner } from "@/components/spoke-spinner";
+ import { IvRankPill } from "@/components/iv-rank-pill";
+ import { IvHistorySparkline } from "@/components/iv-history-sparkline";
++import { QuiverSignalsCard } from "@/components/quiver-signals-card";
+ import { EarningsFlag } from "@/components/earnings-flag";
+ import { AddPositionDialog } from "@/components/add-position-dialog";
+ import { RollPositionDialog } from "@/components/roll-position-dialog";
+@@ -673,6 +674,9 @@ export function CandidateDetailDrawer({
+               <IvHistorySparkline ticker={candidate.ticker} />
+             </div>
+ 
++            {/* Quiver alternative-data signals (hidden when not configured). */}
++            <QuiverSignalsCard ticker={candidate.ticker} />
++
+             {/* Risk callouts */}
+             {(candidate.earningsInWindow || (candidate.ivRank != null && candidate.ivRank > 0.7)) && (
+               <div className="mt-4 space-y-2">
+diff --git a/artifacts/web/src/components/quiver-signals-card.tsx b/artifacts/web/src/components/quiver-signals-card.tsx
+new file mode 100644
+index 0000000..eec9147
+--- /dev/null
++++ b/artifacts/web/src/components/quiver-signals-card.tsx
+@@ -0,0 +1,180 @@
++import { useGetQuiverSignals } from "@workspace/api-client-react";
++import type { QuiverCongressTrade } from "@workspace/api-client-react";
++import { Landmark, UserRound, FileText } from "lucide-react";
++import { fmtCompactMoney, fmtDate } from "@/lib/format";
++import { cn } from "@/lib/utils";
++
++interface Props {
++  ticker: string;
++  className?: string;
++}
++
++function scoreTone(score: number): string {
++  if (score >= 65) return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400";
++  if (score <= 35) return "bg-red-500/15 text-red-700 dark:text-red-400";
++  return "bg-muted text-muted-foreground";
++}
++
++function scoreWord(score: number): string {
++  if (score >= 65) return "bullish tilt";
++  if (score <= 35) return "bearish tilt";
++  return "neutral";
++}
++
++function CongressTradeRow({ trade }: { trade: QuiverCongressTrade }) {
++  return (
++    <li className="flex items-start justify-between gap-2 text-xs">
++      <span className="min-w-0 truncate">
++        <span className="font-medium text-foreground">{trade.name}</span>
++        {trade.party && (
++          <span className="text-muted-foreground"> ({trade.party})</span>
++        )}{" "}
++        <span
++          className={cn(
++            "font-medium",
++            trade.transaction === "buy"
++              ? "text-emerald-600 dark:text-emerald-400"
++              : "text-red-600 dark:text-red-400",
++          )}
++        >
++          {trade.transaction === "buy" ? "bought" : "sold"}
++        </span>
++        {trade.amountRange && (
++          <span className="text-muted-foreground"> {trade.amountRange}</span>
++        )}
++      </span>
++      <span className="shrink-0 text-right text-muted-foreground tabular-nums">
++        {trade.tradeDate ? fmtDate(trade.tradeDate) : "—"}
++        {trade.lagDays != null && (
++          <span className="block text-[10px]">
++            disclosed {trade.lagDays}d later
++          </span>
++        )}
++      </span>
++    </li>
++  );
++}
++
++/**
++ * Alternative-data section for the candidate drawer, powered by Quiver
++ * Quantitative. Renders nothing when the server has no Quiver key, so the
++ * feature is invisible until QUIVER_API_KEY is configured.
++ */
++export function QuiverSignalsCard({ ticker, className }: Props) {
++  const { data, isLoading, isError } = useGetQuiverSignals(ticker);
++
++  if (isLoading) {
++    return (
++      <div
++        className={cn("h-16 w-full animate-pulse rounded-md bg-muted/40", className)}
++        data-testid="quiver-loading"
++      />
++    );
++  }
++  // Hide entirely when the feature isn't configured; show nothing noisy on
++  // transient errors either — this section is supplementary.
++  if (isError || !data || !data.configured) return null;
++
++  const { congress, insiders, govContracts, lobbying, score, scoreComponents } = data;
++  const hasActivity =
++    (congress && (congress.buys > 0 || congress.sells > 0)) ||
++    (insiders && (insiders.buys > 0 || insiders.sells > 0)) ||
++    (govContracts && govContracts.count > 0) ||
++    (lobbying && lobbying.count > 0);
++
++  return (
++    <div className={cn("mt-4 space-y-2", className)} data-testid="quiver-signals">
++      <div className="flex items-center justify-between">
++        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
++          <Landmark className="h-3.5 w-3.5" />
++          Alt-data signals
++          <span className="normal-case tracking-normal">· Quiver</span>
++        </div>
++        {score != null && (
++          <span
++            className={cn(
++              "rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums",
++              scoreTone(score),
++            )}
++            title={scoreComponents.map((c) => `${c.label}: ${c.contribution >= 0 ? "+" : ""}${c.contribution} — ${c.detail}`).join("\n")}
++            data-testid="quiver-score"
++          >
++            {Math.round(score)} · {scoreWord(score)}
++          </span>
++        )}
++      </div>
++
++      {!hasActivity ? (
++        <div
++          className="flex h-10 w-full items-center justify-center rounded-md border border-dashed border-border text-[11px] text-muted-foreground"
++          data-testid="quiver-empty"
++        >
++          No congressional, insider, or contract activity in the last {data.windowDays} days.
++        </div>
++      ) : (
++        <div className="space-y-3 rounded-md border border-border p-3">
++          {congress && (congress.buys > 0 || congress.sells > 0) && (
++            <div className="space-y-1.5">
++              <div className="flex items-center justify-between text-xs">
++                <span className="font-medium text-foreground">
++                  Congressional trading
++                </span>
++                <span className="text-muted-foreground tabular-nums">
++                  {congress.buys} buys · {congress.sells} sells / {data.windowDays}d
++                </span>
++              </div>
++              <ul className="space-y-1">
++                {congress.recent.map((t, i) => (
++                  <CongressTradeRow key={i} trade={t} />
++                ))}
++              </ul>
++            </div>
++          )}
++
++          {insiders && (insiders.buys > 0 || insiders.sells > 0) && (
++            <div className="flex items-center justify-between text-xs">
++              <span className="flex items-center gap-1.5 font-medium text-foreground">
++                <UserRound className="h-3.5 w-3.5 text-muted-foreground" />
++                Insider activity
++              </span>
++              <span className="text-muted-foreground tabular-nums">
++                {insiders.buys} buys ({fmtCompactMoney(insiders.boughtValue)}) ·{" "}
++                {insiders.sells} sells ({fmtCompactMoney(insiders.soldValue)})
++              </span>
++            </div>
++          )}
++
++          {govContracts && govContracts.count > 0 && (
++            <div className="flex items-center justify-between text-xs">
++              <span className="flex items-center gap-1.5 font-medium text-foreground">
++                <FileText className="h-3.5 w-3.5 text-muted-foreground" />
++                Gov contracts
++              </span>
++              <span className="text-muted-foreground tabular-nums">
++                {govContracts.count} awards · {fmtCompactMoney(govContracts.totalAmount)} / yr
++              </span>
++            </div>
++          )}
++
++          {lobbying && lobbying.count > 0 && (
++            <div className="flex items-center justify-between text-xs">
++              <span className="flex items-center gap-1.5 font-medium text-foreground">
++                <FileText className="h-3.5 w-3.5 text-muted-foreground" />
++                Lobbying
++              </span>
++              <span className="text-muted-foreground tabular-nums">
++                {lobbying.count} filings · {fmtCompactMoney(lobbying.totalAmount)} / yr
++              </span>
++            </div>
++          )}
++        </div>
++      )}
++
++      <p className="text-[10px] leading-snug text-muted-foreground">
++        Congressional trades are disclosed up to 45 days after the trade —
++        treat these as confirmation, not real-time signals. The score is a
++        transparent activity tilt (50 = neutral), not a return prediction.
++      </p>
++    </div>
++  );
++}
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index 19e17a5..3f0129d 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -1002,6 +1002,97 @@ export interface CandidateExplanation {
+   cached?: boolean;
+ }
+ 
++export type QuiverCongressTradeTransaction =
++  (typeof QuiverCongressTradeTransaction)[keyof typeof QuiverCongressTradeTransaction];
++
++export const QuiverCongressTradeTransaction = {
++  buy: "buy",
++  sell: "sell",
++} as const;
++
++export interface QuiverCongressTrade {
++  name: string;
++  /** @nullable */
++  chamber?: string | null;
++  /** @nullable */
++  party?: string | null;
++  transaction: QuiverCongressTradeTransaction;
++  /**
++   * Disclosed dollar range, e.g. "$1,001 - $15,000"
++   * @nullable
++   */
++  amountRange?: string | null;
++  /**
++   * ISO date the trade occurred
++   * @nullable
++   */
++  tradeDate?: string | null;
++  /**
++   * ISO date the trade was publicly disclosed
++   * @nullable
++   */
++  disclosedDate?: string | null;
++  /**
++   * Days between trade and public disclosure
++   * @nullable
++   */
++  lagDays?: number | null;
++}
++
++export interface QuiverCongressSummary {
++  buys: number;
++  sells: number;
++  /** @nullable */
++  lastTradeDate?: string | null;
++  /** @nullable */
++  medianLagDays?: number | null;
++  recent: QuiverCongressTrade[];
++}
++
++export interface QuiverInsiderSummary {
++  buys: number;
++  sells: number;
++  boughtValue: number;
++  soldValue: number;
++  /** @nullable */
++  lastActivityDate?: string | null;
++}
++
++export interface QuiverAmountSummary {
++  count: number;
++  totalAmount: number;
++  /** @nullable */
++  lastDate?: string | null;
++}
++
++export interface QuiverScoreComponent {
++  key: string;
++  label: string;
++  /** Signed points applied to the 50-neutral baseline */
++  contribution: number;
++  detail: string;
++}
++
++export interface QuiverSignals {
++  ticker: string;
++  /** False when the server has no QUIVER_API_KEY; all sections are null. */
++  configured: boolean;
++  /** @nullable */
++  fetchedAt?: string | null;
++  windowDays: number;
++  congress?: QuiverCongressSummary | null;
++  insiders?: QuiverInsiderSummary | null;
++  govContracts?: QuiverAmountSummary | null;
++  lobbying?: QuiverAmountSummary | null;
++  /**
++   * 0..100 activity tilt, 50 = neutral. Null when no dataset loaded.
++   * @nullable
++   */
++  score?: number | null;
++  scoreComponents: QuiverScoreComponent[];
++  notes: string[];
++}
++
+ export interface CallScanResult {
+   scannedAt: string;
+   candidates: CallCandidate[];
+diff --git a/lib/api-client-react/src/generated/api.ts b/lib/api-client-react/src/generated/api.ts
+index a7dbff1..ddbb8e3 100644
+--- a/lib/api-client-react/src/generated/api.ts
++++ b/lib/api-client-react/src/generated/api.ts
+@@ -62,6 +62,7 @@ import type {
+   QaSendMessageInput,
+   QaSendMessageResult,
+   QaUnavailable,
++  QuiverSignals,
+   Quote,
+   RenameQaConversation404,
+   RollPositionInput,
+@@ -1368,6 +1369,102 @@ export function useGetIvHistory<
+   return { ...query, queryKey: queryOptions.queryKey };
+ }
+ 
++/**
++ * Aggregated congressional-trading, insider, government-contract, and
++lobbying activity for the ticker over a trailing window, with a
++transparent composite activity score. When the server has no
++QUIVER_API_KEY configured, returns `configured: false` with all
++sections null so clients can hide the feature. Congressional trades
++are disclosed up to 45 days late (STOCK Act); each surfaced trade
++carries its disclosure lag.
++
++ * @summary Alternative-data signals for a ticker (Quiver Quantitative)
++ */
++export const getGetQuiverSignalsUrl = (ticker: string) => {
++  return `/api/quiver/${ticker}`;
++};
++
++export const getQuiverSignals = async (
++  ticker: string,
++  options?: RequestInit,
++): Promise<QuiverSignals> => {
++  return customFetch<QuiverSignals>(getGetQuiverSignalsUrl(ticker), {
++    ...options,
++    method: "GET",
++  });
++};
++
++export const getGetQuiverSignalsQueryKey = (ticker: string) => {
++  return [`/api/quiver/${ticker}`] as const;
++};
++
++export const getGetQuiverSignalsQueryOptions = <
++  TData = Awaited<ReturnType<typeof getQuiverSignals>>,
++  TError = ErrorType<unknown>,
++>(
++  ticker: string,
++  options?: {
++    query?: UseQueryOptions<
++      Awaited<ReturnType<typeof getQuiverSignals>>,
++      TError,
++      TData
++    >;
++    request?: SecondParameter<typeof customFetch>;
++  },
++) => {
++  const { query: queryOptions, request: requestOptions } = options ?? {};
++
++  const queryKey =
++    queryOptions?.queryKey ?? getGetQuiverSignalsQueryKey(ticker);
++
++  const queryFn: QueryFunction<
++    Awaited<ReturnType<typeof getQuiverSignals>>
++  > = ({ signal }) => getQuiverSignals(ticker, { signal, ...requestOptions });
++
++  return {
++    queryKey,
++    queryFn,
++    enabled: !!ticker,
++    ...queryOptions,
++  } as UseQueryOptions<
++    Awaited<ReturnType<typeof getQuiverSignals>>,
++    TError,
++    TData
++  > & { queryKey: QueryKey };
++};
++
++export type GetQuiverSignalsQueryResult = NonNullable<
++  Awaited<ReturnType<typeof getQuiverSignals>>
++>;
++export type GetQuiverSignalsQueryError = ErrorType<unknown>;
++
++/**
++ * @summary Alternative-data signals for a ticker (Quiver Quantitative)
++ */
++
++export function useGetQuiverSignals<
++  TData = Awaited<ReturnType<typeof getQuiverSignals>>,
++  TError = ErrorType<unknown>,
++>(
++  ticker: string,
++  options?: {
++    query?: UseQueryOptions<
++      Awaited<ReturnType<typeof getQuiverSignals>>,
++      TError,
++      TData
++    >;
++    request?: SecondParameter<typeof customFetch>;
++  },
++): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
++  const queryOptions = getGetQuiverSignalsQueryOptions(ticker, options);
++
++  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
++    queryKey: QueryKey;
++  };
++
++  return { ...query, queryKey: queryOptions.queryKey };
++}
++
+ /**
+  * @summary Get spot price and earnings flag for a ticker
+  */
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index 9e7058b..00af0fc 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -28,6 +28,8 @@ tags:
+     description: Natural-language portfolio Q&A
+   - name: sectors
+     description: Provider-resolved ticker → sector lookup
++  - name: quiver
++    description: Quiver Quantitative alternative-data signals
+   - name: Auth
+     description: Browser and mobile authentication endpoints.
+ paths:
+@@ -320,6 +322,32 @@ paths:
+               schema:
+                 $ref: "#/components/schemas/IvHistory"
+ 
++  /quiver/{ticker}:
++    get:
++      operationId: getQuiverSignals
++      tags: [quiver]
++      summary: Alternative-data signals for a ticker (Quiver Quantitative)
++      description: |
++        Aggregated congressional-trading, insider, government-contract, and
++        lobbying activity for the ticker over a trailing window, with a
++        transparent composite activity score. When the server has no
++        QUIVER_API_KEY configured, returns `configured: false` with all
++        sections null so clients can hide the feature. Congressional trades
++        are disclosed up to 45 days late (STOCK Act); each surfaced trade
++        carries its disclosure lag.
++      parameters:
++        - in: path
++          name: ticker
++          required: true
++          schema: { type: string }
++      responses:
++        "200":
++          description: Quiver signals
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/QuiverSignals"
++
+   /quote/{ticker}:
+     get:
+       operationId: getQuote
+@@ -2010,6 +2038,96 @@ components:
+           type: boolean
+           description: True when the response was served from the cache without re-calling the model.
+ 
++    QuiverCongressTrade:
++      type: object
++      required: [name, transaction]
++      properties:
++        name: { type: string }
++        chamber: { type: ["string", "null"] }
++        party: { type: ["string", "null"] }
++        transaction:
++          type: string
++          enum: [buy, sell]
++        amountRange: { type: ["string", "null"], description: "Disclosed dollar range, e.g. \"$1,001 - $15,000\"" }
++        tradeDate: { type: ["string", "null"], description: "ISO date the trade occurred" }
++        disclosedDate: { type: ["string", "null"], description: "ISO date the trade was publicly disclosed" }
++        lagDays: { type: ["integer", "null"], description: "Days between trade and public disclosure" }
++
++    QuiverCongressSummary:
++      type: object
++      required: [buys, sells, recent]
++      properties:
++        buys: { type: integer }
++        sells: { type: integer }
++        lastTradeDate: { type: ["string", "null"] }
++        medianLagDays: { type: ["integer", "null"] }
++        recent:
++          type: array
++          items:
++            $ref: "#/components/schemas/QuiverCongressTrade"
++
++    QuiverInsiderSummary:
++      type: object
++      required: [buys, sells, boughtValue, soldValue]
++      properties:
++        buys: { type: integer }
++        sells: { type: integer }
++        boughtValue: { type: number }
++        soldValue: { type: number }
++        lastActivityDate: { type: ["string", "null"] }
++
++    QuiverAmountSummary:
++      type: object
++      required: [count, totalAmount]
++      properties:
++        count: { type: integer }
++        totalAmount: { type: number }
++        lastDate: { type: ["string", "null"] }
++
++    QuiverScoreComponent:
++      type: object
++      required: [key, label, contribution, detail]
++      properties:
++        key: { type: string }
++        label: { type: string }
++        contribution: { type: number, description: "Signed points applied to the 50-neutral baseline" }
++        detail: { type: string }
++
++    QuiverSignals:
++      type: object
++      required: [ticker, configured, windowDays, scoreComponents, notes]
++      properties:
++        ticker: { type: string }
++        configured:
++          type: boolean
++          description: "False when the server has no QUIVER_API_KEY; all sections are null."
++        fetchedAt: { type: ["string", "null"] }
++        windowDays: { type: integer }
++        congress:
++          oneOf:
++            - $ref: "#/components/schemas/QuiverCongressSummary"
++            - type: "null"
++        insiders:
++          oneOf:
++            - $ref: "#/components/schemas/QuiverInsiderSummary"
++            - type: "null"
++        govContracts:
++          oneOf:
++            - $ref: "#/components/schemas/QuiverAmountSummary"
++            - type: "null"
++        lobbying:
++          oneOf:
++            - $ref: "#/components/schemas/QuiverAmountSummary"
++            - type: "null"
++        score: { type: ["number", "null"], description: "0..100 activity tilt, 50 = neutral. Null when no dataset loaded." }
++        scoreComponents:
++          type: array
++          items:
++            $ref: "#/components/schemas/QuiverScoreComponent"
++        notes:
++          type: array
++          items: { type: string }
++
+     CallScanResult:
+       type: object
+       required: [scannedAt, candidates, errors, holdingsScanned, holdingsWithCandidate]
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index b5b488a..ee8e1d1 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -773,6 +773,116 @@ export const GetIvHistoryResponse = zod.object({
+   ),
+ });
+ 
++/**
++ * Aggregated congressional-trading, insider, government-contract, and
++lobbying activity for the ticker over a trailing window, with a
++transparent composite activity score. When the server has no
++QUIVER_API_KEY configured, returns `configured: false` with all
++sections null so clients can hide the feature. Congressional trades
++are disclosed up to 45 days late (STOCK Act); each surfaced trade
++carries its disclosure lag.
++
++ * @summary Alternative-data signals for a ticker (Quiver Quantitative)
++ */
++export const GetQuiverSignalsParams = zod.object({
++  ticker: zod.coerce.string(),
++});
++
++export const GetQuiverSignalsResponse = zod.object({
++  ticker: zod.string(),
++  configured: zod
++    .boolean()
++    .describe(
++      "False when the server has no QUIVER_API_KEY; all sections are null.",
++    ),
++  fetchedAt: zod.string().nullish(),
++  windowDays: zod.number(),
++  congress: zod
++    .union([
++      zod.object({
++        buys: zod.number(),
++        sells: zod.number(),
++        lastTradeDate: zod.string().nullish(),
++        medianLagDays: zod.number().nullish(),
++        recent: zod.array(
++          zod.object({
++            name: zod.string(),
++            chamber: zod.string().nullish(),
++            party: zod.string().nullish(),
++            transaction: zod.enum(["buy", "sell"]),
++            amountRange: zod
++              .string()
++              .nullish()
++              .describe('Disclosed dollar range, e.g. \"$1,001 - $15,000\"'),
++            tradeDate: zod
++              .string()
++              .nullish()
++              .describe("ISO date the trade occurred"),
++            disclosedDate: zod
++              .string()
++              .nullish()
++              .describe("ISO date the trade was publicly disclosed"),
++            lagDays: zod
++              .number()
++              .nullish()
++              .describe("Days between trade and public disclosure"),
++          }),
++        ),
++      }),
++      zod.null(),
++    ])
++    .optional(),
++  insiders: zod
++    .union([
++      zod.object({
++        buys: zod.number(),
++        sells: zod.number(),
++        boughtValue: zod.number(),
++        soldValue: zod.number(),
++        lastActivityDate: zod.string().nullish(),
++      }),
++      zod.null(),
++    ])
++    .optional(),
++  govContracts: zod
++    .union([
++      zod.object({
++        count: zod.number(),
++        totalAmount: zod.number(),
++        lastDate: zod.string().nullish(),
++      }),
++      zod.null(),
++    ])
++    .optional(),
++  lobbying: zod
++    .union([
++      zod.object({
++        count: zod.number(),
++        totalAmount: zod.number(),
++        lastDate: zod.string().nullish(),
++      }),
++      zod.null(),
++    ])
++    .optional(),
++  score: zod
++    .number()
++    .nullish()
++    .describe(
++      "0..100 activity tilt, 50 = neutral. Null when no dataset loaded.",
++    ),
++  scoreComponents: zod.array(
++    zod.object({
++      key: zod.string(),
++      label: zod.string(),
++      contribution: zod
++        .number()
++        .describe("Signed points applied to the 50-neutral baseline"),
++      detail: zod.string(),
++    }),
++  ),
++  notes: zod.array(zod.string()),
++});
++
+ /**
+  * @summary Get spot price and earnings flag for a ticker
+  */
+diff --git a/lib/api-zod/src/generated/types/index.ts b/lib/api-zod/src/generated/types/index.ts
+index ca02b6a..3fe4536 100644
+--- a/lib/api-zod/src/generated/types/index.ts
++++ b/lib/api-zod/src/generated/types/index.ts
+@@ -96,6 +96,13 @@ export * from "./qaSendMessageInput";
+ export * from "./qaSendMessageResult";
+ export * from "./qaUnavailable";
+ export * from "./qaUnavailableCode";
++export * from "./quiverAmountSummary";
++export * from "./quiverCongressSummary";
++export * from "./quiverCongressTrade";
++export * from "./quiverCongressTradeTransaction";
++export * from "./quiverInsiderSummary";
++export * from "./quiverScoreComponent";
++export * from "./quiverSignals";
+ export * from "./quote";
+ export * from "./renameQaConversation404";
+ export * from "./rollChain";
+diff --git a/lib/api-zod/src/generated/types/quiverAmountSummary.ts b/lib/api-zod/src/generated/types/quiverAmountSummary.ts
+new file mode 100644
+index 0000000..fc202dd
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/quiverAmountSummary.ts
+@@ -0,0 +1,14 @@
++/**
++ * Generated by orval v8.5.3 🍺
++ * Do not edit manually.
++ * Api
++ * Wheel Strategy Dashboard API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface QuiverAmountSummary {
++  count: number;
++  totalAmount: number;
++  /** @nullable */
++  lastDate?: string | null;
++}
+diff --git a/lib/api-zod/src/generated/types/quiverCongressSummary.ts b/lib/api-zod/src/generated/types/quiverCongressSummary.ts
+new file mode 100644
+index 0000000..1eafd00
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/quiverCongressSummary.ts
+@@ -0,0 +1,18 @@
++/**
++ * Generated by orval v8.5.3 🍺
++ * Do not edit manually.
++ * Api
++ * Wheel Strategy Dashboard API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { QuiverCongressTrade } from "./quiverCongressTrade";
++
++export interface QuiverCongressSummary {
++  buys: number;
++  sells: number;
++  /** @nullable */
++  lastTradeDate?: string | null;
++  /** @nullable */
++  medianLagDays?: number | null;
++  recent: QuiverCongressTrade[];
++}
+diff --git a/lib/api-zod/src/generated/types/quiverCongressTrade.ts b/lib/api-zod/src/generated/types/quiverCongressTrade.ts
+new file mode 100644
+index 0000000..57b24b3
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/quiverCongressTrade.ts
+@@ -0,0 +1,37 @@
++/**
++ * Generated by orval v8.5.3 🍺
++ * Do not edit manually.
++ * Api
++ * Wheel Strategy Dashboard API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { QuiverCongressTradeTransaction } from "./quiverCongressTradeTransaction";
++
++export interface QuiverCongressTrade {
++  name: string;
++  /** @nullable */
++  chamber?: string | null;
++  /** @nullable */
++  party?: string | null;
++  transaction: QuiverCongressTradeTransaction;
++  /**
++   * Disclosed dollar range, e.g. "$1,001 - $15,000"
++   * @nullable
++   */
++  amountRange?: string | null;
++  /**
++   * ISO date the trade occurred
++   * @nullable
++   */
++  tradeDate?: string | null;
++  /**
++   * ISO date the trade was publicly disclosed
++   * @nullable
++   */
++  disclosedDate?: string | null;
++  /**
++   * Days between trade and public disclosure
++   * @nullable
++   */
++  lagDays?: number | null;
++}
+diff --git a/lib/api-zod/src/generated/types/quiverCongressTradeTransaction.ts b/lib/api-zod/src/generated/types/quiverCongressTradeTransaction.ts
+new file mode 100644
+index 0000000..5e859a8
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/quiverCongressTradeTransaction.ts
+@@ -0,0 +1,15 @@
++/**
++ * Generated by orval v8.5.3 🍺
++ * Do not edit manually.
++ * Api
++ * Wheel Strategy Dashboard API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type QuiverCongressTradeTransaction =
++  (typeof QuiverCongressTradeTransaction)[keyof typeof QuiverCongressTradeTransaction];
++
++export const QuiverCongressTradeTransaction = {
++  buy: "buy",
++  sell: "sell",
++} as const;
+diff --git a/lib/api-zod/src/generated/types/quiverInsiderSummary.ts b/lib/api-zod/src/generated/types/quiverInsiderSummary.ts
+new file mode 100644
+index 0000000..d160980
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/quiverInsiderSummary.ts
+@@ -0,0 +1,16 @@
++/**
++ * Generated by orval v8.5.3 🍺
++ * Do not edit manually.
++ * Api
++ * Wheel Strategy Dashboard API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface QuiverInsiderSummary {
++  buys: number;
++  sells: number;
++  boughtValue: number;
++  soldValue: number;
++  /** @nullable */
++  lastActivityDate?: string | null;
++}
+diff --git a/lib/api-zod/src/generated/types/quiverScoreComponent.ts b/lib/api-zod/src/generated/types/quiverScoreComponent.ts
+new file mode 100644
+index 0000000..ee5cac6
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/quiverScoreComponent.ts
+@@ -0,0 +1,15 @@
++/**
++ * Generated by orval v8.5.3 🍺
++ * Do not edit manually.
++ * Api
++ * Wheel Strategy Dashboard API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface QuiverScoreComponent {
++  key: string;
++  label: string;
++  /** Signed points applied to the 50-neutral baseline */
++  contribution: number;
++  detail: string;
++}
+diff --git a/lib/api-zod/src/generated/types/quiverSignals.ts b/lib/api-zod/src/generated/types/quiverSignals.ts
+new file mode 100644
+index 0000000..ece9cb9
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/quiverSignals.ts
+@@ -0,0 +1,31 @@
++/**
++ * Generated by orval v8.5.3 🍺
++ * Do not edit manually.
++ * Api
++ * Wheel Strategy Dashboard API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { QuiverAmountSummary } from "./quiverAmountSummary";
++import type { QuiverCongressSummary } from "./quiverCongressSummary";
++import type { QuiverInsiderSummary } from "./quiverInsiderSummary";
++import type { QuiverScoreComponent } from "./quiverScoreComponent";
++
++export interface QuiverSignals {
++  ticker: string;
++  /** False when the server has no QUIVER_API_KEY; all sections are null. */
++  configured: boolean;
++  /** @nullable */
++  fetchedAt?: string | null;
++  windowDays: number;
++  congress?: QuiverCongressSummary | null;
++  insiders?: QuiverInsiderSummary | null;
++  govContracts?: QuiverAmountSummary | null;
++  lobbying?: QuiverAmountSummary | null;
++  /**
++   * 0..100 activity tilt, 50 = neutral. Null when no dataset loaded.
++   * @nullable
++   */
++  score?: number | null;
++  scoreComponents: QuiverScoreComponent[];
++  notes: string[];
++}
+diff --git a/replit.md b/replit.md
+index 936fbd8..4192648 100644
+--- a/replit.md
++++ b/replit.md
+@@ -11,6 +11,7 @@ A full-stack options wheel strategy screener and portfolio tracker. Users sign i
+ - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
+ - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
+ - Required env: `DATABASE_URL`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `VITE_CLERK_PUBLISHABLE_KEY`
++- Optional env: `QUIVER_API_KEY` (enables the Quiver alt-data signals in the candidate drawer; feature is hidden when unset), `MARKET_PROVIDER=polygon` + `POLYGON_API_KEY` (live quotes)
+ 
+ ## Stack
+ 

@@ -62,6 +62,7 @@ import type {
   QaSendMessageInput,
   QaSendMessageResult,
   QaUnavailable,
+  QuiverSignals,
   Quote,
   RenameQaConversation404,
   RollPositionInput,
@@ -1360,6 +1361,102 @@ export function useGetIvHistory<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetIvHistoryQueryOptions(ticker, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Aggregated congressional-trading, insider, government-contract, and
+lobbying activity for the ticker over a trailing window, with a
+transparent composite activity score. When the server has no
+QUIVER_API_KEY configured, returns `configured: false` with all
+sections null so clients can hide the feature. Congressional trades
+are disclosed up to 45 days late (STOCK Act); each surfaced trade
+carries its disclosure lag.
+
+ * @summary Alternative-data signals for a ticker (Quiver Quantitative)
+ */
+export const getGetQuiverSignalsUrl = (ticker: string) => {
+  return `/api/quiver/${ticker}`;
+};
+
+export const getQuiverSignals = async (
+  ticker: string,
+  options?: RequestInit,
+): Promise<QuiverSignals> => {
+  return customFetch<QuiverSignals>(getGetQuiverSignalsUrl(ticker), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetQuiverSignalsQueryKey = (ticker: string) => {
+  return [`/api/quiver/${ticker}`] as const;
+};
+
+export const getGetQuiverSignalsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getQuiverSignals>>,
+  TError = ErrorType<unknown>,
+>(
+  ticker: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getQuiverSignals>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetQuiverSignalsQueryKey(ticker);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getQuiverSignals>>
+  > = ({ signal }) => getQuiverSignals(ticker, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!ticker,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getQuiverSignals>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetQuiverSignalsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getQuiverSignals>>
+>;
+export type GetQuiverSignalsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Alternative-data signals for a ticker (Quiver Quantitative)
+ */
+
+export function useGetQuiverSignals<
+  TData = Awaited<ReturnType<typeof getQuiverSignals>>,
+  TError = ErrorType<unknown>,
+>(
+  ticker: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getQuiverSignals>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetQuiverSignalsQueryOptions(ticker, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

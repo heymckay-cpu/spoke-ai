@@ -774,6 +774,116 @@ export const GetIvHistoryResponse = zod.object({
 });
 
 /**
+ * Aggregated congressional-trading, insider, government-contract, and
+lobbying activity for the ticker over a trailing window, with a
+transparent composite activity score. When the server has no
+QUIVER_API_KEY configured, returns `configured: false` with all
+sections null so clients can hide the feature. Congressional trades
+are disclosed up to 45 days late (STOCK Act); each surfaced trade
+carries its disclosure lag.
+
+ * @summary Alternative-data signals for a ticker (Quiver Quantitative)
+ */
+export const GetQuiverSignalsParams = zod.object({
+  ticker: zod.coerce.string(),
+});
+
+export const GetQuiverSignalsResponse = zod.object({
+  ticker: zod.string(),
+  configured: zod
+    .boolean()
+    .describe(
+      "False when the server has no QUIVER_API_KEY; all sections are null.",
+    ),
+  fetchedAt: zod.string().nullish(),
+  windowDays: zod.number(),
+  congress: zod
+    .union([
+      zod.object({
+        buys: zod.number(),
+        sells: zod.number(),
+        lastTradeDate: zod.string().nullish(),
+        medianLagDays: zod.number().nullish(),
+        recent: zod.array(
+          zod.object({
+            name: zod.string(),
+            chamber: zod.string().nullish(),
+            party: zod.string().nullish(),
+            transaction: zod.enum(["buy", "sell"]),
+            amountRange: zod
+              .string()
+              .nullish()
+              .describe('Disclosed dollar range, e.g. \"$1,001 - $15,000\"'),
+            tradeDate: zod
+              .string()
+              .nullish()
+              .describe("ISO date the trade occurred"),
+            disclosedDate: zod
+              .string()
+              .nullish()
+              .describe("ISO date the trade was publicly disclosed"),
+            lagDays: zod
+              .number()
+              .nullish()
+              .describe("Days between trade and public disclosure"),
+          }),
+        ),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  insiders: zod
+    .union([
+      zod.object({
+        buys: zod.number(),
+        sells: zod.number(),
+        boughtValue: zod.number(),
+        soldValue: zod.number(),
+        lastActivityDate: zod.string().nullish(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  govContracts: zod
+    .union([
+      zod.object({
+        count: zod.number(),
+        totalAmount: zod.number(),
+        lastDate: zod.string().nullish(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  lobbying: zod
+    .union([
+      zod.object({
+        count: zod.number(),
+        totalAmount: zod.number(),
+        lastDate: zod.string().nullish(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  score: zod
+    .number()
+    .nullish()
+    .describe(
+      "0..100 activity tilt, 50 = neutral. Null when no dataset loaded.",
+    ),
+  scoreComponents: zod.array(
+    zod.object({
+      key: zod.string(),
+      label: zod.string(),
+      contribution: zod
+        .number()
+        .describe("Signed points applied to the 50-neutral baseline"),
+      detail: zod.string(),
+    }),
+  ),
+  notes: zod.array(zod.string()),
+});
+
+/**
  * @summary Get spot price and earnings flag for a ticker
  */
 export const GetQuoteParams = zod.object({

@@ -11,6 +11,7 @@ import ivHistoryRouter from "./ivHistory";
 import tierRouter from "./tier";
 import qaRouter from "./qa";
 import sectorsRouter from "./sectors";
+import quiverRouter from "./quiver";
 import { requireUser } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -32,5 +33,6 @@ router.use(ivHistoryRouter);
 router.use(tierRouter);
 router.use(qaRouter);
 router.use(sectorsRouter);
+router.use(quiverRouter);
 
 export default router;

@@ -28,6 +28,8 @@ tags:
     description: Natural-language portfolio Q&A
   - name: sectors
     description: Provider-resolved ticker → sector lookup
+  - name: quiver
+    description: Quiver Quantitative alternative-data signals
   - name: Auth
     description: Browser and mobile authentication endpoints.
 paths:
@@ -319,6 +321,32 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/IvHistory"
+
+  /quiver/{ticker}:
+    get:
+      operationId: getQuiverSignals
+      tags: [quiver]
+      summary: Alternative-data signals for a ticker (Quiver Quantitative)
+      description: |
+        Aggregated congressional-trading, insider, government-contract, and
+        lobbying activity for the ticker over a trailing window, with a
+        transparent composite activity score. When the server has no
+        QUIVER_API_KEY configured, returns `configured: false` with all
+        sections null so clients can hide the feature. Congressional trades
+        are disclosed up to 45 days late (STOCK Act); each surfaced trade
+        carries its disclosure lag.
+      parameters:
+        - in: path
+          name: ticker
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Quiver signals
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuiverSignals"
 
   /quote/{ticker}:
     get:
@@ -2009,6 +2037,96 @@ components:
         cached:
           type: boolean
           description: True when the response was served from the cache without re-calling the model.
+
+    QuiverCongressTrade:
+      type: object
+      required: [name, transaction]
+      properties:
+        name: { type: string }
+        chamber: { type: ["string", "null"] }
+        party: { type: ["string", "null"] }
+        transaction:
+          type: string
+          enum: [buy, sell]
+        amountRange: { type: ["string", "null"], description: "Disclosed dollar range, e.g. \"$1,001 - $15,000\"" }
+        tradeDate: { type: ["string", "null"], description: "ISO date the trade occurred" }
+        disclosedDate: { type: ["string", "null"], description: "ISO date the trade was publicly disclosed" }
+        lagDays: { type: ["integer", "null"], description: "Days between trade and public disclosure" }
+
+    QuiverCongressSummary:
+      type: object
+      required: [buys, sells, recent]
+      properties:
+        buys: { type: integer }
+        sells: { type: integer }
+        lastTradeDate: { type: ["string", "null"] }
+        medianLagDays: { type: ["integer", "null"] }
+        recent:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuiverCongressTrade"
+
+    QuiverInsiderSummary:
+      type: object
+      required: [buys, sells, boughtValue, soldValue]
+      properties:
+        buys: { type: integer }
+        sells: { type: integer }
+        boughtValue: { type: number }
+        soldValue: { type: number }
+        lastActivityDate: { type: ["string", "null"] }
+
+    QuiverAmountSummary:
+      type: object
+      required: [count, totalAmount]
+      properties:
+        count: { type: integer }
+        totalAmount: { type: number }
+        lastDate: { type: ["string", "null"] }
+
+    QuiverScoreComponent:
+      type: object
+      required: [key, label, contribution, detail]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        contribution: { type: number, description: "Signed points applied to the 50-neutral baseline" }
+        detail: { type: string }
+
+    QuiverSignals:
+      type: object
+      required: [ticker, configured, windowDays, scoreComponents, notes]
+      properties:
+        ticker: { type: string }
+        configured:
+          type: boolean
+          description: "False when the server has no QUIVER_API_KEY; all sections are null."
+        fetchedAt: { type: ["string", "null"] }
+        windowDays: { type: integer }
+        congress:
+          oneOf:
+            - $ref: "#/components/schemas/QuiverCongressSummary"
+            - type: "null"
+        insiders:
+          oneOf:
+            - $ref: "#/components/schemas/QuiverInsiderSummary"
+            - type: "null"
+        govContracts:
+          oneOf:
+            - $ref: "#/components/schemas/QuiverAmountSummary"
+            - type: "null"
+        lobbying:
+          oneOf:
+            - $ref: "#/components/schemas/QuiverAmountSummary"
+            - type: "null"
+        score: { type: ["number", "null"], description: "0..100 activity tilt, 50 = neutral. Null when no dataset loaded." }
+        scoreComponents:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuiverScoreComponent"
+        notes:
+          type: array
+          items: { type: string }
 
     CallScanResult:
       type: object

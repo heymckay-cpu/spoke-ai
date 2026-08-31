@@ -37,6 +37,7 @@ import { Separator } from "@/components/ui/separator";
 import { SpokeSpinner } from "@/components/spoke-spinner";
 import { IvRankPill } from "@/components/iv-rank-pill";
 import { IvHistorySparkline } from "@/components/iv-history-sparkline";
+import { QuiverSignalsCard } from "@/components/quiver-signals-card";
 import { EarningsFlag } from "@/components/earnings-flag";
 import { AddPositionDialog } from "@/components/add-position-dialog";
 import { RollPositionDialog } from "@/components/roll-position-dialog";
@@ -672,6 +673,9 @@ export function CandidateDetailDrawer({
               )}
               <IvHistorySparkline ticker={candidate.ticker} />
             </div>
+
+            {/* Quiver alternative-data signals (hidden when not configured). */}
+            <QuiverSignalsCard ticker={candidate.ticker} />
 
             {/* Risk callouts */}
             {(candidate.earningsInWindow || (candidate.ivRank != null && candidate.ivRank > 0.7)) && (
