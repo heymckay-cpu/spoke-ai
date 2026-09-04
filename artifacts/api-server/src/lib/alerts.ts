@@ -56,7 +56,11 @@ async function runScan(userId: string): Promise<AlertScanResult> {
       logger.debug({ err, ticker: row.ticker }, "alert scan: getSpot failed");
     }
 
-    const isItm = spot != null && spot < row.strike;
+    // ITM direction depends on the leg type: a short put is threatened when
+    // spot falls below strike, a covered call when spot rises above it.
+    const isCc = (row.kind ?? "csp") === "cc";
+    const isItm =
+      spot != null && (isCc ? spot > row.strike : spot < row.strike);
     if (isItm) {
       const claimed = await db
         .update(positionsTable)
@@ -70,10 +74,13 @@ async function runScan(userId: string): Promise<AlertScanResult> {
         )
         .returning({ id: positionsTable.id });
       if (claimed.length > 0) {
-        const message =
-          `${row.ticker} ${row.strike}P ${row.expiry} is in the money ` +
-          `(spot ${spot!.toFixed(2)} < strike ${row.strike.toFixed(2)}). ` +
-          `Consider rolling or closing.`;
+        const message = isCc
+          ? `${row.ticker} ${row.strike}C ${row.expiry} is in the money ` +
+            `(spot ${spot!.toFixed(2)} > strike ${row.strike.toFixed(2)}). ` +
+            `Shares may be called away — roll the call or let it happen.`
+          : `${row.ticker} ${row.strike}P ${row.expiry} is in the money ` +
+            `(spot ${spot!.toFixed(2)} < strike ${row.strike.toFixed(2)}). ` +
+            `Consider rolling or closing.`;
         await db.insert(notificationsTable).values({
           userId,
           positionId: row.id,

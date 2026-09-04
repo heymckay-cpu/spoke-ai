@@ -8,6 +8,10 @@ import {
   getListHoldingsQueryKey,
   useGetSettings,
   getGetSettingsQueryKey,
+  useCreateJournalEntry,
+  getListJournalQueryKey,
+  useGetQuiverSignals,
+  getGetQuiverSignalsQueryKey,
 } from "@workspace/api-client-react";
 import type { Candidate, Holding, Position } from "@workspace/api-client-react";
 import { DEFAULT_CONCENTRATION } from "@workspace/portfolio";
@@ -51,6 +55,7 @@ import {
   fmtPct,
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 
 type Tone = "success" | "warning" | "default" | "muted" | "danger";
 
@@ -300,6 +305,58 @@ export function CandidateDetailDrawer({
 
   const invalidatePositions = () => {
     qc.invalidateQueries({ queryKey: getListPositionsQueryKey() });
+  };
+
+  // Journal wiring: both decisions on a candidate are recorded, so passed
+  // recommendations become the control group for the forward test.
+  const { toast } = useToast();
+  const createJournalEntry = useCreateJournalEntry();
+  // Shares the query cache with QuiverSignalsCard below; no extra fetch.
+  const quiverQuery = useGetQuiverSignals(candidate?.ticker ?? "", {
+    query: {
+      // Canonical key so the cache is shared with QuiverSignalsCard below.
+      queryKey: getGetQuiverSignalsQueryKey(candidate?.ticker ?? ""),
+      enabled: candidate != null,
+    },
+  });
+
+  const logDecision = (decision: "taken" | "passed", positionId?: number) => {
+    if (!candidate) return;
+    createJournalEntry.mutate(
+      {
+        data: {
+          decision,
+          ticker: candidate.ticker,
+          strike: candidate.strike,
+          expiry: candidate.expiry,
+          bid: candidate.bid,
+          annualizedPct: candidate.annualizedPct,
+          delta: candidate.delta,
+          ivRank: candidate.ivRank ?? null,
+          quiverScore: quiverQuery.data?.score ?? null,
+          snapshot: candidate as unknown as Record<string, unknown>,
+          positionId: positionId ?? null,
+        },
+      },
+      {
+        onSuccess: () => {
+          qc.invalidateQueries({ queryKey: getListJournalQueryKey() });
+          if (decision === "passed") {
+            toast({
+              title: "Logged as passed",
+              description: `${candidate.ticker} ${fmtMoney(candidate.strike)}P ${candidate.expiry} recorded in your journal as skipped.`,
+            });
+            onClose();
+          }
+        },
+        onError: () => {
+          // Journal logging is best-effort; never block the trade flow on it.
+          if (decision === "passed") {
+            toast({ variant: "destructive", title: "Failed to record pass" });
+          }
+        },
+      },
+    );
   };
 
   return (
@@ -710,6 +767,15 @@ export function CandidateDetailDrawer({
               <Button asChild variant="outline" onClick={onClose}>
                 <Link href={`/dashboard/chain/${candidate.ticker}`}>View chain</Link>
               </Button>
+              <Button
+                variant="ghost"
+                onClick={() => logDecision("passed")}
+                disabled={createJournalEntry.isPending}
+                data-testid="button-pass-from-drawer"
+                title="Record that you deliberately skipped this recommendation — passed trades are your journal's control group"
+              >
+                Pass
+              </Button>
               <AddPositionDialog
                 defaultExpiry={candidate.expiry}
                 initialValues={{
@@ -719,7 +785,8 @@ export function CandidateDetailDrawer({
                   premium: candidate.bid,
                   contracts: 1,
                 }}
-                onCreated={() => {
+                onCreated={(created) => {
+                  logDecision("taken", created?.id);
                   invalidatePositions();
                   onClose();
                 }}

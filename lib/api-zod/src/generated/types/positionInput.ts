@@ -5,6 +5,7 @@
  * Wheel Strategy Dashboard API
  * OpenAPI spec version: 0.1.0
  */
+import type { PositionInputKind } from "./positionInputKind";
 
 export interface PositionInput {
   /** @minLength 1 */
@@ -20,6 +21,13 @@ export interface PositionInput {
   premium: number;
   /** @minimum 1 */
   contracts: number;
+  /** Wheel leg type. Defaults to csp (cash-secured put); cc = covered call written against a holding. */
+  kind?: PositionInputKind;
+  /**
+   * For covered calls: the holding the call is written against. Required when kind = cc.
+   * @nullable
+   */
+  holdingId?: number | null;
   /** @nullable */
   notes?: string | null;
   /**

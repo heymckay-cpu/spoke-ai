@@ -380,6 +380,17 @@ export interface Chain {
   staleIv: boolean;
 }
 
+/**
+ * Wheel leg type. Defaults to csp (cash-secured put); cc = covered call written against a holding.
+ */
+export type PositionInputKind =
+  (typeof PositionInputKind)[keyof typeof PositionInputKind];
+
+export const PositionInputKind = {
+  csp: "csp",
+  cc: "cc",
+} as const;
+
 export interface PositionInput {
   /** @minLength 1 */
   ticker: string;
@@ -394,6 +405,13 @@ export interface PositionInput {
   premium: number;
   /** @minimum 1 */
   contracts: number;
+  /** Wheel leg type. Defaults to csp (cash-secured put); cc = covered call written against a holding. */
+  kind?: PositionInputKind;
+  /**
+   * For covered calls: the holding the call is written against. Required when kind = cc.
+   * @nullable
+   */
+  holdingId?: number | null;
   /** @nullable */
   notes?: string | null;
   /**
@@ -436,6 +454,16 @@ export interface RollPositionInput {
   notes?: string | null;
 }
 
+/**
+ * Wheel leg type: cash-secured put or covered call.
+ */
+export type PositionKind = (typeof PositionKind)[keyof typeof PositionKind];
+
+export const PositionKind = {
+  csp: "csp",
+  cc: "cc",
+} as const;
+
 export type PositionStatus =
   (typeof PositionStatus)[keyof typeof PositionStatus];
 
@@ -473,6 +501,18 @@ export interface Position {
   expiry: string;
   premium: number;
   contracts: number;
+  /** Wheel leg type: cash-secured put or covered call. */
+  kind: PositionKind;
+  /**
+   * How a closed position ended: closed | expired | assigned | called_away. Null while open, and for rows closed before outcomes were tracked.
+   * @nullable
+   */
+  outcome?: string | null;
+  /**
+   * For covered calls: the holding the call is written against.
+   * @nullable
+   */
+  holdingId?: number | null;
   openedAt: string;
   /** @nullable */
   closedAt?: string | null;
@@ -1002,6 +1042,180 @@ export interface CandidateExplanation {
   cached?: boolean;
 }
 
+export interface AssignPositionInput {
+  /**
+   * Optional note recorded on the created holding.
+   * @nullable
+   */
+  notes?: string | null;
+}
+
+export interface Holding {
+  id: number;
+  ticker: string;
+  shares: number;
+  avgCost: number;
+  openedAt: string;
+  /** @nullable */
+  notes?: string | null;
+  /**
+   * Current underlying price
+   * @nullable
+   */
+  spot?: number | null;
+  /**
+   * spot * shares
+   * @nullable
+   */
+  marketValue?: number | null;
+  /**
+   * (spot - avgCost) * shares
+   * @nullable
+   */
+  unrealizedPnl?: number | null;
+  /**
+   * Unrealized P/L as a fraction of cost basis
+   * @nullable
+   */
+  unrealizedPnlPct?: number | null;
+}
+
+export interface AssignPositionResult {
+  position: Position;
+  holding: Holding;
+  /** strike − net premium per share collected across the roll chain */
+  costBasisPerShare: number;
+}
+
+export interface CalledAwayResult {
+  position: Position;
+  /** The reduced holding, or null when all shares were called away. */
+  holding?: Holding | null;
+  sharesSold: number;
+  /** strike × shares sold */
+  saleProceeds: number;
+  /** (strike − avgCost) × shares sold */
+  stockPnl: number;
+}
+
+export type JournalEntryInputDecision =
+  (typeof JournalEntryInputDecision)[keyof typeof JournalEntryInputDecision];
+
+export const JournalEntryInputDecision = {
+  taken: "taken",
+  passed: "passed",
+} as const;
+
+/**
+ * The full candidate row, frozen at decision time.
+ */
+export type JournalEntryInputSnapshot = { [key: string]: unknown };
+
+export interface JournalEntryInput {
+  decision: JournalEntryInputDecision;
+  /** @minLength 1 */
+  ticker: string;
+  /** @exclusiveMinimum 0 */
+  strike: number;
+  /** ISO date YYYY-MM-DD */
+  expiry: string;
+  /**
+   * Premium per share at decision time
+   * @minimum 0
+   */
+  bid: number;
+  /** @nullable */
+  annualizedPct?: number | null;
+  /** @nullable */
+  delta?: number | null;
+  /** @nullable */
+  ivRank?: number | null;
+  /** @nullable */
+  quiverScore?: number | null;
+  /** The full candidate row, frozen at decision time. */
+  snapshot: JournalEntryInputSnapshot;
+  /**
+   * The opened position, when decision = taken.
+   * @nullable
+   */
+  positionId?: number | null;
+  /** @nullable */
+  notes?: string | null;
+}
+
+/**
+ * @nullable
+ */
+export type JournalEntryUpdateDecision =
+  | (typeof JournalEntryUpdateDecision)[keyof typeof JournalEntryUpdateDecision]
+  | null;
+
+export const JournalEntryUpdateDecision = {
+  taken: "taken",
+  passed: "passed",
+} as const;
+
+export interface JournalEntryUpdate {
+  /** @nullable */
+  decision?: JournalEntryUpdateDecision;
+  /** @nullable */
+  positionId?: number | null;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export type JournalEntryDecision =
+  (typeof JournalEntryDecision)[keyof typeof JournalEntryDecision];
+
+export const JournalEntryDecision = {
+  taken: "taken",
+  passed: "passed",
+} as const;
+
+export type JournalEntrySnapshot = { [key: string]: unknown };
+
+export interface JournalEntry {
+  id: number;
+  decision: JournalEntryDecision;
+  ticker: string;
+  strike: number;
+  expiry: string;
+  bid: number;
+  /** @nullable */
+  annualizedPct?: number | null;
+  /** @nullable */
+  delta?: number | null;
+  /** @nullable */
+  ivRank?: number | null;
+  /** @nullable */
+  quiverScore?: number | null;
+  snapshot?: JournalEntrySnapshot;
+  /** @nullable */
+  positionId?: number | null;
+  decidedAt: string;
+  /** @nullable */
+  notes?: string | null;
+  /** @nullable */
+  evaluatedAt?: string | null;
+  /**
+   * Per-contract P/L the recommendation produced (or would have), once evaluated after expiry.
+   * @nullable
+   */
+  outcomePnl?: number | null;
+  /** @nullable */
+  outcomeNote?: string | null;
+}
+
+export type JournalListStats = {
+  taken: number;
+  passed: number;
+};
+
+export interface JournalList {
+  entries: JournalEntry[];
+  stats: JournalListStats;
+}
+
 export type QuiverCongressTradeTransaction =
   (typeof QuiverCongressTradeTransaction)[keyof typeof QuiverCongressTradeTransaction];
 
@@ -1128,36 +1342,6 @@ export interface HoldingUpdate {
   avgCost?: number | null;
   /** @nullable */
   notes?: string | null;
-}
-
-export interface Holding {
-  id: number;
-  ticker: string;
-  shares: number;
-  avgCost: number;
-  openedAt: string;
-  /** @nullable */
-  notes?: string | null;
-  /**
-   * Current underlying price
-   * @nullable
-   */
-  spot?: number | null;
-  /**
-   * spot * shares
-   * @nullable
-   */
-  marketValue?: number | null;
-  /**
-   * (spot - avgCost) * shares
-   * @nullable
-   */
-  unrealizedPnl?: number | null;
-  /**
-   * Unrealized P/L as a fraction of cost basis
-   * @nullable
-   */
-  unrealizedPnlPct?: number | null;
 }
 
 export type HoldingsListTotals = {
@@ -1498,6 +1682,18 @@ export type GetRollQuote404 = {
 export type GetPositionAdvisor404 = {
   error: string;
 };
+
+export type ListJournalParams = {
+  decision?: ListJournalDecision;
+};
+
+export type ListJournalDecision =
+  (typeof ListJournalDecision)[keyof typeof ListJournalDecision];
+
+export const ListJournalDecision = {
+  taken: "taken",
+  passed: "passed",
+} as const;
 
 export type ListQaConversationsParams = {
   /**

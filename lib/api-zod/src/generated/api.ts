@@ -995,6 +995,21 @@ export const ListPositionsResponse = zod.object({
       expiry: zod.string(),
       premium: zod.number(),
       contracts: zod.number(),
+      kind: zod
+        .enum(["csp", "cc"])
+        .describe("Wheel leg type: cash-secured put or covered call."),
+      outcome: zod
+        .string()
+        .nullish()
+        .describe(
+          "How a closed position ended: closed | expired | assigned | called_away. Null while open, and for rows closed before outcomes were tracked.",
+        ),
+      holdingId: zod
+        .number()
+        .nullish()
+        .describe(
+          "For covered calls: the holding the call is written against.",
+        ),
       openedAt: zod.string(),
       closedAt: zod.string().nullish(),
       closePrice: zod.number().nullish(),
@@ -1085,6 +1100,18 @@ export const CreatePositionBody = zod.object({
     .min(createPositionBodyPremiumMin)
     .describe("Premium received per share"),
   contracts: zod.number().min(1),
+  kind: zod
+    .enum(["csp", "cc"])
+    .optional()
+    .describe(
+      "Wheel leg type. Defaults to csp (cash-secured put); cc = covered call written against a holding.",
+    ),
+  holdingId: zod
+    .number()
+    .nullish()
+    .describe(
+      "For covered calls: the holding the call is written against. Required when kind = cc.",
+    ),
   notes: zod.string().nullish(),
   rolledFromId: zod
     .number()
@@ -1101,6 +1128,19 @@ export const CreatePositionResponse = zod.object({
   expiry: zod.string(),
   premium: zod.number(),
   contracts: zod.number(),
+  kind: zod
+    .enum(["csp", "cc"])
+    .describe("Wheel leg type: cash-secured put or covered call."),
+  outcome: zod
+    .string()
+    .nullish()
+    .describe(
+      "How a closed position ended: closed | expired | assigned | called_away. Null while open, and for rows closed before outcomes were tracked.",
+    ),
+  holdingId: zod
+    .number()
+    .nullish()
+    .describe("For covered calls: the holding the call is written against."),
   openedAt: zod.string(),
   closedAt: zod.string().nullish(),
   closePrice: zod.number().nullish(),
@@ -1301,6 +1341,19 @@ export const UpdatePositionResponse = zod.object({
   expiry: zod.string(),
   premium: zod.number(),
   contracts: zod.number(),
+  kind: zod
+    .enum(["csp", "cc"])
+    .describe("Wheel leg type: cash-secured put or covered call."),
+  outcome: zod
+    .string()
+    .nullish()
+    .describe(
+      "How a closed position ended: closed | expired | assigned | called_away. Null while open, and for rows closed before outcomes were tracked.",
+    ),
+  holdingId: zod
+    .number()
+    .nullish()
+    .describe("For covered calls: the holding the call is written against."),
   openedAt: zod.string(),
   closedAt: zod.string().nullish(),
   closePrice: zod.number().nullish(),
@@ -1528,6 +1581,19 @@ export const RollPositionResponse = zod.object({
     expiry: zod.string(),
     premium: zod.number(),
     contracts: zod.number(),
+    kind: zod
+      .enum(["csp", "cc"])
+      .describe("Wheel leg type: cash-secured put or covered call."),
+    outcome: zod
+      .string()
+      .nullish()
+      .describe(
+        "How a closed position ended: closed | expired | assigned | called_away. Null while open, and for rows closed before outcomes were tracked.",
+      ),
+    holdingId: zod
+      .number()
+      .nullish()
+      .describe("For covered calls: the holding the call is written against."),
     openedAt: zod.string(),
     closedAt: zod.string().nullish(),
     closePrice: zod.number().nullish(),
@@ -1591,6 +1657,19 @@ export const RollPositionResponse = zod.object({
     expiry: zod.string(),
     premium: zod.number(),
     contracts: zod.number(),
+    kind: zod
+      .enum(["csp", "cc"])
+      .describe("Wheel leg type: cash-secured put or covered call."),
+    outcome: zod
+      .string()
+      .nullish()
+      .describe(
+        "How a closed position ended: closed | expired | assigned | called_away. Null while open, and for rows closed before outcomes were tracked.",
+      ),
+    holdingId: zod
+      .number()
+      .nullish()
+      .describe("For covered calls: the holding the call is written against."),
     openedAt: zod.string(),
     closedAt: zod.string().nullish(),
     closePrice: zod.number().nullish(),
@@ -1682,6 +1761,19 @@ export const UndoRollResponse = zod.object({
     expiry: zod.string(),
     premium: zod.number(),
     contracts: zod.number(),
+    kind: zod
+      .enum(["csp", "cc"])
+      .describe("Wheel leg type: cash-secured put or covered call."),
+    outcome: zod
+      .string()
+      .nullish()
+      .describe(
+        "How a closed position ended: closed | expired | assigned | called_away. Null while open, and for rows closed before outcomes were tracked.",
+      ),
+    holdingId: zod
+      .number()
+      .nullish()
+      .describe("For covered calls: the holding the call is written against."),
     openedAt: zod.string(),
     closedAt: zod.string().nullish(),
     closePrice: zod.number().nullish(),
@@ -1983,6 +2075,396 @@ export const GetPositionAdvisorResponse = zod.object({
   generatedAt: zod
     .string()
     .describe("ISO timestamp when this response was assembled."),
+});
+
+/**
+ * Closes the put with outcome `assigned` (full premium kept, no
+buyback) and creates a stock holding of 100 × contracts shares at
+the chain-aware net cost basis: strike minus all net premium per
+share collected across the roll chain. This is the wheel's
+CSP → shares transition.
+
+ * @summary Mark an open cash-secured put as assigned
+ */
+export const AssignPositionParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const AssignPositionBody = zod.object({
+  notes: zod
+    .string()
+    .nullish()
+    .describe("Optional note recorded on the created holding."),
+});
+
+export const AssignPositionResponse = zod.object({
+  position: zod.object({
+    id: zod.number(),
+    ticker: zod.string(),
+    strike: zod.number(),
+    expiry: zod.string(),
+    premium: zod.number(),
+    contracts: zod.number(),
+    kind: zod
+      .enum(["csp", "cc"])
+      .describe("Wheel leg type: cash-secured put or covered call."),
+    outcome: zod
+      .string()
+      .nullish()
+      .describe(
+        "How a closed position ended: closed | expired | assigned | called_away. Null while open, and for rows closed before outcomes were tracked.",
+      ),
+    holdingId: zod
+      .number()
+      .nullish()
+      .describe("For covered calls: the holding the call is written against."),
+    openedAt: zod.string(),
+    closedAt: zod.string().nullish(),
+    closePrice: zod.number().nullish(),
+    notes: zod.string().nullish(),
+    status: zod.enum(["open", "closed"]),
+    dte: zod.number().describe("Days to expiration (negative when expired)"),
+    spot: zod.number().nullish().describe("Current underlying price"),
+    currentBid: zod
+      .number()
+      .nullish()
+      .describe("Current put bid at this strike for this expiry"),
+    unrealizedPnl: zod
+      .number()
+      .nullish()
+      .describe(
+        "(premium - currentBid) \* 100 \* contracts; null when bid unavailable",
+      ),
+    realizedPnl: zod
+      .number()
+      .nullish()
+      .describe("(premium - closePrice) \* 100 \* contracts; null when open"),
+    assignmentRisk: zod
+      .boolean()
+      .optional()
+      .describe("Open position where spot has fallen below strike"),
+    expiringSoon: zod
+      .boolean()
+      .optional()
+      .describe("Open position with DTE <= 7"),
+    rolledFromId: zod
+      .number()
+      .nullish()
+      .describe("Id of the closed position this one was rolled from, if any."),
+    rolledFrom: zod
+      .object({
+        id: zod.number(),
+        ticker: zod.string(),
+        strike: zod.number(),
+        expiry: zod.string(),
+      })
+      .nullish()
+      .describe(
+        "Summary of the position this one was rolled from (parent leg).",
+      ),
+    rolledTo: zod
+      .object({
+        id: zod.number(),
+        ticker: zod.string(),
+        strike: zod.number(),
+        expiry: zod.string(),
+      })
+      .nullish()
+      .describe(
+        "Summary of the position this one was rolled into (child leg).",
+      ),
+  }),
+  holding: zod.object({
+    id: zod.number(),
+    ticker: zod.string(),
+    shares: zod.number(),
+    avgCost: zod.number(),
+    openedAt: zod.string(),
+    notes: zod.string().nullish(),
+    spot: zod.number().nullish().describe("Current underlying price"),
+    marketValue: zod.number().nullish().describe("spot \* shares"),
+    unrealizedPnl: zod
+      .number()
+      .nullish()
+      .describe("(spot - avgCost) \* shares"),
+    unrealizedPnlPct: zod
+      .number()
+      .nullish()
+      .describe("Unrealized P\/L as a fraction of cost basis"),
+  }),
+  costBasisPerShare: zod
+    .number()
+    .describe("strike − net premium per share collected across the roll chain"),
+});
+
+/**
+ * Closes the covered call with outcome `called_away` (full premium
+kept) and sells 100 × contracts shares out of the linked holding at
+the strike price. Reports the realized stock P/L of the sale. This
+is the wheel's shares → cash transition.
+
+ * @summary Mark an open covered call as called away
+ */
+export const CallAwayPositionParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const CallAwayPositionResponse = zod.object({
+  position: zod.object({
+    id: zod.number(),
+    ticker: zod.string(),
+    strike: zod.number(),
+    expiry: zod.string(),
+    premium: zod.number(),
+    contracts: zod.number(),
+    kind: zod
+      .enum(["csp", "cc"])
+      .describe("Wheel leg type: cash-secured put or covered call."),
+    outcome: zod
+      .string()
+      .nullish()
+      .describe(
+        "How a closed position ended: closed | expired | assigned | called_away. Null while open, and for rows closed before outcomes were tracked.",
+      ),
+    holdingId: zod
+      .number()
+      .nullish()
+      .describe("For covered calls: the holding the call is written against."),
+    openedAt: zod.string(),
+    closedAt: zod.string().nullish(),
+    closePrice: zod.number().nullish(),
+    notes: zod.string().nullish(),
+    status: zod.enum(["open", "closed"]),
+    dte: zod.number().describe("Days to expiration (negative when expired)"),
+    spot: zod.number().nullish().describe("Current underlying price"),
+    currentBid: zod
+      .number()
+      .nullish()
+      .describe("Current put bid at this strike for this expiry"),
+    unrealizedPnl: zod
+      .number()
+      .nullish()
+      .describe(
+        "(premium - currentBid) \* 100 \* contracts; null when bid unavailable",
+      ),
+    realizedPnl: zod
+      .number()
+      .nullish()
+      .describe("(premium - closePrice) \* 100 \* contracts; null when open"),
+    assignmentRisk: zod
+      .boolean()
+      .optional()
+      .describe("Open position where spot has fallen below strike"),
+    expiringSoon: zod
+      .boolean()
+      .optional()
+      .describe("Open position with DTE <= 7"),
+    rolledFromId: zod
+      .number()
+      .nullish()
+      .describe("Id of the closed position this one was rolled from, if any."),
+    rolledFrom: zod
+      .object({
+        id: zod.number(),
+        ticker: zod.string(),
+        strike: zod.number(),
+        expiry: zod.string(),
+      })
+      .nullish()
+      .describe(
+        "Summary of the position this one was rolled from (parent leg).",
+      ),
+    rolledTo: zod
+      .object({
+        id: zod.number(),
+        ticker: zod.string(),
+        strike: zod.number(),
+        expiry: zod.string(),
+      })
+      .nullish()
+      .describe(
+        "Summary of the position this one was rolled into (child leg).",
+      ),
+  }),
+  holding: zod
+    .union([
+      zod.object({
+        id: zod.number(),
+        ticker: zod.string(),
+        shares: zod.number(),
+        avgCost: zod.number(),
+        openedAt: zod.string(),
+        notes: zod.string().nullish(),
+        spot: zod.number().nullish().describe("Current underlying price"),
+        marketValue: zod.number().nullish().describe("spot \* shares"),
+        unrealizedPnl: zod
+          .number()
+          .nullish()
+          .describe("(spot - avgCost) \* shares"),
+        unrealizedPnlPct: zod
+          .number()
+          .nullish()
+          .describe("Unrealized P\/L as a fraction of cost basis"),
+      }),
+      zod.null(),
+    ])
+    .optional()
+    .describe("The reduced holding, or null when all shares were called away."),
+  sharesSold: zod.number(),
+  saleProceeds: zod.number().describe("strike × shares sold"),
+  stockPnl: zod.number().describe("(strike − avgCost) × shares sold"),
+});
+
+/**
+ * @summary List journal entries with taken-vs-passed stats
+ */
+export const ListJournalQueryParams = zod.object({
+  decision: zod.enum(["taken", "passed"]).optional(),
+});
+
+export const ListJournalResponse = zod.object({
+  entries: zod.array(
+    zod.object({
+      id: zod.number(),
+      decision: zod.enum(["taken", "passed"]),
+      ticker: zod.string(),
+      strike: zod.number(),
+      expiry: zod.string(),
+      bid: zod.number(),
+      annualizedPct: zod.number().nullish(),
+      delta: zod.number().nullish(),
+      ivRank: zod.number().nullish(),
+      quiverScore: zod.number().nullish(),
+      snapshot: zod.record(zod.string(), zod.unknown()).optional(),
+      positionId: zod.number().nullish(),
+      decidedAt: zod.string(),
+      notes: zod.string().nullish(),
+      evaluatedAt: zod.string().nullish(),
+      outcomePnl: zod
+        .number()
+        .nullish()
+        .describe(
+          "Per-contract P\/L the recommendation produced (or would have), once evaluated after expiry.",
+        ),
+      outcomeNote: zod.string().nullish(),
+    }),
+  ),
+  stats: zod.object({
+    taken: zod.number(),
+    passed: zod.number(),
+  }),
+});
+
+/**
+ * Records that the user took or passed on a screener candidate. The
+full candidate is frozen in `snapshot` so the journal stays truthful
+as screener logic evolves. Passed entries form the control group for
+the forward test.
+
+ * @summary Record a decision on a recommendation
+ */
+
+export const createJournalEntryBodyStrikeExclusiveMin = 0;
+
+export const createJournalEntryBodyBidMin = 0;
+
+export const CreateJournalEntryBody = zod.object({
+  decision: zod.enum(["taken", "passed"]),
+  ticker: zod.string().min(1),
+  strike: zod.number().gt(createJournalEntryBodyStrikeExclusiveMin),
+  expiry: zod.string().describe("ISO date YYYY-MM-DD"),
+  bid: zod
+    .number()
+    .min(createJournalEntryBodyBidMin)
+    .describe("Premium per share at decision time"),
+  annualizedPct: zod.number().nullish(),
+  delta: zod.number().nullish(),
+  ivRank: zod.number().nullish(),
+  quiverScore: zod.number().nullish(),
+  snapshot: zod
+    .record(zod.string(), zod.unknown())
+    .describe("The full candidate row, frozen at decision time."),
+  positionId: zod
+    .number()
+    .nullish()
+    .describe("The opened position, when decision = taken."),
+  notes: zod.string().nullish(),
+});
+
+export const CreateJournalEntryResponse = zod.object({
+  id: zod.number(),
+  decision: zod.enum(["taken", "passed"]),
+  ticker: zod.string(),
+  strike: zod.number(),
+  expiry: zod.string(),
+  bid: zod.number(),
+  annualizedPct: zod.number().nullish(),
+  delta: zod.number().nullish(),
+  ivRank: zod.number().nullish(),
+  quiverScore: zod.number().nullish(),
+  snapshot: zod.record(zod.string(), zod.unknown()).optional(),
+  positionId: zod.number().nullish(),
+  decidedAt: zod.string(),
+  notes: zod.string().nullish(),
+  evaluatedAt: zod.string().nullish(),
+  outcomePnl: zod
+    .number()
+    .nullish()
+    .describe(
+      "Per-contract P\/L the recommendation produced (or would have), once evaluated after expiry.",
+    ),
+  outcomeNote: zod.string().nullish(),
+});
+
+/**
+ * @summary Update a journal entry's decision, notes, or linked position
+ */
+export const UpdateJournalEntryParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateJournalEntryBody = zod.object({
+  decision: zod
+    .union([zod.literal("taken"), zod.literal("passed"), zod.literal(null)])
+    .nullish(),
+  positionId: zod.number().nullish(),
+  notes: zod.string().nullish(),
+});
+
+export const UpdateJournalEntryResponse = zod.object({
+  id: zod.number(),
+  decision: zod.enum(["taken", "passed"]),
+  ticker: zod.string(),
+  strike: zod.number(),
+  expiry: zod.string(),
+  bid: zod.number(),
+  annualizedPct: zod.number().nullish(),
+  delta: zod.number().nullish(),
+  ivRank: zod.number().nullish(),
+  quiverScore: zod.number().nullish(),
+  snapshot: zod.record(zod.string(), zod.unknown()).optional(),
+  positionId: zod.number().nullish(),
+  decidedAt: zod.string(),
+  notes: zod.string().nullish(),
+  evaluatedAt: zod.string().nullish(),
+  outcomePnl: zod
+    .number()
+    .nullish()
+    .describe(
+      "Per-contract P\/L the recommendation produced (or would have), once evaluated after expiry.",
+    ),
+  outcomeNote: zod.string().nullish(),
+});
+
+/**
+ * @summary Delete a journal entry
+ */
+export const DeleteJournalEntryParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteJournalEntryResponse = zod.object({
+  ok: zod.boolean(),
 });
 
 /**

@@ -19,10 +19,13 @@ import type {
 import type {
   AckAllResult,
   AlertScanResult,
+  AssignPositionInput,
+  AssignPositionResult,
   AuthErrorEnvelope,
   AuthUserEnvelope,
   BeginBrowserLoginParams,
   CallScanResult,
+  CalledAwayResult,
   CandidateExplanation,
   Chain,
   ChainExpirations,
@@ -42,6 +45,11 @@ import type {
   HoldingUpdate,
   HoldingsList,
   IvHistory,
+  JournalEntry,
+  JournalEntryInput,
+  JournalEntryUpdate,
+  JournalList,
+  ListJournalParams,
   ListQaConversationsParams,
   LogoutSuccess,
   MobileTokenExchangeRequest,
@@ -2951,6 +2959,544 @@ export function useGetPositionAdvisor<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Closes the put with outcome `assigned` (full premium kept, no
+buyback) and creates a stock holding of 100 × contracts shares at
+the chain-aware net cost basis: strike minus all net premium per
+share collected across the roll chain. This is the wheel's
+CSP → shares transition.
+
+ * @summary Mark an open cash-secured put as assigned
+ */
+export const getAssignPositionUrl = (id: number) => {
+  return `/api/positions/${id}/assign`;
+};
+
+export const assignPosition = async (
+  id: number,
+  assignPositionInput?: AssignPositionInput,
+  options?: RequestInit,
+): Promise<AssignPositionResult> => {
+  return customFetch<AssignPositionResult>(getAssignPositionUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(assignPositionInput),
+  });
+};
+
+export const getAssignPositionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof assignPosition>>,
+    TError,
+    { id: number; data: BodyType<AssignPositionInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof assignPosition>>,
+  TError,
+  { id: number; data: BodyType<AssignPositionInput> },
+  TContext
+> => {
+  const mutationKey = ["assignPosition"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof assignPosition>>,
+    { id: number; data: BodyType<AssignPositionInput> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return assignPosition(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AssignPositionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof assignPosition>>
+>;
+export type AssignPositionMutationBody = BodyType<AssignPositionInput>;
+export type AssignPositionMutationError = ErrorType<void>;
+
+/**
+ * @summary Mark an open cash-secured put as assigned
+ */
+export const useAssignPosition = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof assignPosition>>,
+    TError,
+    { id: number; data: BodyType<AssignPositionInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof assignPosition>>,
+  TError,
+  { id: number; data: BodyType<AssignPositionInput> },
+  TContext
+> => {
+  return useMutation(getAssignPositionMutationOptions(options));
+};
+
+/**
+ * Closes the covered call with outcome `called_away` (full premium
+kept) and sells 100 × contracts shares out of the linked holding at
+the strike price. Reports the realized stock P/L of the sale. This
+is the wheel's shares → cash transition.
+
+ * @summary Mark an open covered call as called away
+ */
+export const getCallAwayPositionUrl = (id: number) => {
+  return `/api/positions/${id}/called-away`;
+};
+
+export const callAwayPosition = async (
+  id: number,
+  options?: RequestInit,
+): Promise<CalledAwayResult> => {
+  return customFetch<CalledAwayResult>(getCallAwayPositionUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getCallAwayPositionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof callAwayPosition>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof callAwayPosition>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["callAwayPosition"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof callAwayPosition>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return callAwayPosition(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CallAwayPositionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof callAwayPosition>>
+>;
+
+export type CallAwayPositionMutationError = ErrorType<void>;
+
+/**
+ * @summary Mark an open covered call as called away
+ */
+export const useCallAwayPosition = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof callAwayPosition>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof callAwayPosition>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getCallAwayPositionMutationOptions(options));
+};
+
+/**
+ * @summary List journal entries with taken-vs-passed stats
+ */
+export const getListJournalUrl = (params?: ListJournalParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/journal?${stringifiedParams}`
+    : `/api/journal`;
+};
+
+export const listJournal = async (
+  params?: ListJournalParams,
+  options?: RequestInit,
+): Promise<JournalList> => {
+  return customFetch<JournalList>(getListJournalUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListJournalQueryKey = (params?: ListJournalParams) => {
+  return [`/api/journal`, ...(params ? [params] : [])] as const;
+};
+
+export const getListJournalQueryOptions = <
+  TData = Awaited<ReturnType<typeof listJournal>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListJournalParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listJournal>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListJournalQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listJournal>>> = ({
+    signal,
+  }) => listJournal(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listJournal>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListJournalQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listJournal>>
+>;
+export type ListJournalQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List journal entries with taken-vs-passed stats
+ */
+
+export function useListJournal<
+  TData = Awaited<ReturnType<typeof listJournal>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListJournalParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listJournal>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListJournalQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Records that the user took or passed on a screener candidate. The
+full candidate is frozen in `snapshot` so the journal stays truthful
+as screener logic evolves. Passed entries form the control group for
+the forward test.
+
+ * @summary Record a decision on a recommendation
+ */
+export const getCreateJournalEntryUrl = () => {
+  return `/api/journal`;
+};
+
+export const createJournalEntry = async (
+  journalEntryInput: JournalEntryInput,
+  options?: RequestInit,
+): Promise<JournalEntry> => {
+  return customFetch<JournalEntry>(getCreateJournalEntryUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(journalEntryInput),
+  });
+};
+
+export const getCreateJournalEntryMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createJournalEntry>>,
+    TError,
+    { data: BodyType<JournalEntryInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createJournalEntry>>,
+  TError,
+  { data: BodyType<JournalEntryInput> },
+  TContext
+> => {
+  const mutationKey = ["createJournalEntry"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createJournalEntry>>,
+    { data: BodyType<JournalEntryInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createJournalEntry(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateJournalEntryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createJournalEntry>>
+>;
+export type CreateJournalEntryMutationBody = BodyType<JournalEntryInput>;
+export type CreateJournalEntryMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Record a decision on a recommendation
+ */
+export const useCreateJournalEntry = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createJournalEntry>>,
+    TError,
+    { data: BodyType<JournalEntryInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createJournalEntry>>,
+  TError,
+  { data: BodyType<JournalEntryInput> },
+  TContext
+> => {
+  return useMutation(getCreateJournalEntryMutationOptions(options));
+};
+
+/**
+ * @summary Update a journal entry's decision, notes, or linked position
+ */
+export const getUpdateJournalEntryUrl = (id: number) => {
+  return `/api/journal/${id}`;
+};
+
+export const updateJournalEntry = async (
+  id: number,
+  journalEntryUpdate: JournalEntryUpdate,
+  options?: RequestInit,
+): Promise<JournalEntry> => {
+  return customFetch<JournalEntry>(getUpdateJournalEntryUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(journalEntryUpdate),
+  });
+};
+
+export const getUpdateJournalEntryMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateJournalEntry>>,
+    TError,
+    { id: number; data: BodyType<JournalEntryUpdate> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateJournalEntry>>,
+  TError,
+  { id: number; data: BodyType<JournalEntryUpdate> },
+  TContext
+> => {
+  const mutationKey = ["updateJournalEntry"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateJournalEntry>>,
+    { id: number; data: BodyType<JournalEntryUpdate> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateJournalEntry(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateJournalEntryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateJournalEntry>>
+>;
+export type UpdateJournalEntryMutationBody = BodyType<JournalEntryUpdate>;
+export type UpdateJournalEntryMutationError = ErrorType<void>;
+
+/**
+ * @summary Update a journal entry's decision, notes, or linked position
+ */
+export const useUpdateJournalEntry = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateJournalEntry>>,
+    TError,
+    { id: number; data: BodyType<JournalEntryUpdate> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateJournalEntry>>,
+  TError,
+  { id: number; data: BodyType<JournalEntryUpdate> },
+  TContext
+> => {
+  return useMutation(getUpdateJournalEntryMutationOptions(options));
+};
+
+/**
+ * @summary Delete a journal entry
+ */
+export const getDeleteJournalEntryUrl = (id: number) => {
+  return `/api/journal/${id}`;
+};
+
+export const deleteJournalEntry = async (
+  id: number,
+  options?: RequestInit,
+): Promise<DeleteResult> => {
+  return customFetch<DeleteResult>(getDeleteJournalEntryUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteJournalEntryMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteJournalEntry>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteJournalEntry>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteJournalEntry"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteJournalEntry>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteJournalEntry(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteJournalEntryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteJournalEntry>>
+>;
+
+export type DeleteJournalEntryMutationError = ErrorType<void>;
+
+/**
+ * @summary Delete a journal entry
+ */
+export const useDeleteJournalEntry = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteJournalEntry>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteJournalEntry>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteJournalEntryMutationOptions(options));
+};
 
 /**
  * @summary List recent position alerts (assignment risk / near-expiry)

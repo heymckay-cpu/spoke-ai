@@ -30,6 +30,8 @@ tags:
     description: Provider-resolved ticker → sector lookup
   - name: quiver
     description: Quiver Quantitative alternative-data signals
+  - name: journal
+    description: Decision journal — taken vs. passed recommendations
   - name: Auth
     description: Browser and mobile authentication endpoints.
 paths:
@@ -752,6 +754,153 @@ paths:
                 properties:
                   error: { type: string }
 
+  /positions/{id}/assign:
+    post:
+      operationId: assignPosition
+      tags: [positions]
+      summary: Mark an open cash-secured put as assigned
+      description: |
+        Closes the put with outcome `assigned` (full premium kept, no
+        buyback) and creates a stock holding of 100 × contracts shares at
+        the chain-aware net cost basis: strike minus all net premium per
+        share collected across the roll chain. This is the wheel's
+        CSP → shares transition.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignPositionInput"
+      responses:
+        "200":
+          description: Assignment result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssignPositionResult"
+        "404":
+          description: Position not found
+        "409":
+          description: Position is not an open cash-secured put
+
+  /positions/{id}/called-away:
+    post:
+      operationId: callAwayPosition
+      tags: [positions]
+      summary: Mark an open covered call as called away
+      description: |
+        Closes the covered call with outcome `called_away` (full premium
+        kept) and sells 100 × contracts shares out of the linked holding at
+        the strike price. Reports the realized stock P/L of the sale. This
+        is the wheel's shares → cash transition.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Called-away result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalledAwayResult"
+        "404":
+          description: Position not found
+        "409":
+          description: Position is not an open covered call with a linked holding
+
+  /journal:
+    get:
+      operationId: listJournal
+      tags: [journal]
+      summary: List journal entries with taken-vs-passed stats
+      parameters:
+        - in: query
+          name: decision
+          required: false
+          schema:
+            type: string
+            enum: [taken, passed]
+      responses:
+        "200":
+          description: Journal entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JournalList"
+    post:
+      operationId: createJournalEntry
+      tags: [journal]
+      summary: Record a decision on a recommendation
+      description: |
+        Records that the user took or passed on a screener candidate. The
+        full candidate is frozen in `snapshot` so the journal stays truthful
+        as screener logic evolves. Passed entries form the control group for
+        the forward test.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JournalEntryInput"
+      responses:
+        "200":
+          description: Created entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JournalEntry"
+
+  /journal/{id}:
+    patch:
+      operationId: updateJournalEntry
+      tags: [journal]
+      summary: Update a journal entry's decision, notes, or linked position
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JournalEntryUpdate"
+      responses:
+        "200":
+          description: Updated entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JournalEntry"
+        "404":
+          description: Entry not found
+    delete:
+      operationId: deleteJournalEntry
+      tags: [journal]
+      summary: Delete a journal entry
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+        "404":
+          description: Entry not found
+
   /notifications:
     get:
       operationId: listNotifications
@@ -1452,6 +1601,13 @@ components:
         expiry: { type: string, description: "ISO date YYYY-MM-DD" }
         premium: { type: number, minimum: 0, description: "Premium received per share" }
         contracts: { type: integer, minimum: 1 }
+        kind:
+          type: string
+          enum: [csp, cc]
+          description: "Wheel leg type. Defaults to csp (cash-secured put); cc = covered call written against a holding."
+        holdingId:
+          type: ["integer", "null"]
+          description: "For covered calls: the holding the call is written against. Required when kind = cc."
         notes: { type: ["string", "null"] }
         rolledFromId:
           type: ["integer", "null"]
@@ -1521,6 +1677,7 @@ components:
         - openedAt
         - status
         - dte
+        - kind
       properties:
         id: { type: integer }
         ticker: { type: string }
@@ -1528,6 +1685,16 @@ components:
         expiry: { type: string }
         premium: { type: number }
         contracts: { type: integer }
+        kind:
+          type: string
+          enum: [csp, cc]
+          description: "Wheel leg type: cash-secured put or covered call."
+        outcome:
+          type: ["string", "null"]
+          description: "How a closed position ended: closed | expired | assigned | called_away. Null while open, and for rows closed before outcomes were tracked."
+        holdingId:
+          type: ["integer", "null"]
+          description: "For covered calls: the holding the call is written against."
         openedAt: { type: string }
         closedAt: { type: ["string", "null"] }
         closePrice: { type: ["number", "null"] }
@@ -2037,6 +2204,112 @@ components:
         cached:
           type: boolean
           description: True when the response was served from the cache without re-calling the model.
+
+    AssignPositionInput:
+      type: object
+      properties:
+        notes: { type: ["string", "null"], description: "Optional note recorded on the created holding." }
+
+    AssignPositionResult:
+      type: object
+      required: [position, holding, costBasisPerShare]
+      properties:
+        position:
+          $ref: "#/components/schemas/Position"
+        holding:
+          $ref: "#/components/schemas/Holding"
+        costBasisPerShare:
+          type: number
+          description: "strike − net premium per share collected across the roll chain"
+
+    CalledAwayResult:
+      type: object
+      required: [position, sharesSold, saleProceeds, stockPnl]
+      properties:
+        position:
+          $ref: "#/components/schemas/Position"
+        holding:
+          oneOf:
+            - $ref: "#/components/schemas/Holding"
+            - type: "null"
+          description: "The reduced holding, or null when all shares were called away."
+        sharesSold: { type: integer }
+        saleProceeds: { type: number, description: "strike × shares sold" }
+        stockPnl: { type: number, description: "(strike − avgCost) × shares sold" }
+
+    JournalEntryInput:
+      type: object
+      required: [decision, ticker, strike, expiry, bid, snapshot]
+      properties:
+        decision:
+          type: string
+          enum: [taken, passed]
+        ticker: { type: string, minLength: 1 }
+        strike: { type: number, exclusiveMinimum: 0 }
+        expiry: { type: string, description: "ISO date YYYY-MM-DD" }
+        bid: { type: number, minimum: 0, description: "Premium per share at decision time" }
+        annualizedPct: { type: ["number", "null"] }
+        delta: { type: ["number", "null"] }
+        ivRank: { type: ["number", "null"] }
+        quiverScore: { type: ["number", "null"] }
+        snapshot:
+          type: object
+          description: "The full candidate row, frozen at decision time."
+          additionalProperties: true
+        positionId:
+          type: ["integer", "null"]
+          description: "The opened position, when decision = taken."
+        notes: { type: ["string", "null"] }
+
+    JournalEntryUpdate:
+      type: object
+      properties:
+        decision:
+          type: ["string", "null"]
+          enum: [taken, passed, null]
+        positionId: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+
+    JournalEntry:
+      type: object
+      required: [id, decision, ticker, strike, expiry, bid, decidedAt]
+      properties:
+        id: { type: integer }
+        decision:
+          type: string
+          enum: [taken, passed]
+        ticker: { type: string }
+        strike: { type: number }
+        expiry: { type: string }
+        bid: { type: number }
+        annualizedPct: { type: ["number", "null"] }
+        delta: { type: ["number", "null"] }
+        ivRank: { type: ["number", "null"] }
+        quiverScore: { type: ["number", "null"] }
+        snapshot:
+          type: object
+          additionalProperties: true
+        positionId: { type: ["integer", "null"] }
+        decidedAt: { type: string }
+        notes: { type: ["string", "null"] }
+        evaluatedAt: { type: ["string", "null"] }
+        outcomePnl: { type: ["number", "null"], description: "Per-contract P/L the recommendation produced (or would have), once evaluated after expiry." }
+        outcomeNote: { type: ["string", "null"] }
+
+    JournalList:
+      type: object
+      required: [entries, stats]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/JournalEntry"
+        stats:
+          type: object
+          required: [taken, passed]
+          properties:
+            taken: { type: integer }
+            passed: { type: integer }
 
     QuiverCongressTrade:
       type: object

@@ -71,6 +71,28 @@ describe("normalizeCongress", () => {
     expect(out.recent).toHaveLength(0);
   });
 
+  it("ignores automatic dividend reinvestments — they are not intentional buys", () => {
+    const rows = [
+      {
+        Representative: "Ed Case",
+        Transaction: "Purchase",
+        TransactionDate: daysAgo(10),
+        ReportDate: daysAgo(3),
+        Description: "AUTOMATIC STOCK DIVIDEND REINVESTMENT.",
+      },
+      {
+        Representative: "Jane Doe",
+        Transaction: "Purchase",
+        TransactionDate: daysAgo(8),
+        ReportDate: daysAgo(2),
+        Description: "Bought common stock",
+      },
+    ];
+    const out = normalizeCongress(rows, NOW);
+    expect(out.buys).toBe(1);
+    expect(out.recent[0].name).toBe("Jane Doe");
+  });
+
   it("caps the recent list at 5", () => {
     const rows = Array.from({ length: 8 }, (_, i) => ({
       Representative: `Member ${i}`,

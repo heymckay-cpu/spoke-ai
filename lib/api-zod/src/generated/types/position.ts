@@ -5,6 +5,7 @@
  * Wheel Strategy Dashboard API
  * OpenAPI spec version: 0.1.0
  */
+import type { PositionKind } from "./positionKind";
 import type { PositionRolledFrom } from "./positionRolledFrom";
 import type { PositionRolledTo } from "./positionRolledTo";
 import type { PositionStatus } from "./positionStatus";
@@ -16,6 +17,18 @@ export interface Position {
   expiry: string;
   premium: number;
   contracts: number;
+  /** Wheel leg type: cash-secured put or covered call. */
+  kind: PositionKind;
+  /**
+   * How a closed position ended: closed | expired | assigned | called_away. Null while open, and for rows closed before outcomes were tracked.
+   * @nullable
+   */
+  outcome?: string | null;
+  /**
+   * For covered calls: the holding the call is written against.
+   * @nullable
+   */
+  holdingId?: number | null;
   openedAt: string;
   /** @nullable */
   closedAt?: string | null;

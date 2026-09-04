@@ -22,6 +22,7 @@ import {
 import { resolveSector } from "@workspace/portfolio";
 import { useSectorMap } from "@/hooks/use-sector-map";
 import { AppShell } from "@/components/app-shell";
+import { AddPositionDialog } from "@/components/add-position-dialog";
 import { AddHoldingDialog } from "@/components/add-holding-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -458,6 +459,7 @@ export function HoldingsPage() {
                         "Ann %",
                         "OTM %",
                         "Qty",
+                        "",
                       ].map((label, i) => (
                         <th
                           key={label}
@@ -522,6 +524,38 @@ export function HoldingsPage() {
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                           {c.contractsAvailable}× ({fmtInt(c.shares)} sh)
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          {(() => {
+                            const holding = holdings.find(
+                              (h) => h.ticker.toUpperCase() === c.ticker.toUpperCase() && h.shares >= 100,
+                            );
+                            if (!holding) return null;
+                            return (
+                              <AddPositionDialog
+                                defaultExpiry={c.expiry}
+                                kind="cc"
+                                holdingId={holding.id}
+                                initialValues={{
+                                  ticker: c.ticker,
+                                  strike: c.strike,
+                                  expiry: c.expiry,
+                                  premium: c.bid,
+                                  contracts: 1,
+                                }}
+                                onCreated={invalidate}
+                                trigger={
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    data-testid={`button-write-call-${c.ticker}`}
+                                  >
+                                    Write call
+                                  </Button>
+                                }
+                              />
+                            );
+                          })()}
                         </td>
                       </tr>
                     ))}

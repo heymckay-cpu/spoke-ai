@@ -1,6 +1,6 @@
 import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { BookOpen, Briefcase, LayoutGrid, LineChart, LogOut, Menu, MessageSquare, Settings as SettingsIcon, Moon, Sun, Wallet } from "lucide-react";
+import { BookOpen, Briefcase, LayoutGrid, LineChart, LogOut, Menu, MessageSquare, NotebookPen, Settings as SettingsIcon, Moon, Sun, Wallet } from "lucide-react";
 import { useUser, useClerk } from "@clerk/react";
 import {
   Sheet,
@@ -76,6 +76,12 @@ const NAV: NavItem[] = [
     label: "Holdings",
     icon: Briefcase,
     match: (l) => l.startsWith("/dashboard/holdings"),
+  },
+  {
+    href: "/dashboard/journal",
+    label: "Journal",
+    icon: NotebookPen,
+    match: (l) => l.startsWith("/dashboard/journal"),
   },
   {
     href: "/dashboard/ask",

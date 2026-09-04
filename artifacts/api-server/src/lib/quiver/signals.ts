@@ -190,9 +190,16 @@ function median(values: number[]): number | null {
 // ---------------------------------------------------------------------------
 // Per-dataset normalizers (exported for tests)
 
+// Filings that are technically "purchases" but not intentional buys —
+// automatic dividend reinvestment plans are the big one (seen live in
+// Quiver's Description field). Counting them inflates the buy signal.
+const PASSIVE_DESCRIPTION_RE = /dividend\s+reinvest|automatic\s+(stock\s+)?(dividend|investment|reinvest)|\bDRIP\b/i;
+
 export function normalizeCongress(rows: Row[], now: Date): QuiverCongressSummary {
   const trades: QuiverCongressTrade[] = [];
   for (const row of rows) {
+    const description = str(row, ["Description", "description"]);
+    if (description && PASSIVE_DESCRIPTION_RE.test(description)) continue;
     const txRaw = str(row, ["Transaction", "transaction", "Type", "type"]);
     if (!txRaw) continue;
     const lower = txRaw.toLowerCase();

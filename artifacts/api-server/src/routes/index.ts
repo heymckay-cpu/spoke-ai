@@ -12,6 +12,7 @@ import tierRouter from "./tier";
 import qaRouter from "./qa";
 import sectorsRouter from "./sectors";
 import quiverRouter from "./quiver";
+import journalRouter from "./journal";
 import { requireUser } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -34,5 +35,6 @@ router.use(tierRouter);
 router.use(qaRouter);
 router.use(sectorsRouter);
 router.use(quiverRouter);
+router.use(journalRouter);
 
 export default router;

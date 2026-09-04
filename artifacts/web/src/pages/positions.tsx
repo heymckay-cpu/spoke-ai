@@ -25,6 +25,8 @@ import {
 import { AppShell } from "@/components/app-shell";
 import { AddPositionDialog } from "@/components/add-position-dialog";
 import { RollPositionDialog } from "@/components/roll-position-dialog";
+import { AssignPositionDialog } from "@/components/assign-position-dialog";
+import { CalledAwayDialog } from "@/components/called-away-dialog";
 import { PositionAdvisorPanel } from "@/components/position-advisor-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -515,7 +517,17 @@ export function PositionsPage() {
                     >
                       <td className="px-3 py-2 font-semibold tracking-tight">
                         <div className="flex flex-col gap-1">
-                          <span>{p.ticker}</span>
+                          <span className="flex items-center gap-1.5">
+                            {p.ticker}
+                            {p.kind === "cc" && (
+                              <span
+                                className="rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-600 dark:text-sky-400"
+                                title="Covered call written against a holding"
+                              >
+                                CC
+                              </span>
+                            )}
+                          </span>
                           {p.rolledFrom && (
                             <RollChainBadge direction="from" leg={p.rolledFrom} />
                           )}
@@ -555,6 +567,11 @@ export function PositionsPage() {
                           {p.status === "open" ? (
                             <>
                               <RollPositionDialog position={p} onRolled={invalidate} />
+                              {p.kind === "cc" ? (
+                                <CalledAwayDialog position={p} onCalledAway={invalidate} />
+                              ) : (
+                                <AssignPositionDialog position={p} onAssigned={invalidate} />
+                              )}
                               <ClosePositionDialog position={p} onClosed={invalidate} />
                             </>
                           ) : (

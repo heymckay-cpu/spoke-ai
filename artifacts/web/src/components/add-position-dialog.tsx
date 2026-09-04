@@ -10,6 +10,7 @@ import {
   getGetSettingsQueryKey,
   getListPositionsQueryKey,
 } from "@workspace/api-client-react";
+import type { Position } from "@workspace/api-client-react";
 import { DEFAULT_CONCENTRATION, wouldExceedThreshold } from "@workspace/portfolio";
 import { useSectorMap } from "@/hooks/use-sector-map";
 import { fmtCompactMoney } from "@/lib/format";
@@ -55,9 +56,13 @@ export interface AddPositionInitialValues {
 
 export interface AddPositionDialogProps {
   defaultExpiry: string;
-  onCreated?: () => void;
+  onCreated?: (created?: Position) => void;
   initialValues?: AddPositionInitialValues;
   trigger?: ReactNode;
+  /** Wheel leg type. Defaults to csp; pass "cc" (with holdingId) to log a covered call. */
+  kind?: "csp" | "cc";
+  /** For covered calls: the holding the call is written against. */
+  holdingId?: number;
 }
 
 export function AddPositionDialog({
@@ -65,6 +70,8 @@ export function AddPositionDialog({
   onCreated,
   initialValues,
   trigger,
+  kind = "csp",
+  holdingId,
 }: AddPositionDialogProps) {
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
@@ -146,17 +153,19 @@ export function AddPositionDialog({
           expiry: values.expiry,
           premium: values.premium,
           contracts: values.contracts,
+          kind,
+          holdingId: kind === "cc" ? holdingId ?? null : null,
         },
       },
       {
-        onSuccess: () => {
+        onSuccess: (created) => {
           toast({
             title: "Position logged",
-            description: `${values.ticker.toUpperCase()} ${values.strike}P ${values.expiry}`,
+            description: `${values.ticker.toUpperCase()} ${values.strike}${kind === "cc" ? "C" : "P"} ${values.expiry}`,
           });
           form.reset(buildDefaults());
           setOpen(false);
-          onCreated?.();
+          onCreated?.(created);
         },
         onError: (err) => {
           const message = err instanceof Error ? err.message : "Unknown error";

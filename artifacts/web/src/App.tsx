@@ -12,6 +12,7 @@ import { CandidatesPage } from "@/pages/candidates";
 import { ChainPage } from "@/pages/chain";
 import { PositionsPage } from "@/pages/positions";
 import { HoldingsPage } from "@/pages/holdings";
+import { JournalPage } from "@/pages/journal";
 import { SettingsPage } from "@/pages/settings";
 import { AskPage } from "@/pages/ask";
 import { ResourcesPage } from "@/pages/resources";
@@ -213,6 +214,11 @@ function Router() {
       <Route path="/dashboard/holdings">
         <ProtectedRoute>
           <HoldingsPage />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/dashboard/journal">
+        <ProtectedRoute>
+          <JournalPage />
         </ProtectedRoute>
       </Route>
       <Route path="/dashboard/settings">

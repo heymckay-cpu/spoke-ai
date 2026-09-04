@@ -1,8 +1,13 @@
 import { Router, type IRouter } from "express";
-import { db, positionsTable } from "@workspace/db";
+import { db, positionsTable, holdingsTable } from "@workspace/db";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { getUserId } from "../middlewares/auth";
 import {
+  AssignPositionBody,
+  AssignPositionParams,
+  AssignPositionResponse,
+  CallAwayPositionParams,
+  CallAwayPositionResponse,
   CreatePositionBody,
   UpdatePositionBody,
   ListPositionsResponse,
@@ -44,6 +49,9 @@ interface EnrichedPosition {
   expiry: string;
   premium: number;
   contracts: number;
+  kind: "csp" | "cc";
+  outcome: string | null;
+  holdingId: number | null;
   openedAt: string;
   closedAt: string | null;
   closePrice: number | null;
@@ -122,7 +130,13 @@ async function enrichPosition(
     }
   }
 
-  const assignmentRisk = status === "open" && spot != null && spot < row.strike;
+  // "In the money" flips direction by leg type: a short put is threatened
+  // when spot falls below strike, a covered call when spot rises above it.
+  const kind: "csp" | "cc" = row.kind === "cc" ? "cc" : "csp";
+  const assignmentRisk =
+    status === "open" &&
+    spot != null &&
+    (kind === "cc" ? spot > row.strike : spot < row.strike);
   const expiringSoon = status === "open" && dte >= 0 && dte <= 7;
 
   return {
@@ -132,6 +146,9 @@ async function enrichPosition(
     expiry: row.expiry,
     premium: row.premium,
     contracts: row.contracts,
+    kind,
+    outcome: row.outcome ?? null,
+    holdingId: row.holdingId ?? null,
     openedAt: row.openedAt.toISOString(),
     closedAt: row.closedAt ? row.closedAt.toISOString() : null,
     closePrice: row.closePrice,
@@ -442,6 +459,35 @@ router.post("/positions", async (req, res): Promise<void> => {
       return;
     }
   }
+  const kind = v.kind === "cc" ? "cc" : "csp";
+  let holdingId: number | null = null;
+  if (kind === "cc") {
+    // A covered call must be written against one of the user's holdings
+    // with enough shares to cover the contracts.
+    if (v.holdingId == null) {
+      res.status(400).json({ error: "holdingId is required for covered calls" });
+      return;
+    }
+    const [holding] = await db
+      .select()
+      .from(holdingsTable)
+      .where(and(eq(holdingsTable.id, v.holdingId), eq(holdingsTable.userId, userId)));
+    if (!holding) {
+      res.status(400).json({ error: `holdingId ${v.holdingId} does not exist` });
+      return;
+    }
+    if (holding.ticker.toUpperCase() !== v.ticker.toUpperCase()) {
+      res.status(400).json({ error: `holding ${v.holdingId} is ${holding.ticker}, not ${v.ticker.toUpperCase()}` });
+      return;
+    }
+    if (holding.shares < v.contracts * 100) {
+      res.status(400).json({
+        error: `holding has ${holding.shares} shares; ${v.contracts} contract${v.contracts === 1 ? "" : "s"} needs ${v.contracts * 100}`,
+      });
+      return;
+    }
+    holdingId = v.holdingId;
+  }
   const [inserted] = await db
     .insert(positionsTable)
     .values({
@@ -451,6 +497,8 @@ router.post("/positions", async (req, res): Promise<void> => {
       expiry: v.expiry,
       premium: v.premium,
       contracts: v.contracts,
+      kind,
+      holdingId,
       notes: v.notes ?? null,
       rolledFromId: v.rolledFromId ?? null,
     })
@@ -481,9 +529,14 @@ router.patch("/positions/:id", async (req, res): Promise<void> => {
     if (v.closePrice == null) {
       updates.closedAt = null;
       updates.closePrice = null;
+      updates.outcome = null;
     } else {
       updates.closedAt = new Date();
       updates.closePrice = v.closePrice;
+      // A manual close at 0 means the option expired worthless; anything
+      // else was bought back. Assignment/called-away go through their
+      // dedicated endpoints, which set their own outcome.
+      updates.outcome = v.closePrice === 0 ? "expired" : "closed";
     }
   }
   if ("notes" in v) {
@@ -559,7 +612,11 @@ router.post("/positions/:id/roll", async (req, res): Promise<void> => {
 
       const [closed] = await tx
         .update(positionsTable)
-        .set({ closedAt: new Date(), closePrice: v.closePrice })
+        .set({
+          closedAt: new Date(),
+          closePrice: v.closePrice,
+          outcome: v.closePrice === 0 ? "expired" : "closed",
+        })
         .where(and(eq(positionsTable.id, params.data.id), eq(positionsTable.userId, userId)))
         .returning();
       if (!closed) {
@@ -575,6 +632,8 @@ router.post("/positions/:id/roll", async (req, res): Promise<void> => {
           expiry: v.expiry,
           premium: v.premium,
           contracts: v.contracts,
+          kind: current.kind ?? "csp",
+          holdingId: current.holdingId ?? null,
           notes: v.notes ?? null,
           rolledFromId: current.id,
         })
@@ -687,7 +746,7 @@ router.post("/positions/roll/undo", async (req, res): Promise<void> => {
 
       const [reopened] = await tx
         .update(positionsTable)
-        .set({ closedAt: null, closePrice: null })
+        .set({ closedAt: null, closePrice: null, outcome: null })
         .where(and(eq(positionsTable.id, closed.id), eq(positionsTable.userId, userId)))
         .returning();
       if (!reopened) {
@@ -821,6 +880,205 @@ router.get("/positions/:id/advisor", requireCapability("ai.advisor"), async (req
     return;
   }
   res.json(GetPositionAdvisorResponse.parse(advisor));
+});
+
+function serializeHolding(row: typeof holdingsTable.$inferSelect): {
+  id: number;
+  ticker: string;
+  shares: number;
+  avgCost: number;
+  openedAt: string;
+  notes: string | null;
+} {
+  return {
+    id: row.id,
+    ticker: row.ticker,
+    shares: row.shares,
+    avgCost: row.avgCost,
+    openedAt: row.openedAt.toISOString(),
+    notes: row.notes ?? null,
+  };
+}
+
+/**
+ * Net premium per share collected across the whole roll chain that ends at
+ * `leg` (walking parents via rolledFromId). Buybacks (closePrice) are
+ * subtracted; the leg being assigned keeps its full premium.
+ */
+async function chainNetPremiumPerShare(
+  leg: typeof positionsTable.$inferSelect,
+  userId: string,
+  tx: Pick<typeof db, "select">,
+): Promise<number> {
+  let net = leg.premium; // assignment keeps the current leg's full premium
+  const seen = new Set<number>([leg.id]);
+  let parentId = leg.rolledFromId;
+  while (parentId != null && !seen.has(parentId)) {
+    seen.add(parentId);
+    const [parent] = await tx
+      .select()
+      .from(positionsTable)
+      .where(and(eq(positionsTable.id, parentId), eq(positionsTable.userId, userId)));
+    if (!parent) break;
+    net += parent.premium - (parent.closePrice ?? 0);
+    parentId = parent.rolledFromId;
+  }
+  return net;
+}
+
+// Wheel transition #1: cash-secured put → shares. Closes the put with
+// outcome `assigned` (premium fully kept) and creates a holding of
+// 100 × contracts shares at the chain-aware net cost basis.
+router.post("/positions/:id/assign", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  const params = AssignPositionParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const body = AssignPositionBody.safeParse(req.body ?? {});
+  if (!body.success) {
+    res.status(400).json({ error: body.error.message });
+    return;
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(positionsTable)
+        .where(and(eq(positionsTable.id, params.data.id), eq(positionsTable.userId, userId)));
+      if (!current) throw new RollError(404, "Position not found");
+      if (current.closedAt != null) throw new RollError(409, "Position is already closed");
+      if ((current.kind ?? "csp") !== "csp") {
+        throw new RollError(409, "Only cash-secured puts can be assigned; covered calls are called away");
+      }
+
+      const netPremium = await chainNetPremiumPerShare(current, userId, tx);
+      const costBasisPerShare = Math.max(0, current.strike - netPremium);
+
+      const [closed] = await tx
+        .update(positionsTable)
+        .set({ closedAt: new Date(), closePrice: 0, outcome: "assigned" })
+        .where(and(eq(positionsTable.id, current.id), eq(positionsTable.userId, userId)))
+        .returning();
+      if (!closed) throw new RollError(500, "Failed to close position");
+
+      const noteParts = [
+        `Assigned from ${current.ticker} $${current.strike} put exp ${current.expiry}`,
+      ];
+      if (body.data.notes) noteParts.push(body.data.notes);
+      const [holding] = await tx
+        .insert(holdingsTable)
+        .values({
+          userId,
+          ticker: current.ticker,
+          shares: current.contracts * 100,
+          avgCost: costBasisPerShare,
+          notes: noteParts.join(" — "),
+          sourcePositionId: current.id,
+        })
+        .returning();
+      if (!holding) throw new RollError(500, "Failed to create holding");
+
+      return { closed, holding, costBasisPerShare };
+    });
+
+    await clearAlertMarkers(result.closed.id);
+    const enriched = await enrichOne(result.closed, userId);
+    res.json(
+      AssignPositionResponse.parse({
+        position: enriched,
+        holding: serializeHolding(result.holding),
+        costBasisPerShare: result.costBasisPerShare,
+      }),
+    );
+  } catch (err) {
+    if (err instanceof RollError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+});
+
+// Wheel transition #2: shares → cash. Closes the covered call with outcome
+// `called_away` (premium fully kept) and sells 100 × contracts shares out of
+// the linked holding at the strike.
+router.post("/positions/:id/called-away", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  const params = CallAwayPositionParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(positionsTable)
+        .where(and(eq(positionsTable.id, params.data.id), eq(positionsTable.userId, userId)));
+      if (!current) throw new RollError(404, "Position not found");
+      if (current.closedAt != null) throw new RollError(409, "Position is already closed");
+      if ((current.kind ?? "csp") !== "cc") {
+        throw new RollError(409, "Only covered calls can be called away; puts are assigned");
+      }
+      if (current.holdingId == null) {
+        throw new RollError(409, "Covered call has no linked holding");
+      }
+      const [holding] = await tx
+        .select()
+        .from(holdingsTable)
+        .where(and(eq(holdingsTable.id, current.holdingId), eq(holdingsTable.userId, userId)));
+      if (!holding) throw new RollError(409, "Linked holding no longer exists");
+
+      const sharesSold = Math.min(holding.shares, current.contracts * 100);
+      const saleProceeds = current.strike * sharesSold;
+      const stockPnl = (current.strike - holding.avgCost) * sharesSold;
+
+      const [closed] = await tx
+        .update(positionsTable)
+        .set({ closedAt: new Date(), closePrice: 0, outcome: "called_away" })
+        .where(and(eq(positionsTable.id, current.id), eq(positionsTable.userId, userId)))
+        .returning();
+      if (!closed) throw new RollError(500, "Failed to close position");
+
+      let remaining: typeof holdingsTable.$inferSelect | null = null;
+      if (holding.shares - sharesSold <= 0) {
+        await tx
+          .delete(holdingsTable)
+          .where(and(eq(holdingsTable.id, holding.id), eq(holdingsTable.userId, userId)));
+      } else {
+        const [updated] = await tx
+          .update(holdingsTable)
+          .set({ shares: holding.shares - sharesSold })
+          .where(and(eq(holdingsTable.id, holding.id), eq(holdingsTable.userId, userId)))
+          .returning();
+        remaining = updated ?? null;
+      }
+
+      return { closed, remaining, sharesSold, saleProceeds, stockPnl };
+    });
+
+    await clearAlertMarkers(result.closed.id);
+    const enriched = await enrichOne(result.closed, userId);
+    res.json(
+      CallAwayPositionResponse.parse({
+        position: enriched,
+        holding: result.remaining ? serializeHolding(result.remaining) : null,
+        sharesSold: result.sharesSold,
+        saleProceeds: result.saleProceeds,
+        stockPnl: result.stockPnl,
+      }),
+    );
+  } catch (err) {
+    if (err instanceof RollError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
 });
 
 router.delete("/positions/:id", async (req, res): Promise<void> => {
