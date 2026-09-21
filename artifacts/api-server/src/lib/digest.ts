@@ -56,7 +56,9 @@ const esc = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const money = (n: number): string => `$${n.toFixed(2)}`;
-const pct = (n: number, d = 1): string => `${(n * 100).toFixed(d)}%`;
+// Screener percent fields (annualizedPct, staticReturnPct) are already in
+// percent units (49.2 = 49.2%) — mirror the web's fmtPct, no re-scaling.
+const pct = (n: number, d = 1): string => `${n.toFixed(d)}%`;
 
 export interface DigestCandidate extends CandidateOut {
   quiverScore?: number | null;

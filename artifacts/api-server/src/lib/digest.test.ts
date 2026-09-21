@@ -148,8 +148,8 @@ const candidate = (over: Record<string, unknown> = {}) => ({
   openInterest: 500,
   premiumPerContract: 250,
   collateralPerContract: 19000,
-  staticReturnPct: 0.0131,
-  annualizedPct: 0.114,
+  staticReturnPct: 1.31,
+  annualizedPct: 15.4,
   breakeven: 187.5,
   pctOtm: 0.05,
   earningsInWindow: false,
@@ -218,6 +218,10 @@ describe("buildDigestHtml", () => {
     expect(subject).toContain("AAPL");
     expect(html).toContain("MSFT");
     expect(html).toContain("63");
+    // Regression: annualizedPct is already percent units — must render as
+    // 15.4%, never re-scaled to 1540%.
+    expect(html).toContain("15.4%");
+    expect(html).not.toContain("1540");
     expect(html).toContain("disclosures lag the trades");
     expect(html).toContain("https://example.com/dashboard");
     expect(text).toContain("AAPL $190.00P");
