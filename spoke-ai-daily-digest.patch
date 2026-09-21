@@ -1,0 +1,1735 @@
+diff --git a/artifacts/api-server/src/app.ts b/artifacts/api-server/src/app.ts
+index 3a96360..7b48eb7 100644
+--- a/artifacts/api-server/src/app.ts
++++ b/artifacts/api-server/src/app.ts
+@@ -7,6 +7,7 @@ import { publishableKeyFromHost } from "@clerk/shared/keys";
+ import router from "./routes";
+ import { logger } from "./lib/logger";
+ import { startAlertScheduler } from "./lib/alerts";
++import { startDigestScheduler } from "./lib/digest";
+ import {
+   CLERK_PROXY_PATH,
+   clerkProxyMiddleware,
+@@ -59,4 +60,12 @@ app.use("/api", router);
+ const ALERT_INTERVAL_MIN = Number(process.env["ALERT_INTERVAL_MIN"] ?? 15);
+ startAlertScheduler(Number.isFinite(ALERT_INTERVAL_MIN) && ALERT_INTERVAL_MIN > 0 ? ALERT_INTERVAL_MIN : 15);
+ 
++// Daily email digest sweep. Best-effort while an instance is awake; on
++// Autoscale deployments pair it with an external cron hitting
++// POST /api/digests/run (see routes/digests.ts).
++const DIGEST_INTERVAL_MIN = Number(process.env["DIGEST_INTERVAL_MIN"] ?? 15);
++startDigestScheduler(
++  Number.isFinite(DIGEST_INTERVAL_MIN) && DIGEST_INTERVAL_MIN > 0 ? DIGEST_INTERVAL_MIN : 15,
++);
++
+ export default app;
+diff --git a/artifacts/api-server/src/lib/alerts.ts b/artifacts/api-server/src/lib/alerts.ts
+index 9951ae6..3a17049 100644
+--- a/artifacts/api-server/src/lib/alerts.ts
++++ b/artifacts/api-server/src/lib/alerts.ts
+@@ -3,6 +3,8 @@ import { and, eq, isNull, inArray } from "drizzle-orm";
+ import { hasCapability } from "@workspace/tiers";
+ import { getSpot } from "./market";
+ import { logger } from "./logger";
++import { isEmailConfigured, sendEmail } from "./email";
++import { getNotificationEmail } from "./userEmail";
+ import { getCurrentTierForUser } from "./tierStore";
+ 
+ export const EXPIRING_SOON_DTE = 3;
+@@ -45,6 +47,9 @@ async function runScan(userId: string): Promise<AlertScanResult> {
+ 
+   let itmAlerts = 0;
+   let expiringAlerts = 0;
++  // New alert messages emitted this scan — emailed as one batch at the end
++  // (best-effort; the in-app notification rows are the source of truth).
++  const emailed: string[] = [];
+ 
+   for (const row of open) {
+     const dte = dteFromIso(row.expiry);
+@@ -89,6 +94,7 @@ async function runScan(userId: string): Promise<AlertScanResult> {
+           message,
+         });
+         itmAlerts += 1;
++        emailed.push(message);
+       }
+     } else if (spot != null && row.lastAlertedItmAt != null) {
+       await db
+@@ -122,10 +128,30 @@ async function runScan(userId: string): Promise<AlertScanResult> {
+           message,
+         });
+         expiringAlerts += 1;
++        emailed.push(message);
+       }
+     }
+   }
+ 
++  if (emailed.length > 0 && isEmailConfigured()) {
++    try {
++      const to = await getNotificationEmail(userId);
++      if (to) {
++        const items = emailed
++          .map((m) => `<li style="margin:4px 0;">${m.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</li>`)
++          .join("");
++        await sendEmail({
++          to,
++          subject: `Spoke.ai alert${emailed.length === 1 ? "" : "s"}: ${emailed.length} position${emailed.length === 1 ? "" : "s"} need${emailed.length === 1 ? "s" : ""} attention`,
++          html: `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:640px;margin:0 auto;color:#111;"><h3>Position alerts</h3><ul style="font-size:14px;">${items}</ul><p style="font-size:13px;"><a href="${process.env.APP_URL ?? "https://spoke-ai.replit.app/dashboard"}/positions">Open your positions</a></p></div>`,
++          text: emailed.join("\n"),
++        });
++      }
++    } catch (err) {
++      logger.warn({ err, userId }, "alerts: email delivery failed");
++    }
++  }
++
+   return { scanned: open.length, itmAlerts, expiringAlerts };
+ }
+ 
+diff --git a/artifacts/api-server/src/lib/digest.test.ts b/artifacts/api-server/src/lib/digest.test.ts
+new file mode 100644
+index 0000000..188c3c7
+--- /dev/null
++++ b/artifacts/api-server/src/lib/digest.test.ts
+@@ -0,0 +1,290 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++
++// --- Mocks -----------------------------------------------------------------
++
++interface SettingsRow {
++  userId: string;
++  tier: string;
++  digestEnabled: boolean;
++  digestHourUtc: number;
++  notificationEmail: string | null;
++  lastDigestAt: Date | null;
++}
++
++const stores = {
++  settings: [] as SettingsRow[],
++  snapshots: [] as Array<Record<string, unknown>>,
++};
++
++vi.mock("@workspace/db", () => {
++  const proxy = (name: string) =>
++    new Proxy({ __t: name } as Record<string, unknown>, {
++      get(t, prop: string) {
++        if (prop === "__t") return t.__t;
++        return { __c: prop };
++      },
++    });
++  const settingsTable = proxy("settings");
++  const scanSnapshotTable = proxy("snapshots");
++  type Pred = (r: Record<string, unknown>) => boolean;
++  const rowsOf = (t: { __t: string }) =>
++    t.__t === "settings"
++      ? (stores.settings as unknown as Array<Record<string, unknown>>)
++      : stores.snapshots;
++  const db = {
++    select: (_proj?: unknown) => {
++      let table: { __t: string } = { __t: "" };
++      let predicate: Pred | null = null;
++      const exec = async () =>
++        predicate ? rowsOf(table).filter(predicate) : [...rowsOf(table)];
++      const chain: Record<string, unknown> = {};
++      chain.from = (t: { __t: string }) => ((table = t), chain);
++      chain.where = (p?: Pred) => ((predicate = typeof p === "function" ? p : null), chain);
++      chain.orderBy = () => chain;
++      chain.then = (res: (r: unknown[]) => unknown, rej?: (e: unknown) => unknown) =>
++        exec().then(res, rej);
++      return chain;
++    },
++    update: (t: { __t: string }) => ({
++      set: (patch: Record<string, unknown>) => {
++        const apply = async (p: Pred) => {
++          const updated: Array<Record<string, unknown>> = [];
++          for (const r of rowsOf(t)) {
++            if (p(r)) {
++              Object.assign(r, patch);
++              updated.push(r);
++            }
++          }
++          return updated;
++        };
++        return {
++          where: (p: Pred) => {
++            const promise = apply(p);
++            return {
++              returning: async () => promise,
++              then: (res: (r: unknown) => unknown, rej?: (e: unknown) => unknown) =>
++                promise.then(res, rej),
++              catch: (rej: (e: unknown) => unknown) => promise.catch(rej),
++            };
++          },
++        };
++      },
++    }),
++    insert: (t: { __t: string }) => ({
++      values: (vals: Record<string, unknown>) => {
++        rowsOf(t).push(vals);
++        const p = Promise.resolve([vals]);
++        return {
++          returning: async () => [vals],
++          then: (res: (r: unknown) => unknown, rej?: (e: unknown) => unknown) => p.then(res, rej),
++        };
++      },
++    }),
++  };
++  return { db, settingsTable, scanSnapshotTable };
++});
++
++vi.mock("drizzle-orm", () => ({
++  eq: (col: { __c?: string }, val: unknown) => (r: Record<string, unknown>) =>
++    r[col.__c ?? ""] === val,
++  and:
++    (...preds: Array<(r: Record<string, unknown>) => boolean>) =>
++    (r: Record<string, unknown>) =>
++      preds.every((p) => p(r)),
++  or:
++    (...preds: Array<(r: Record<string, unknown>) => boolean>) =>
++    (r: Record<string, unknown>) =>
++      preds.some((p) => p(r)),
++  isNull: (col: { __c?: string }) => (r: Record<string, unknown>) => r[col.__c ?? ""] == null,
++  lt: (col: { __c?: string }, val: Date) => (r: Record<string, unknown>) => {
++    const v = r[col.__c ?? ""];
++    return v instanceof Date && v < val;
++  },
++  desc: (c: unknown) => c,
++  asc: (c: unknown) => c,
++  sql: () => undefined,
++}));
++
++const runScreenerMock = vi.fn();
++vi.mock("./screener", () => ({
++  runScreener: (...a: unknown[]) => runScreenerMock(...a),
++}));
++
++vi.mock("./settingsStore", () => ({
++  getSettings: vi.fn(async () => ({ cacheTtlMinutes: 15 })),
++}));
++
++vi.mock("./quiver/client", () => ({ isQuiverConfigured: () => false }));
++vi.mock("./quiver/signals", () => ({ getQuiverSignals: vi.fn() }));
++
++const sendEmailMock = vi.fn();
++let emailConfigured = true;
++vi.mock("./email", () => ({
++  isEmailConfigured: () => emailConfigured,
++  sendEmail: (...a: unknown[]) => sendEmailMock(...a),
++}));
++
++vi.mock("./userEmail", () => ({
++  getNotificationEmail: vi.fn(async () => "user@example.com"),
++}));
++
++import { buildDigestHtml, isDigestDay, isDue, runDigestSweep } from "./digest";
++
++// --- Fixtures ----------------------------------------------------------------
++
++// 2026-09-04 is a Friday.
++const FRI_14_UTC = new Date("2026-09-04T14:05:00Z");
++const SAT = new Date("2026-09-05T14:05:00Z");
++
++const candidate = (over: Record<string, unknown> = {}) => ({
++  ticker: "AAPL",
++  spot: 200,
++  expiry: "2026-10-16",
++  dte: 42,
++  strike: 190,
++  delta: -0.25,
++  bid: 2.5,
++  iv: 0.3,
++  openInterest: 500,
++  premiumPerContract: 250,
++  collateralPerContract: 19000,
++  staticReturnPct: 0.0131,
++  annualizedPct: 0.114,
++  breakeven: 187.5,
++  pctOtm: 0.05,
++  earningsInWindow: false,
++  ivRank: 0.6,
++  ivPercentile: 0.6,
++  ivRankBasis: "real",
++  ...over,
++});
++
++const settingsRow = (over: Partial<SettingsRow> = {}): SettingsRow => ({
++  userId: "user-1",
++  tier: "pro",
++  digestEnabled: true,
++  digestHourUtc: 13,
++  notificationEmail: null,
++  lastDigestAt: null,
++  ...over,
++});
++
++beforeEach(() => {
++  stores.settings = [];
++  stores.snapshots = [];
++  emailConfigured = true;
++  sendEmailMock.mockReset();
++  sendEmailMock.mockResolvedValue(true);
++  runScreenerMock.mockReset();
++  runScreenerMock.mockResolvedValue({
++    scannedAt: FRI_14_UTC.toISOString(),
++    candidates: [candidate()],
++    errors: [],
++    tickersScanned: 30,
++    tickersWithCandidate: 1,
++    hiddenByEarningsCount: 0,
++  });
++});
++
++afterEach(() => {
++  vi.clearAllMocks();
++});
++
++// --- Tests -------------------------------------------------------------------
++
++describe("isDue / isDigestDay", () => {
++  it("fires weekdays after the chosen hour, once per day", () => {
++    expect(isDigestDay(FRI_14_UTC)).toBe(true);
++    expect(isDigestDay(SAT)).toBe(false);
++    expect(isDue(FRI_14_UTC, 13, null)).toBe(true);
++    expect(isDue(FRI_14_UTC, 15, null)).toBe(false); // too early
++    expect(isDue(FRI_14_UTC, 13, new Date("2026-09-04T13:10:00Z"))).toBe(false); // already sent today
++    expect(isDue(FRI_14_UTC, 13, new Date("2026-09-03T13:10:00Z"))).toBe(true); // yesterday's send doesn't block
++    expect(isDue(SAT, 13, null)).toBe(false); // weekend
++  });
++});
++
++describe("buildDigestHtml", () => {
++  it("renders top candidates with quiver scores and an honest footer", () => {
++    const { subject, html, text } = buildDigestHtml({
++      candidates: [
++        { ...candidate(), quiverScore: 63 } as never,
++        { ...candidate({ ticker: "MSFT", strike: 400 }), quiverScore: null } as never,
++      ],
++      tickersScanned: 30,
++      appUrl: "https://example.com/dashboard",
++      dateLabel: "2026-09-04",
++    });
++    expect(subject).toContain("AAPL");
++    expect(html).toContain("MSFT");
++    expect(html).toContain("63");
++    expect(html).toContain("disclosures lag the trades");
++    expect(html).toContain("https://example.com/dashboard");
++    expect(text).toContain("AAPL $190.00P");
++  });
++
++  it("handles an empty candidate list", () => {
++    const { subject, html } = buildDigestHtml({
++      candidates: [],
++      tickersScanned: 30,
++      appUrl: "https://example.com",
++      dateLabel: "2026-09-04",
++    });
++    expect(subject).toContain("no candidates");
++    expect(html).toContain("Nothing cleared your filters");
++  });
++});
++
++describe("runDigestSweep", () => {
++  it("sends to due pro users, records the claim, and persists the scan", async () => {
++    stores.settings = [settingsRow()];
++    const result = await runDigestSweep(FRI_14_UTC);
++    expect(result).toMatchObject({ checked: 1, sent: 1, failed: 0 });
++    expect(sendEmailMock).toHaveBeenCalledTimes(1);
++    expect(sendEmailMock.mock.calls[0][0].to).toBe("user@example.com");
++    expect(stores.settings[0].lastDigestAt).toEqual(FRI_14_UTC);
++    expect(stores.snapshots).toHaveLength(1);
++  });
++
++  it("is idempotent — a second sweep the same day sends nothing", async () => {
++    stores.settings = [settingsRow()];
++    await runDigestSweep(FRI_14_UTC);
++    const second = await runDigestSweep(new Date("2026-09-04T15:00:00Z"));
++    expect(second.sent).toBe(0);
++    expect(sendEmailMock).toHaveBeenCalledTimes(1);
++  });
++
++  it("skips free-tier users, disabled users, not-yet-due hours, and weekends", async () => {
++    stores.settings = [
++      settingsRow({ userId: "free", tier: "free" }),
++      settingsRow({ userId: "late", digestHourUtc: 20 }),
++    ];
++    const result = await runDigestSweep(FRI_14_UTC);
++    expect(result.sent).toBe(0);
++    expect(result.skipped).toBe(2);
++
++    stores.settings = [settingsRow()];
++    expect((await runDigestSweep(SAT)).sent).toBe(0);
++    expect(sendEmailMock).not.toHaveBeenCalled();
++  });
++
++  it("does nothing when the email transport is unconfigured", async () => {
++    emailConfigured = false;
++    stores.settings = [settingsRow()];
++    const result = await runDigestSweep(FRI_14_UTC);
++    expect(result.checked).toBe(0);
++    expect(runScreenerMock).not.toHaveBeenCalled();
++  });
++
++  it("releases the claim when the send fails so a later sweep can retry", async () => {
++    sendEmailMock.mockResolvedValue(false);
++    stores.settings = [settingsRow()];
++    const result = await runDigestSweep(FRI_14_UTC);
++    expect(result.failed).toBe(1);
++    expect(stores.settings[0].lastDigestAt).toBeNull();
++
++    sendEmailMock.mockResolvedValue(true);
++    const retry = await runDigestSweep(new Date("2026-09-04T15:00:00Z"));
++    expect(retry.sent).toBe(1);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/digest.ts b/artifacts/api-server/src/lib/digest.ts
+new file mode 100644
+index 0000000..c25d6d1
+--- /dev/null
++++ b/artifacts/api-server/src/lib/digest.ts
+@@ -0,0 +1,300 @@
++// Daily email digest: per-user scheduled screener run + morning email with
++// the top candidates and their Quiver signals.
++//
++// Firing model (autoscale-safe): `runDigestSweep` is idempotent and cheap to
++// call repeatedly. Each enabled user is "due" once per UTC weekday after
++// their chosen hour; a conditional UPDATE on settings.last_digest_at claims
++// the send so concurrent sweeps (in-process timer + external cron hitting
++// POST /digests/run) can never double-send. On Replit Autoscale the
++// in-process timer only ticks while an instance is awake, so production
++// setups should also point an external cron at the trigger endpoint.
++
++import { db, settingsTable } from "@workspace/db";
++import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
++import { hasCapability, isTier } from "@workspace/tiers";
++import { runScreener, type CandidateOut } from "./screener";
++import { getSettings } from "./settingsStore";
++import { setCachedScanForUser } from "./scanRunner";
++import { scanSnapshotTable } from "@workspace/db";
++import { getQuiverSignals } from "./quiver/signals";
++import { isQuiverConfigured } from "./quiver/client";
++import { isEmailConfigured, sendEmail } from "./email";
++import { getNotificationEmail } from "./userEmail";
++import { logger } from "./logger";
++
++export interface DigestSweepResult {
++  checked: number;
++  sent: number;
++  skipped: number;
++  failed: number;
++}
++
++const DIGEST_CANDIDATE_COUNT = 5;
++
++function startOfUtcDay(now: Date): Date {
++  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
++}
++
++/** Weekdays only — a digest of Friday's stale chain data is Saturday noise. */
++export function isDigestDay(now: Date): boolean {
++  const day = now.getUTCDay();
++  return day >= 1 && day <= 5;
++}
++
++export function isDue(
++  now: Date,
++  digestHourUtc: number,
++  lastDigestAt: Date | null,
++): boolean {
++  if (!isDigestDay(now)) return false;
++  if (now.getUTCHours() < digestHourUtc) return false;
++  if (lastDigestAt && lastDigestAt >= startOfUtcDay(now)) return false;
++  return true;
++}
++
++const esc = (s: string): string =>
++  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
++
++const money = (n: number): string => `$${n.toFixed(2)}`;
++const pct = (n: number, d = 1): string => `${(n * 100).toFixed(d)}%`;
++
++export interface DigestCandidate extends CandidateOut {
++  quiverScore?: number | null;
++}
++
++export function buildDigestHtml(args: {
++  candidates: DigestCandidate[];
++  tickersScanned: number;
++  appUrl: string;
++  dateLabel: string;
++}): { subject: string; html: string; text: string } {
++  const { candidates, tickersScanned, appUrl, dateLabel } = args;
++  const top = candidates.slice(0, DIGEST_CANDIDATE_COUNT);
++
++  const subject =
++    top.length > 0
++      ? `Spoke.ai digest — ${top[0].ticker} ${money(top[0].strike)}P tops today's ${top.length} candidates`
++      : `Spoke.ai digest — no candidates matched today`;
++
++  const rows = top
++    .map(
++      (c) => `
++      <tr>
++        <td style="padding:8px 10px;font-weight:600;">${esc(c.ticker)}</td>
++        <td style="padding:8px 10px;text-align:right;">${money(c.strike)}</td>
++        <td style="padding:8px 10px;text-align:right;">${esc(c.expiry)} (${c.dte}d)</td>
++        <td style="padding:8px 10px;text-align:right;">${money(c.bid)}</td>
++        <td style="padding:8px 10px;text-align:right;font-weight:600;">${pct(c.annualizedPct)}</td>
++        <td style="padding:8px 10px;text-align:right;">${c.ivRank != null ? Math.round(c.ivRank * 100) : "—"}</td>
++        <td style="padding:8px 10px;text-align:right;">${c.quiverScore != null ? Math.round(c.quiverScore) : "—"}</td>
++        <td style="padding:8px 10px;text-align:center;">${c.earningsInWindow ? "⚠️" : ""}</td>
++      </tr>`,
++    )
++    .join("");
++
++  const html = `
++  <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:640px;margin:0 auto;color:#111;">
++    <h2 style="margin:16px 0 4px;">Your wheel candidates — ${esc(dateLabel)}</h2>
++    <p style="margin:0 0 16px;color:#555;font-size:14px;">
++      Scanned ${tickersScanned} tickers with your screener settings.
++      ${top.length > 0 ? `Top ${top.length} by annualized premium:` : "Nothing cleared your filters today."}
++    </p>
++    ${
++      top.length > 0
++        ? `<table style="border-collapse:collapse;width:100%;font-size:14px;border:1px solid #e5e5e5;">
++      <thead>
++        <tr style="background:#f6f6f6;text-align:right;">
++          <th style="padding:8px 10px;text-align:left;">Ticker</th>
++          <th style="padding:8px 10px;">Strike</th>
++          <th style="padding:8px 10px;">Expiry</th>
++          <th style="padding:8px 10px;">Bid</th>
++          <th style="padding:8px 10px;">Ann %</th>
++          <th style="padding:8px 10px;">IV Rk</th>
++          <th style="padding:8px 10px;">Quiver</th>
++          <th style="padding:8px 10px;">Earn</th>
++        </tr>
++      </thead>
++      <tbody>${rows}</tbody>
++    </table>`
++        : ""
++    }
++    <p style="margin:16px 0;">
++      <a href="${appUrl}" style="background:#111;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;font-size:14px;">
++        Open the dashboard
++      </a>
++    </p>
++    <p style="color:#888;font-size:12px;line-height:1.5;">
++      Quiver scores are an activity tilt from congressional/insider/contract
++      data (50 = neutral) — disclosures lag the trades, sometimes by weeks.
++      Nothing here is investment advice; log takes and passes in your journal
++      so the forward test stays honest.
++    </p>
++  </div>`;
++
++  const text =
++    top.length > 0
++      ? top
++          .map(
++            (c) =>
++              `${c.ticker} ${money(c.strike)}P ${c.expiry} — bid ${money(c.bid)}, ann ${pct(c.annualizedPct)}${c.earningsInWindow ? " (earnings in window)" : ""}`,
++          )
++          .join("\n")
++      : "No candidates matched your filters today.";
++
++  return { subject, html, text };
++}
++
++/** Run the user's screener exactly like POST /scan does, warming their cache. */
++async function runScanForUser(userId: string): Promise<{
++  candidates: CandidateOut[];
++  tickersScanned: number;
++}> {
++  const cfg = await getSettings(userId);
++  const result = await runScreener(cfg);
++  setCachedScanForUser(userId, result, cfg.cacheTtlMinutes * 60 * 1000);
++  try {
++    await db.insert(scanSnapshotTable).values({
++      userId,
++      scannedAt: result.scannedAt ? new Date(result.scannedAt) : new Date(),
++      candidates: result.candidates,
++      errors: result.errors,
++      tickersScanned: result.tickersScanned,
++      tickersWithCandidate: result.tickersWithCandidate,
++      hiddenByEarningsCount: result.hiddenByEarningsCount,
++    });
++  } catch (err) {
++    logger.warn({ err, userId }, "digest: failed to persist scan snapshot");
++  }
++  return { candidates: result.candidates, tickersScanned: result.tickersScanned };
++}
++
++async function enrichWithQuiver(candidates: CandidateOut[]): Promise<DigestCandidate[]> {
++  const top = candidates.slice(0, DIGEST_CANDIDATE_COUNT);
++  if (!isQuiverConfigured()) return top;
++  return Promise.all(
++    top.map(async (c) => {
++      try {
++        const signals = await getQuiverSignals(c.ticker);
++        return { ...c, quiverScore: signals.score };
++      } catch {
++        return { ...c, quiverScore: null };
++      }
++    }),
++  );
++}
++
++async function sendDigestForUser(userId: string, now: Date): Promise<boolean> {
++  const to = await getNotificationEmail(userId);
++  if (!to) {
++    logger.warn({ userId }, "digest: no email address resolvable, skipping");
++    return false;
++  }
++  const scan = await runScanForUser(userId);
++  const candidates = await enrichWithQuiver(scan.candidates);
++  const appUrl = process.env.APP_URL ?? "https://spoke-ai.replit.app/dashboard";
++  const dateLabel = now.toISOString().slice(0, 10);
++  const { subject, html, text } = buildDigestHtml({
++    candidates,
++    tickersScanned: scan.tickersScanned,
++    appUrl,
++    dateLabel,
++  });
++  return sendEmail({ to, subject, html, text });
++}
++
++/**
++ * One sweep over all users: claim + send every due digest. Idempotent —
++ * safe to call from the in-process timer and an external cron concurrently.
++ */
++export async function runDigestSweep(now = new Date()): Promise<DigestSweepResult> {
++  const result: DigestSweepResult = { checked: 0, sent: 0, skipped: 0, failed: 0 };
++  if (!isEmailConfigured()) return result;
++  if (!isDigestDay(now)) return result;
++
++  const rows = await db
++    .select()
++    .from(settingsTable)
++    .where(eq(settingsTable.digestEnabled, true));
++
++  for (const row of rows) {
++    result.checked += 1;
++    const tier = isTier(row.tier) ? row.tier : "free";
++    if (!hasCapability(tier, "alerts.email")) {
++      result.skipped += 1;
++      continue;
++    }
++    if (!isDue(now, row.digestHourUtc ?? 13, row.lastDigestAt ?? null)) {
++      result.skipped += 1;
++      continue;
++    }
++
++    // Claim before sending: only one sweep wins the day's digest. Capture
++    // the pre-claim marker first so a failed send can restore it exactly.
++    const previousLastDigestAt = row.lastDigestAt ?? null;
++    const dayStart = startOfUtcDay(now);
++    const claimed = await db
++      .update(settingsTable)
++      .set({ lastDigestAt: now })
++      .where(
++        and(
++          eq(settingsTable.userId, row.userId),
++          eq(settingsTable.digestEnabled, true),
++          or(isNull(settingsTable.lastDigestAt), lt(settingsTable.lastDigestAt, dayStart)),
++        ),
++      )
++      .returning({ userId: settingsTable.userId });
++    if (claimed.length === 0) {
++      result.skipped += 1;
++      continue;
++    }
++
++    try {
++      const ok = await sendDigestForUser(row.userId, now);
++      if (ok) {
++        result.sent += 1;
++        logger.info({ userId: row.userId }, "digest: sent");
++      } else {
++        result.failed += 1;
++        // Release the claim so the next sweep can retry today.
++        await db
++          .update(settingsTable)
++          .set({ lastDigestAt: previousLastDigestAt })
++          .where(eq(settingsTable.userId, row.userId));
++      }
++    } catch (err) {
++      result.failed += 1;
++      logger.error({ err, userId: row.userId }, "digest: send crashed");
++      await db
++        .update(settingsTable)
++        .set({ lastDigestAt: previousLastDigestAt })
++        .where(eq(settingsTable.userId, row.userId))
++        .catch(() => {});
++    }
++  }
++  return result;
++}
++
++let timer: NodeJS.Timeout | null = null;
++
++export function startDigestScheduler(intervalMinutes = 15): void {
++  if (timer) return;
++  if (!isEmailConfigured()) {
++    logger.info("digest scheduler: RESEND_API_KEY not set, scheduler disabled");
++    return;
++  }
++  logger.info({ intervalMinutes }, "digest scheduler: started");
++  timer = setInterval(() => {
++    runDigestSweep().catch((err) => logger.error({ err }, "digest sweep failed"));
++  }, intervalMinutes * 60 * 1000);
++  timer.unref?.();
++}
++
++export function stopDigestScheduler(): void {
++  if (timer) {
++    clearInterval(timer);
++    timer = null;
++  }
++}
++
++// `sql` reserved for future aggregate queries.
++void sql;
+diff --git a/artifacts/api-server/src/lib/email.ts b/artifacts/api-server/src/lib/email.ts
+new file mode 100644
+index 0000000..d8cbf29
+--- /dev/null
++++ b/artifacts/api-server/src/lib/email.ts
+@@ -0,0 +1,71 @@
++// Email transport via Resend's REST API (no SDK dependency).
++//
++// Configured with:
++//   RESEND_API_KEY  — required for sending; feature is a logged no-op without it
++//   EMAIL_FROM      — sender, defaults to Resend's shared onboarding address
++//                     (fine for testing; set a verified domain for production)
++//
++// Every caller treats sending as best-effort: a failed email must never fail
++// the request or scheduler tick that triggered it.
++
++import { logger } from "./logger";
++
++const RESEND_URL = "https://api.resend.com/emails";
++const SEND_TIMEOUT_MS = 10_000;
++
++export function isEmailConfigured(): boolean {
++  return Boolean(process.env.RESEND_API_KEY);
++}
++
++export function emailFrom(): string {
++  return process.env.EMAIL_FROM ?? "Spoke.ai <onboarding@resend.dev>";
++}
++
++export interface SendEmailArgs {
++  to: string;
++  subject: string;
++  html: string;
++  text?: string;
++}
++
++/** Send one email. Returns true on success, false on any failure. */
++export async function sendEmail(args: SendEmailArgs): Promise<boolean> {
++  const apiKey = process.env.RESEND_API_KEY;
++  if (!apiKey) {
++    logger.info({ to: args.to, subject: args.subject }, "email: transport not configured, skipping send");
++    return false;
++  }
++  const controller = new AbortController();
++  const timer = setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
++  try {
++    const res = await fetch(RESEND_URL, {
++      method: "POST",
++      headers: {
++        Authorization: `Bearer ${apiKey}`,
++        "Content-Type": "application/json",
++      },
++      body: JSON.stringify({
++        from: emailFrom(),
++        to: [args.to],
++        subject: args.subject,
++        html: args.html,
++        ...(args.text ? { text: args.text } : {}),
++      }),
++      signal: controller.signal,
++    });
++    if (!res.ok) {
++      const body = await res.text().catch(() => "");
++      logger.warn(
++        { to: args.to, subject: args.subject, status: res.status, body: body.slice(0, 300) },
++        "email: send failed",
++      );
++      return false;
++    }
++    return true;
++  } catch (err) {
++    logger.warn({ err, to: args.to, subject: args.subject }, "email: send errored");
++    return false;
++  } finally {
++    clearTimeout(timer);
++  }
++}
+diff --git a/artifacts/api-server/src/lib/userEmail.ts b/artifacts/api-server/src/lib/userEmail.ts
+new file mode 100644
+index 0000000..bce0d1a
+--- /dev/null
++++ b/artifacts/api-server/src/lib/userEmail.ts
+@@ -0,0 +1,30 @@
++// Resolves where to send a user's emails: the notification_email override on
++// their settings row when set, otherwise their Clerk account's primary email.
++
++import { clerkClient } from "@clerk/express";
++import { db, settingsTable } from "@workspace/db";
++import { eq } from "drizzle-orm";
++import { logger } from "./logger";
++
++export async function getAccountEmail(userId: string): Promise<string | null> {
++  try {
++    const user = await clerkClient.users.getUser(userId);
++    const primary = user.emailAddresses.find(
++      (e) => e.id === user.primaryEmailAddressId,
++    );
++    return primary?.emailAddress ?? user.emailAddresses[0]?.emailAddress ?? null;
++  } catch (err) {
++    logger.warn({ err, userId }, "email: failed to resolve Clerk account email");
++    return null;
++  }
++}
++
++export async function getNotificationEmail(userId: string): Promise<string | null> {
++  const [row] = await db
++    .select({ notificationEmail: settingsTable.notificationEmail })
++    .from(settingsTable)
++    .where(eq(settingsTable.userId, userId));
++  const override = row?.notificationEmail?.trim();
++  if (override) return override;
++  return getAccountEmail(userId);
++}
+diff --git a/artifacts/api-server/src/routes/digests.test.ts b/artifacts/api-server/src/routes/digests.test.ts
+new file mode 100644
+index 0000000..92a7d1d
+--- /dev/null
++++ b/artifacts/api-server/src/routes/digests.test.ts
+@@ -0,0 +1,56 @@
++import express from "express";
++import request from "supertest";
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++
++const sweepMock = vi.fn();
++vi.mock("../lib/digest", () => ({
++  runDigestSweep: (...a: unknown[]) => sweepMock(...a),
++}));
++
++import digestsRouter from "./digests";
++
++function buildApp() {
++  const app = express();
++  app.use(express.json());
++  app.use(digestsRouter);
++  return app;
++}
++
++beforeEach(() => {
++  sweepMock.mockReset();
++  sweepMock.mockResolvedValue({ checked: 2, sent: 1, skipped: 1, failed: 0 });
++  vi.stubEnv("DIGEST_CRON_SECRET", "s3cret");
++});
++
++afterEach(() => {
++  vi.unstubAllEnvs();
++  vi.clearAllMocks();
++});
++
++describe("POST /digests/run", () => {
++  it("runs the sweep with the correct secret", async () => {
++    const res = await request(buildApp())
++      .post("/digests/run")
++      .set("x-digest-secret", "s3cret");
++    expect(res.status).toBe(200);
++    expect(res.body).toEqual({ checked: 2, sent: 1, skipped: 1, failed: 0 });
++    expect(sweepMock).toHaveBeenCalledTimes(1);
++  });
++
++  it("rejects a wrong or missing secret without running the sweep", async () => {
++    expect(
++      (await request(buildApp()).post("/digests/run").set("x-digest-secret", "nope")).status,
++    ).toBe(401);
++    expect((await request(buildApp()).post("/digests/run")).status).toBe(401);
++    expect(sweepMock).not.toHaveBeenCalled();
++  });
++
++  it("503s when no secret is configured server-side", async () => {
++    vi.stubEnv("DIGEST_CRON_SECRET", "");
++    const res = await request(buildApp())
++      .post("/digests/run")
++      .set("x-digest-secret", "anything");
++    expect(res.status).toBe(503);
++    expect(sweepMock).not.toHaveBeenCalled();
++  });
++});
+diff --git a/artifacts/api-server/src/routes/digests.ts b/artifacts/api-server/src/routes/digests.ts
+new file mode 100644
+index 0000000..67c42be
+--- /dev/null
++++ b/artifacts/api-server/src/routes/digests.ts
+@@ -0,0 +1,39 @@
++import { Router, type IRouter } from "express";
++import { runDigestSweep } from "../lib/digest";
++import { logger } from "../lib/logger";
++
++const router: IRouter = Router();
++
++// External-cron trigger for the daily digest sweep. Deliberately NOT in the
++// OpenAPI spec and mounted BEFORE requireUser: it is machine-to-machine,
++// authenticated by a shared secret instead of a Clerk session.
++//
++// Why it exists: on Replit Autoscale the in-process scheduler only ticks
++// while an instance is awake, so a Scheduled Deployment (or any external
++// cron) POSTs here to guarantee delivery. The sweep is idempotent — a
++// conditional claim on settings.last_digest_at means concurrent triggers
++// never double-send.
++//
++// Setup: set DIGEST_CRON_SECRET, then cron:
++//   curl -X POST -H "x-digest-secret: $DIGEST_CRON_SECRET" https://<app>/api/digests/run
++router.post("/digests/run", async (req, res): Promise<void> => {
++  const secret = process.env.DIGEST_CRON_SECRET;
++  if (!secret) {
++    res.status(503).json({ error: "DIGEST_CRON_SECRET is not configured" });
++    return;
++  }
++  const provided = req.get("x-digest-secret") ?? "";
++  if (provided !== secret) {
++    res.status(401).json({ error: "invalid digest secret" });
++    return;
++  }
++  try {
++    const result = await runDigestSweep();
++    res.json(result);
++  } catch (err) {
++    logger.error({ err }, "digest run endpoint failed");
++    res.status(500).json({ error: "digest sweep failed" });
++  }
++});
++
++export default router;
+diff --git a/artifacts/api-server/src/routes/index.ts b/artifacts/api-server/src/routes/index.ts
+index 1b39aac..b6abf0f 100644
+--- a/artifacts/api-server/src/routes/index.ts
++++ b/artifacts/api-server/src/routes/index.ts
+@@ -13,11 +13,15 @@ import qaRouter from "./qa";
+ import sectorsRouter from "./sectors";
+ import quiverRouter from "./quiver";
+ import journalRouter from "./journal";
++import digestsRouter from "./digests";
+ import { requireUser } from "../middlewares/auth";
+ 
+ const router: IRouter = Router();
+ 
+ router.use(healthRouter);
++// Machine-to-machine digest trigger (shared-secret auth, not Clerk) — must
++// stay above requireUser.
++router.use(digestsRouter);
+ 
+ // All routes below require an authenticated Clerk user.
+ // Public webhook endpoints (none today) would be added before this line.
+diff --git a/artifacts/api-server/src/routes/settings.ts b/artifacts/api-server/src/routes/settings.ts
+index 3bdbfd5..8b0434e 100644
+--- a/artifacts/api-server/src/routes/settings.ts
++++ b/artifacts/api-server/src/routes/settings.ts
+@@ -1,7 +1,19 @@
+ import { Router, type IRouter } from "express";
+-import { UpdateSettingsBody, GetSettingsResponse, UpdateSettingsResponse } from "@workspace/api-zod";
++import {
++  UpdateSettingsBody,
++  GetSettingsResponse,
++  UpdateSettingsResponse,
++  GetDigestSettingsResponse,
++  UpdateDigestSettingsBody,
++  UpdateDigestSettingsResponse,
++} from "@workspace/api-zod";
++import { db, settingsTable } from "@workspace/db";
++import { eq } from "drizzle-orm";
+ import { getSettings, saveSettings } from "../lib/settingsStore";
+ import { getUserId } from "../middlewares/auth";
++import { requireCapability } from "../middlewares/tier";
++import { isEmailConfigured } from "../lib/email";
++import { getAccountEmail } from "../lib/userEmail";
+ 
+ const router: IRouter = Router();
+ 
+@@ -35,4 +47,64 @@ router.put("/settings", async (req, res): Promise<void> => {
+   res.json(UpdateSettingsResponse.parse(s));
+ });
+ 
++router.get("/settings/digest", async (req, res): Promise<void> => {
++  const userId = getUserId(req);
++  // Ensure the settings row exists (seeds defaults on first touch).
++  await getSettings(userId);
++  const [row] = await db
++    .select()
++    .from(settingsTable)
++    .where(eq(settingsTable.userId, userId));
++  const accountEmail = await getAccountEmail(userId);
++  res.json(
++    GetDigestSettingsResponse.parse({
++      enabled: row?.digestEnabled ?? false,
++      hourUtc: row?.digestHourUtc ?? 13,
++      email: row?.notificationEmail ?? null,
++      accountEmail,
++      emailConfigured: isEmailConfigured(),
++      lastDigestAt: row?.lastDigestAt ? row.lastDigestAt.toISOString() : null,
++    }),
++  );
++});
++
++router.put(
++  "/settings/digest",
++  requireCapability("alerts.email"),
++  async (req, res): Promise<void> => {
++    const userId = getUserId(req);
++    const parsed = UpdateDigestSettingsBody.safeParse(req.body);
++    if (!parsed.success) {
++      res.status(400).json({ error: parsed.error.message });
++      return;
++    }
++    const v = parsed.data;
++    await getSettings(userId); // seed the row if needed
++    const [updated] = await db
++      .update(settingsTable)
++      .set({
++        digestEnabled: v.enabled,
++        digestHourUtc: v.hourUtc,
++        notificationEmail: v.email?.trim() || null,
++      })
++      .where(eq(settingsTable.userId, userId))
++      .returning();
++    if (!updated) {
++      res.status(500).json({ error: "failed to update digest settings" });
++      return;
++    }
++    const accountEmail = await getAccountEmail(userId);
++    res.json(
++      UpdateDigestSettingsResponse.parse({
++        enabled: updated.digestEnabled,
++        hourUtc: updated.digestHourUtc,
++        email: updated.notificationEmail ?? null,
++        accountEmail,
++        emailConfigured: isEmailConfigured(),
++        lastDigestAt: updated.lastDigestAt ? updated.lastDigestAt.toISOString() : null,
++      }),
++    );
++  },
++);
++
+ export default router;
+diff --git a/artifacts/web/src/components/email-alerts-card.tsx b/artifacts/web/src/components/email-alerts-card.tsx
+index 71ae774..8353ab4 100644
+--- a/artifacts/web/src/components/email-alerts-card.tsx
++++ b/artifacts/web/src/components/email-alerts-card.tsx
+@@ -1,48 +1,169 @@
+-import { useState } from "react";
++import { useEffect, useState } from "react";
++import { useQueryClient } from "@tanstack/react-query";
++import {
++  useGetDigestSettings,
++  useUpdateDigestSettings,
++  getGetDigestSettingsQueryKey,
++} from "@workspace/api-client-react";
+ import { Mail } from "lucide-react";
+ import { Card, CardContent } from "@/components/ui/card";
+ import { Button } from "@/components/ui/button";
++import { Input } from "@/components/ui/input";
+ import { GatedFeature } from "@/components/gated-feature";
++import { useToast } from "@/hooks/use-toast";
+ 
+ /**
+- * "Email alerts" preference card surfaced in Settings. The toggle UI is
+- * intentionally local-only today — the actual email transport (SMTP /
+- * Resend) lands in a separate task. This card exists now so the gating
+- * primitive is visibly wired into a real surface and the upgrade path
+- * is obvious to free-tier users.
++ * Email preferences card: daily candidate digest + alert delivery. Persisted
++ * server-side; the digest fires on weekdays after the chosen UTC hour, and
++ * ITM / near-expiry alerts are emailed as they trigger.
+  */
+ export function EmailAlertsCard() {
++  const qc = useQueryClient();
++  const { toast } = useToast();
++  const { data, isLoading } = useGetDigestSettings();
++  const update = useUpdateDigestSettings();
++
+   const [enabled, setEnabled] = useState(false);
++  const [hourUtc, setHourUtc] = useState(13);
++  const [email, setEmail] = useState("");
++
++  useEffect(() => {
++    if (data) {
++      setEnabled(data.enabled);
++      setHourUtc(data.hourUtc);
++      setEmail(data.email ?? "");
++    }
++  }, [data]);
++
++  const save = (next: { enabled: boolean; hourUtc: number; email: string }) => {
++    update.mutate(
++      {
++        data: {
++          enabled: next.enabled,
++          hourUtc: next.hourUtc,
++          email: next.email.trim() || null,
++        },
++      },
++      {
++        onSuccess: () => {
++          void qc.invalidateQueries({ queryKey: getGetDigestSettingsQueryKey() });
++          toast({
++            title: next.enabled ? "Daily digest on" : "Daily digest off",
++            description: next.enabled
++              ? `Weekday mornings after ${String(next.hourUtc).padStart(2, "0")}:00 UTC to ${next.email.trim() || data?.accountEmail || "your account email"}`
++              : undefined,
++          });
++        },
++        onError: (err) => {
++          toast({
++            variant: "destructive",
++            title: "Failed to save email settings",
++            description: err instanceof Error ? err.message : "Unknown error",
++          });
++        },
++      },
++    );
++  };
++
++  const localHourLabel = (h: number): string => {
++    // Show what the UTC hour means on the user's clock.
++    const d = new Date();
++    d.setUTCHours(h, 0, 0, 0);
++    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
++  };
++
+   return (
+     <GatedFeature
+       capability="alerts.email"
+       upgradeTitle="Email alerts are part of Pro"
+-      upgradeDescription="Get position alerts (assignment risk, near-expiry) delivered to your inbox. Upgrade to Pro to turn them on."
++      upgradeDescription="Get a daily candidate digest plus position alerts (assignment risk, near-expiry) delivered to your inbox. Upgrade to Pro to turn them on."
+     >
+       <Card className="border-card-border" data-testid="email-alerts-card">
+-        <CardContent className="flex items-start justify-between gap-4 p-5">
+-          <div className="flex items-start gap-3">
+-            <div className="rounded-md bg-accent/60 p-2 text-accent-foreground">
+-              <Mail className="h-4 w-4" aria-hidden />
+-            </div>
+-            <div>
+-              <h3 className="text-sm font-semibold tracking-tight">Email alerts</h3>
+-              <p className="text-xs text-muted-foreground">
+-                Send a copy of every assignment-risk and near-expiry alert
+-                to your inbox.
+-              </p>
++        <CardContent className="space-y-4 p-5">
++          <div className="flex items-start justify-between gap-4">
++            <div className="flex items-start gap-3">
++              <div className="rounded-md bg-accent/60 p-2 text-accent-foreground">
++                <Mail className="h-4 w-4" aria-hidden />
++              </div>
++              <div>
++                <h3 className="text-sm font-semibold tracking-tight">
++                  Daily digest &amp; email alerts
++                </h3>
++                <p className="text-xs text-muted-foreground">
++                  A weekday morning email with your top candidates (and their
++                  Quiver scores), plus assignment-risk and near-expiry alerts
++                  as they fire.
++                </p>
++              </div>
+             </div>
++            <Button
++              type="button"
++              size="sm"
++              variant={enabled ? "default" : "outline"}
++              disabled={isLoading || update.isPending}
++              onClick={() => {
++                const next = !enabled;
++                setEnabled(next);
++                save({ enabled: next, hourUtc, email });
++              }}
++              data-testid="button-toggle-email-alerts"
++              aria-pressed={enabled}
++            >
++              {enabled ? "On" : "Off"}
++            </Button>
+           </div>
+-          <Button
+-            type="button"
+-            size="sm"
+-            variant={enabled ? "default" : "outline"}
+-            onClick={() => setEnabled((v) => !v)}
+-            data-testid="button-toggle-email-alerts"
+-            aria-pressed={enabled}
+-          >
+-            {enabled ? "On" : "Off"}
+-          </Button>
++
++          {data && !data.emailConfigured && (
++            <p className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
++              The server has no email transport configured yet (RESEND_API_KEY)
++              — settings are saved, but nothing will send until it's added.
++            </p>
++          )}
++
++          {enabled && (
++            <div className="grid gap-3 sm:grid-cols-2">
++              <div className="space-y-1">
++                <label className="text-xs font-medium text-muted-foreground" htmlFor="digest-hour">
++                  Send after (UTC hour)
++                </label>
++                <select
++                  id="digest-hour"
++                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
++                  value={hourUtc}
++                  onChange={(e) => {
++                    const h = Number(e.target.value);
++                    setHourUtc(h);
++                    save({ enabled, hourUtc: h, email });
++                  }}
++                  data-testid="select-digest-hour"
++                >
++                  {Array.from({ length: 24 }, (_, h) => (
++                    <option key={h} value={h}>
++                      {String(h).padStart(2, "0")}:00 UTC ({localHourLabel(h)} local)
++                    </option>
++                  ))}
++                </select>
++              </div>
++              <div className="space-y-1">
++                <label className="text-xs font-medium text-muted-foreground" htmlFor="digest-email">
++                  Deliver to
++                </label>
++                <Input
++                  id="digest-email"
++                  type="email"
++                  placeholder={data?.accountEmail ?? "you@example.com"}
++                  value={email}
++                  onChange={(e) => setEmail(e.target.value)}
++                  onBlur={() => save({ enabled, hourUtc, email })}
++                  data-testid="input-digest-email"
++                />
++                <p className="text-[10px] text-muted-foreground">
++                  Leave blank to use your account email
++                  {data?.accountEmail ? ` (${data.accountEmail})` : ""}.
++                </p>
++              </div>
++            </div>
++          )}
+         </CardContent>
+       </Card>
+     </GatedFeature>
+diff --git a/docs/migrations/2026-09-04-digest-settings.sql b/docs/migrations/2026-09-04-digest-settings.sql
+new file mode 100644
+index 0000000..4c006de
+--- /dev/null
++++ b/docs/migrations/2026-09-04-digest-settings.sql
+@@ -0,0 +1,7 @@
++-- Daily digest + email settings migration (2026-09-04).
++-- Additive only; safe to run once on the production database.
++
++ALTER TABLE settings ADD COLUMN IF NOT EXISTS digest_enabled boolean NOT NULL DEFAULT false;
++ALTER TABLE settings ADD COLUMN IF NOT EXISTS digest_hour_utc integer NOT NULL DEFAULT 13;
++ALTER TABLE settings ADD COLUMN IF NOT EXISTS notification_email text;
++ALTER TABLE settings ADD COLUMN IF NOT EXISTS last_digest_at timestamptz;
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index 03cdebf..1c8d65f 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -146,6 +146,41 @@ export interface SettingsInput {
+   earningsInWindow: SettingsInputEarningsInWindow;
+ }
+ 
++export interface DigestSettings {
++  enabled: boolean;
++  /**
++   * UTC hour after which the day's digest sends (weekdays).
++   * @minimum 0
++   * @maximum 23
++   */
++  hourUtc: number;
++  /**
++   * Override address; null = the Clerk account email.
++   * @nullable
++   */
++  email?: string | null;
++  /**
++   * The Clerk account email the digest falls back to (read-only).
++   * @nullable
++   */
++  accountEmail?: string | null;
++  /** Whether the server has an email transport (RESEND_API_KEY) configured. */
++  emailConfigured: boolean;
++  /** @nullable */
++  lastDigestAt?: string | null;
++}
++
++export interface DigestSettingsInput {
++  enabled: boolean;
++  /**
++   * @minimum 0
++   * @maximum 23
++   */
++  hourUtc: number;
++  /** @nullable */
++  email?: string | null;
++}
++
+ /**
+  * One-shot override for the earnings-in-window filter; falls back to the saved setting when omitted.
+  */
+diff --git a/lib/api-client-react/src/generated/api.ts b/lib/api-client-react/src/generated/api.ts
+index 8d7e36d..a53c5d9 100644
+--- a/lib/api-client-react/src/generated/api.ts
++++ b/lib/api-client-react/src/generated/api.ts
+@@ -31,6 +31,8 @@ import type {
+   ChainExpirations,
+   DeleteQaConversation404,
+   DeleteResult,
++  DigestSettings,
++  DigestSettingsInput,
+   ExplainCandidate404,
+   ExplainCandidateInput,
+   GetPositionAdvisor404,
+@@ -862,6 +864,172 @@ export const useUpdateSettings = <
+   return useMutation(getUpdateSettingsMutationOptions(options));
+ };
+ 
++/**
++ * @summary Daily email digest preferences
++ */
++export const getGetDigestSettingsUrl = () => {
++  return `/api/settings/digest`;
++};
++
++export const getDigestSettings = async (
++  options?: RequestInit,
++): Promise<DigestSettings> => {
++  return customFetch<DigestSettings>(getGetDigestSettingsUrl(), {
++    ...options,
++    method: "GET",
++  });
++};
++
++export const getGetDigestSettingsQueryKey = () => {
++  return [`/api/settings/digest`] as const;
++};
++
++export const getGetDigestSettingsQueryOptions = <
++  TData = Awaited<ReturnType<typeof getDigestSettings>>,
++  TError = ErrorType<unknown>,
++>(options?: {
++  query?: UseQueryOptions<
++    Awaited<ReturnType<typeof getDigestSettings>>,
++    TError,
++    TData
++  >;
++  request?: SecondParameter<typeof customFetch>;
++}) => {
++  const { query: queryOptions, request: requestOptions } = options ?? {};
++
++  const queryKey = queryOptions?.queryKey ?? getGetDigestSettingsQueryKey();
++
++  const queryFn: QueryFunction<
++    Awaited<ReturnType<typeof getDigestSettings>>
++  > = ({ signal }) => getDigestSettings({ signal, ...requestOptions });
++
++  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
++    Awaited<ReturnType<typeof getDigestSettings>>,
++    TError,
++    TData
++  > & { queryKey: QueryKey };
++};
++
++export type GetDigestSettingsQueryResult = NonNullable<
++  Awaited<ReturnType<typeof getDigestSettings>>
++>;
++export type GetDigestSettingsQueryError = ErrorType<unknown>;
++
++/**
++ * @summary Daily email digest preferences
++ */
++
++export function useGetDigestSettings<
++  TData = Awaited<ReturnType<typeof getDigestSettings>>,
++  TError = ErrorType<unknown>,
++>(options?: {
++  query?: UseQueryOptions<
++    Awaited<ReturnType<typeof getDigestSettings>>,
++    TError,
++    TData
++  >;
++  request?: SecondParameter<typeof customFetch>;
++}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
++  const queryOptions = getGetDigestSettingsQueryOptions(options);
++
++  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
++    queryKey: QueryKey;
++  };
++
++  return { ...query, queryKey: queryOptions.queryKey };
++}
++
++/**
++ * Gated by the alerts.email capability (Pro). `email` overrides the
++account email; null falls back to the Clerk account address.
++`hourUtc` is the UTC hour after which the day's digest is sent
++(weekdays only).
++
++ * @summary Update daily email digest preferences
++ */
++export const getUpdateDigestSettingsUrl = () => {
++  return `/api/settings/digest`;
++};
++
++export const updateDigestSettings = async (
++  digestSettingsInput: DigestSettingsInput,
++  options?: RequestInit,
++): Promise<DigestSettings> => {
++  return customFetch<DigestSettings>(getUpdateDigestSettingsUrl(), {
++    ...options,
++    method: "PUT",
++    headers: { "Content-Type": "application/json", ...options?.headers },
++    body: JSON.stringify(digestSettingsInput),
++  });
++};
++
++export const getUpdateDigestSettingsMutationOptions = <
++  TError = ErrorType<unknown>,
++  TContext = unknown,
++>(options?: {
++  mutation?: UseMutationOptions<
++    Awaited<ReturnType<typeof updateDigestSettings>>,
++    TError,
++    { data: BodyType<DigestSettingsInput> },
++    TContext
++  >;
++  request?: SecondParameter<typeof customFetch>;
++}): UseMutationOptions<
++  Awaited<ReturnType<typeof updateDigestSettings>>,
++  TError,
++  { data: BodyType<DigestSettingsInput> },
++  TContext
++> => {
++  const mutationKey = ["updateDigestSettings"];
++  const { mutation: mutationOptions, request: requestOptions } = options
++    ? options.mutation &&
++      "mutationKey" in options.mutation &&
++      options.mutation.mutationKey
++      ? options
++      : { ...options, mutation: { ...options.mutation, mutationKey } }
++    : { mutation: { mutationKey }, request: undefined };
++
++  const mutationFn: MutationFunction<
++    Awaited<ReturnType<typeof updateDigestSettings>>,
++    { data: BodyType<DigestSettingsInput> }
++  > = (props) => {
++    const { data } = props ?? {};
++
++    return updateDigestSettings(data, requestOptions);
++  };
++
++  return { mutationFn, ...mutationOptions };
++};
++
++export type UpdateDigestSettingsMutationResult = NonNullable<
++  Awaited<ReturnType<typeof updateDigestSettings>>
++>;
++export type UpdateDigestSettingsMutationBody = BodyType<DigestSettingsInput>;
++export type UpdateDigestSettingsMutationError = ErrorType<unknown>;
++
++/**
++ * @summary Update daily email digest preferences
++ */
++export const useUpdateDigestSettings = <
++  TError = ErrorType<unknown>,
++  TContext = unknown,
++>(options?: {
++  mutation?: UseMutationOptions<
++    Awaited<ReturnType<typeof updateDigestSettings>>,
++    TError,
++    { data: BodyType<DigestSettingsInput> },
++    TContext
++  >;
++  request?: SecondParameter<typeof customFetch>;
++}): UseMutationResult<
++  Awaited<ReturnType<typeof updateDigestSettings>>,
++  TError,
++  { data: BodyType<DigestSettingsInput> },
++  TContext
++> => {
++  return useMutation(getUpdateDigestSettingsMutationOptions(options));
++};
++
+ /**
+  * Scans the watchlist and returns ranked short-put candidates.
+ Results are cached to disk according to settings.cacheTtlMinutes
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index 516c1ad..45d5991 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -195,6 +195,41 @@ paths:
+               schema:
+                 $ref: "#/components/schemas/Settings"
+ 
++  /settings/digest:
++    get:
++      operationId: getDigestSettings
++      tags: [settings]
++      summary: Daily email digest preferences
++      responses:
++        "200":
++          description: Digest settings
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/DigestSettings"
++    put:
++      operationId: updateDigestSettings
++      tags: [settings]
++      summary: Update daily email digest preferences
++      description: |
++        Gated by the alerts.email capability (Pro). `email` overrides the
++        account email; null falls back to the Clerk account address.
++        `hourUtc` is the UTC hour after which the day's digest is sent
++        (weekdays only).
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              $ref: "#/components/schemas/DigestSettingsInput"
++      responses:
++        "200":
++          description: Updated digest settings
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/DigestSettings"
++
+   /scan:
+     post:
+       operationId: runScan
+@@ -1338,6 +1373,25 @@ components:
+           type: string
+           enum: [hide, only, include]
+ 
++    DigestSettings:
++      type: object
++      required: [enabled, hourUtc, emailConfigured]
++      properties:
++        enabled: { type: boolean }
++        hourUtc: { type: integer, minimum: 0, maximum: 23, description: "UTC hour after which the day's digest sends (weekdays)." }
++        email: { type: ["string", "null"], description: "Override address; null = the Clerk account email." }
++        accountEmail: { type: ["string", "null"], description: "The Clerk account email the digest falls back to (read-only)." }
++        emailConfigured: { type: boolean, description: "Whether the server has an email transport (RESEND_API_KEY) configured." }
++        lastDigestAt: { type: ["string", "null"] }
++
++    DigestSettingsInput:
++      type: object
++      required: [enabled, hourUtc]
++      properties:
++        enabled: { type: boolean }
++        hourUtc: { type: integer, minimum: 0, maximum: 23 }
++        email: { type: ["string", "null"], format: email }
++
+     ScanInput:
+       type: object
+       description: Optional one-shot overrides for this scan (does not persist)
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index 28f435a..4b08b5c 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -348,6 +348,81 @@ export const UpdateSettingsResponse = zod.object({
+     ),
+ });
+ 
++/**
++ * @summary Daily email digest preferences
++ */
++export const getDigestSettingsResponseHourUtcMin = 0;
++export const getDigestSettingsResponseHourUtcMax = 23;
++
++export const GetDigestSettingsResponse = zod.object({
++  enabled: zod.boolean(),
++  hourUtc: zod
++    .number()
++    .min(getDigestSettingsResponseHourUtcMin)
++    .max(getDigestSettingsResponseHourUtcMax)
++    .describe("UTC hour after which the day's digest sends (weekdays)."),
++  email: zod
++    .string()
++    .nullish()
++    .describe("Override address; null = the Clerk account email."),
++  accountEmail: zod
++    .string()
++    .nullish()
++    .describe("The Clerk account email the digest falls back to (read-only)."),
++  emailConfigured: zod
++    .boolean()
++    .describe(
++      "Whether the server has an email transport (RESEND_API_KEY) configured.",
++    ),
++  lastDigestAt: zod.string().nullish(),
++});
++
++/**
++ * Gated by the alerts.email capability (Pro). `email` overrides the
++account email; null falls back to the Clerk account address.
++`hourUtc` is the UTC hour after which the day's digest is sent
++(weekdays only).
++
++ * @summary Update daily email digest preferences
++ */
++export const updateDigestSettingsBodyHourUtcMin = 0;
++export const updateDigestSettingsBodyHourUtcMax = 23;
++
++export const UpdateDigestSettingsBody = zod.object({
++  enabled: zod.boolean(),
++  hourUtc: zod
++    .number()
++    .min(updateDigestSettingsBodyHourUtcMin)
++    .max(updateDigestSettingsBodyHourUtcMax),
++  email: zod.string().email().nullish(),
++});
++
++export const updateDigestSettingsResponseHourUtcMin = 0;
++export const updateDigestSettingsResponseHourUtcMax = 23;
++
++export const UpdateDigestSettingsResponse = zod.object({
++  enabled: zod.boolean(),
++  hourUtc: zod
++    .number()
++    .min(updateDigestSettingsResponseHourUtcMin)
++    .max(updateDigestSettingsResponseHourUtcMax)
++    .describe("UTC hour after which the day's digest sends (weekdays)."),
++  email: zod
++    .string()
++    .nullish()
++    .describe("Override address; null = the Clerk account email."),
++  accountEmail: zod
++    .string()
++    .nullish()
++    .describe("The Clerk account email the digest falls back to (read-only)."),
++  emailConfigured: zod
++    .boolean()
++    .describe(
++      "Whether the server has an email transport (RESEND_API_KEY) configured.",
++    ),
++  lastDigestAt: zod.string().nullish(),
++});
++
+ /**
+  * Scans the watchlist and returns ranked short-put candidates.
+ Results are cached to disk according to settings.cacheTtlMinutes
+diff --git a/lib/api-zod/src/generated/types/digestSettings.ts b/lib/api-zod/src/generated/types/digestSettings.ts
+new file mode 100644
+index 0000000..ccb78a6
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/digestSettings.ts
+@@ -0,0 +1,31 @@
++/**
++ * Generated by orval v8.5.3 🍺
++ * Do not edit manually.
++ * Api
++ * Wheel Strategy Dashboard API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface DigestSettings {
++  enabled: boolean;
++  /**
++   * UTC hour after which the day's digest sends (weekdays).
++   * @minimum 0
++   * @maximum 23
++   */
++  hourUtc: number;
++  /**
++   * Override address; null = the Clerk account email.
++   * @nullable
++   */
++  email?: string | null;
++  /**
++   * The Clerk account email the digest falls back to (read-only).
++   * @nullable
++   */
++  accountEmail?: string | null;
++  /** Whether the server has an email transport (RESEND_API_KEY) configured. */
++  emailConfigured: boolean;
++  /** @nullable */
++  lastDigestAt?: string | null;
++}
+diff --git a/lib/api-zod/src/generated/types/digestSettingsInput.ts b/lib/api-zod/src/generated/types/digestSettingsInput.ts
+new file mode 100644
+index 0000000..7ce55d6
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/digestSettingsInput.ts
+@@ -0,0 +1,18 @@
++/**
++ * Generated by orval v8.5.3 🍺
++ * Do not edit manually.
++ * Api
++ * Wheel Strategy Dashboard API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface DigestSettingsInput {
++  enabled: boolean;
++  /**
++   * @minimum 0
++   * @maximum 23
++   */
++  hourUtc: number;
++  /** @nullable */
++  email?: string | null;
++}
+diff --git a/lib/api-zod/src/generated/types/index.ts b/lib/api-zod/src/generated/types/index.ts
+index 8bb8d81..08c0130 100644
+--- a/lib/api-zod/src/generated/types/index.ts
++++ b/lib/api-zod/src/generated/types/index.ts
+@@ -32,6 +32,8 @@ export * from "./chainRow";
+ export * from "./concentrationSettings";
+ export * from "./deleteQaConversation404";
+ export * from "./deleteResult";
++export * from "./digestSettings";
++export * from "./digestSettingsInput";
+ export * from "./explainCandidate404";
+ export * from "./explainCandidateInput";
+ export * from "./getPositionAdvisor404";
+diff --git a/lib/db/src/schema/settings.ts b/lib/db/src/schema/settings.ts
+index 0c27f0b..66f04f1 100644
+--- a/lib/db/src/schema/settings.ts
++++ b/lib/db/src/schema/settings.ts
+@@ -1,4 +1,4 @@
+-import { pgTable, doublePrecision, text, timestamp } from "drizzle-orm/pg-core";
++import { pgTable, boolean, doublePrecision, integer, text, timestamp } from "drizzle-orm/pg-core";
+ 
+ export const settingsTable = pgTable("settings", {
+   userId: text("user_id").primaryKey(),
+@@ -18,6 +18,13 @@ export const settingsTable = pgTable("settings", {
+   concentrationSectorPct: doublePrecision("concentration_sector_pct").notNull().default(0.30),
+   earningsInWindow: text("earnings_in_window").notNull().default("hide"),
+   tier: text("tier").notNull().default("free"),
++  // Daily email digest preferences (alerts.email capability).
++  digestEnabled: boolean("digest_enabled").notNull().default(false),
++  digestHourUtc: integer("digest_hour_utc").notNull().default(13),
++  // Overrides the Clerk account email when set.
++  notificationEmail: text("notification_email"),
++  // Claim marker so each day's digest fires exactly once per user.
++  lastDigestAt: timestamp("last_digest_at", { withTimezone: true }),
+   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+ });
+ 
+diff --git a/replit.md b/replit.md
+index 4192648..5922698 100644
+--- a/replit.md
++++ b/replit.md
+@@ -11,7 +11,7 @@ A full-stack options wheel strategy screener and portfolio tracker. Users sign i
+ - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
+ - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
+ - Required env: `DATABASE_URL`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `VITE_CLERK_PUBLISHABLE_KEY`
+-- Optional env: `QUIVER_API_KEY` (enables the Quiver alt-data signals in the candidate drawer; feature is hidden when unset), `MARKET_PROVIDER=polygon` + `POLYGON_API_KEY` (live quotes)
++- Optional env: `QUIVER_API_KEY` (Quiver alt-data signals), `MARKET_PROVIDER=polygon` + `POLYGON_API_KEY` (live quotes), `RESEND_API_KEY` + `EMAIL_FROM` (email transport for digests/alerts), `DIGEST_CRON_SECRET` (external cron trigger for POST /api/digests/run), `APP_URL` (links in emails)
+ 
+ ## Stack
+ 

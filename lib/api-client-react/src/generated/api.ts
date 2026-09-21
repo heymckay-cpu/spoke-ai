@@ -31,6 +31,8 @@ import type {
   ChainExpirations,
   DeleteQaConversation404,
   DeleteResult,
+  DigestSettings,
+  DigestSettingsInput,
   ExplainCandidate404,
   ExplainCandidateInput,
   GetPositionAdvisor404,
@@ -860,6 +862,172 @@ export const useUpdateSettings = <
   TContext
 > => {
   return useMutation(getUpdateSettingsMutationOptions(options));
+};
+
+/**
+ * @summary Daily email digest preferences
+ */
+export const getGetDigestSettingsUrl = () => {
+  return `/api/settings/digest`;
+};
+
+export const getDigestSettings = async (
+  options?: RequestInit,
+): Promise<DigestSettings> => {
+  return customFetch<DigestSettings>(getGetDigestSettingsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetDigestSettingsQueryKey = () => {
+  return [`/api/settings/digest`] as const;
+};
+
+export const getGetDigestSettingsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDigestSettings>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDigestSettings>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetDigestSettingsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getDigestSettings>>
+  > = ({ signal }) => getDigestSettings({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDigestSettings>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDigestSettingsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDigestSettings>>
+>;
+export type GetDigestSettingsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Daily email digest preferences
+ */
+
+export function useGetDigestSettings<
+  TData = Awaited<ReturnType<typeof getDigestSettings>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDigestSettings>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDigestSettingsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Gated by the alerts.email capability (Pro). `email` overrides the
+account email; null falls back to the Clerk account address.
+`hourUtc` is the UTC hour after which the day's digest is sent
+(weekdays only).
+
+ * @summary Update daily email digest preferences
+ */
+export const getUpdateDigestSettingsUrl = () => {
+  return `/api/settings/digest`;
+};
+
+export const updateDigestSettings = async (
+  digestSettingsInput: DigestSettingsInput,
+  options?: RequestInit,
+): Promise<DigestSettings> => {
+  return customFetch<DigestSettings>(getUpdateDigestSettingsUrl(), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(digestSettingsInput),
+  });
+};
+
+export const getUpdateDigestSettingsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateDigestSettings>>,
+    TError,
+    { data: BodyType<DigestSettingsInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateDigestSettings>>,
+  TError,
+  { data: BodyType<DigestSettingsInput> },
+  TContext
+> => {
+  const mutationKey = ["updateDigestSettings"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateDigestSettings>>,
+    { data: BodyType<DigestSettingsInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateDigestSettings(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateDigestSettingsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateDigestSettings>>
+>;
+export type UpdateDigestSettingsMutationBody = BodyType<DigestSettingsInput>;
+export type UpdateDigestSettingsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update daily email digest preferences
+ */
+export const useUpdateDigestSettings = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateDigestSettings>>,
+    TError,
+    { data: BodyType<DigestSettingsInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateDigestSettings>>,
+  TError,
+  { data: BodyType<DigestSettingsInput> },
+  TContext
+> => {
+  return useMutation(getUpdateDigestSettingsMutationOptions(options));
 };
 
 /**

@@ -13,11 +13,15 @@ import qaRouter from "./qa";
 import sectorsRouter from "./sectors";
 import quiverRouter from "./quiver";
 import journalRouter from "./journal";
+import digestsRouter from "./digests";
 import { requireUser } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+// Machine-to-machine digest trigger (shared-secret auth, not Clerk) — must
+// stay above requireUser.
+router.use(digestsRouter);
 
 // All routes below require an authenticated Clerk user.
 // Public webhook endpoints (none today) would be added before this line.

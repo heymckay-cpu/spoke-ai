@@ -11,7 +11,7 @@ A full-stack options wheel strategy screener and portfolio tracker. Users sign i
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `VITE_CLERK_PUBLISHABLE_KEY`
-- Optional env: `QUIVER_API_KEY` (enables the Quiver alt-data signals in the candidate drawer; feature is hidden when unset), `MARKET_PROVIDER=polygon` + `POLYGON_API_KEY` (live quotes)
+- Optional env: `QUIVER_API_KEY` (Quiver alt-data signals), `MARKET_PROVIDER=polygon` + `POLYGON_API_KEY` (live quotes), `RESEND_API_KEY` + `EMAIL_FROM` (email transport for digests/alerts), `DIGEST_CRON_SECRET` (external cron trigger for POST /api/digests/run), `APP_URL` (links in emails)
 
 ## Stack
 

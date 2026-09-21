@@ -195,6 +195,41 @@ paths:
               schema:
                 $ref: "#/components/schemas/Settings"
 
+  /settings/digest:
+    get:
+      operationId: getDigestSettings
+      tags: [settings]
+      summary: Daily email digest preferences
+      responses:
+        "200":
+          description: Digest settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DigestSettings"
+    put:
+      operationId: updateDigestSettings
+      tags: [settings]
+      summary: Update daily email digest preferences
+      description: |
+        Gated by the alerts.email capability (Pro). `email` overrides the
+        account email; null falls back to the Clerk account address.
+        `hourUtc` is the UTC hour after which the day's digest is sent
+        (weekdays only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DigestSettingsInput"
+      responses:
+        "200":
+          description: Updated digest settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DigestSettings"
+
   /scan:
     post:
       operationId: runScan
@@ -1337,6 +1372,25 @@ components:
         earningsInWindow:
           type: string
           enum: [hide, only, include]
+
+    DigestSettings:
+      type: object
+      required: [enabled, hourUtc, emailConfigured]
+      properties:
+        enabled: { type: boolean }
+        hourUtc: { type: integer, minimum: 0, maximum: 23, description: "UTC hour after which the day's digest sends (weekdays)." }
+        email: { type: ["string", "null"], description: "Override address; null = the Clerk account email." }
+        accountEmail: { type: ["string", "null"], description: "The Clerk account email the digest falls back to (read-only)." }
+        emailConfigured: { type: boolean, description: "Whether the server has an email transport (RESEND_API_KEY) configured." }
+        lastDigestAt: { type: ["string", "null"] }
+
+    DigestSettingsInput:
+      type: object
+      required: [enabled, hourUtc]
+      properties:
+        enabled: { type: boolean }
+        hourUtc: { type: integer, minimum: 0, maximum: 23 }
+        email: { type: ["string", "null"], format: email }
 
     ScanInput:
       type: object

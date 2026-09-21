@@ -32,6 +32,8 @@ export * from "./chainRow";
 export * from "./concentrationSettings";
 export * from "./deleteQaConversation404";
 export * from "./deleteResult";
+export * from "./digestSettings";
+export * from "./digestSettingsInput";
 export * from "./explainCandidate404";
 export * from "./explainCandidateInput";
 export * from "./getPositionAdvisor404";

@@ -146,6 +146,41 @@ export interface SettingsInput {
   earningsInWindow: SettingsInputEarningsInWindow;
 }
 
+export interface DigestSettings {
+  enabled: boolean;
+  /**
+   * UTC hour after which the day's digest sends (weekdays).
+   * @minimum 0
+   * @maximum 23
+   */
+  hourUtc: number;
+  /**
+   * Override address; null = the Clerk account email.
+   * @nullable
+   */
+  email?: string | null;
+  /**
+   * The Clerk account email the digest falls back to (read-only).
+   * @nullable
+   */
+  accountEmail?: string | null;
+  /** Whether the server has an email transport (RESEND_API_KEY) configured. */
+  emailConfigured: boolean;
+  /** @nullable */
+  lastDigestAt?: string | null;
+}
+
+export interface DigestSettingsInput {
+  enabled: boolean;
+  /**
+   * @minimum 0
+   * @maximum 23
+   */
+  hourUtc: number;
+  /** @nullable */
+  email?: string | null;
+}
+
 /**
  * One-shot override for the earnings-in-window filter; falls back to the saved setting when omitted.
  */

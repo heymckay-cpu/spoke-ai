@@ -3,6 +3,8 @@ import { and, eq, isNull, inArray } from "drizzle-orm";
 import { hasCapability } from "@workspace/tiers";
 import { getSpot } from "./market";
 import { logger } from "./logger";
+import { isEmailConfigured, sendEmail } from "./email";
+import { getNotificationEmail } from "./userEmail";
 import { getCurrentTierForUser } from "./tierStore";
 
 export const EXPIRING_SOON_DTE = 3;
@@ -45,6 +47,9 @@ async function runScan(userId: string): Promise<AlertScanResult> {
 
   let itmAlerts = 0;
   let expiringAlerts = 0;
+  // New alert messages emitted this scan — emailed as one batch at the end
+  // (best-effort; the in-app notification rows are the source of truth).
+  const emailed: string[] = [];
 
   for (const row of open) {
     const dte = dteFromIso(row.expiry);
@@ -89,6 +94,7 @@ async function runScan(userId: string): Promise<AlertScanResult> {
           message,
         });
         itmAlerts += 1;
+        emailed.push(message);
       }
     } else if (spot != null && row.lastAlertedItmAt != null) {
       await db
@@ -122,7 +128,27 @@ async function runScan(userId: string): Promise<AlertScanResult> {
           message,
         });
         expiringAlerts += 1;
+        emailed.push(message);
       }
+    }
+  }
+
+  if (emailed.length > 0 && isEmailConfigured()) {
+    try {
+      const to = await getNotificationEmail(userId);
+      if (to) {
+        const items = emailed
+          .map((m) => `<li style="margin:4px 0;">${m.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</li>`)
+          .join("");
+        await sendEmail({
+          to,
+          subject: `Spoke.ai alert${emailed.length === 1 ? "" : "s"}: ${emailed.length} position${emailed.length === 1 ? "" : "s"} need${emailed.length === 1 ? "s" : ""} attention`,
+          html: `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:640px;margin:0 auto;color:#111;"><h3>Position alerts</h3><ul style="font-size:14px;">${items}</ul><p style="font-size:13px;"><a href="${process.env.APP_URL ?? "https://spoke-ai.replit.app/dashboard"}/positions">Open your positions</a></p></div>`,
+          text: emailed.join("\n"),
+        });
+      }
+    } catch (err) {
+      logger.warn({ err, userId }, "alerts: email delivery failed");
     }
   }
 

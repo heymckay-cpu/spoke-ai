@@ -349,6 +349,81 @@ export const UpdateSettingsResponse = zod.object({
 });
 
 /**
+ * @summary Daily email digest preferences
+ */
+export const getDigestSettingsResponseHourUtcMin = 0;
+export const getDigestSettingsResponseHourUtcMax = 23;
+
+export const GetDigestSettingsResponse = zod.object({
+  enabled: zod.boolean(),
+  hourUtc: zod
+    .number()
+    .min(getDigestSettingsResponseHourUtcMin)
+    .max(getDigestSettingsResponseHourUtcMax)
+    .describe("UTC hour after which the day's digest sends (weekdays)."),
+  email: zod
+    .string()
+    .nullish()
+    .describe("Override address; null = the Clerk account email."),
+  accountEmail: zod
+    .string()
+    .nullish()
+    .describe("The Clerk account email the digest falls back to (read-only)."),
+  emailConfigured: zod
+    .boolean()
+    .describe(
+      "Whether the server has an email transport (RESEND_API_KEY) configured.",
+    ),
+  lastDigestAt: zod.string().nullish(),
+});
+
+/**
+ * Gated by the alerts.email capability (Pro). `email` overrides the
+account email; null falls back to the Clerk account address.
+`hourUtc` is the UTC hour after which the day's digest is sent
+(weekdays only).
+
+ * @summary Update daily email digest preferences
+ */
+export const updateDigestSettingsBodyHourUtcMin = 0;
+export const updateDigestSettingsBodyHourUtcMax = 23;
+
+export const UpdateDigestSettingsBody = zod.object({
+  enabled: zod.boolean(),
+  hourUtc: zod
+    .number()
+    .min(updateDigestSettingsBodyHourUtcMin)
+    .max(updateDigestSettingsBodyHourUtcMax),
+  email: zod.string().email().nullish(),
+});
+
+export const updateDigestSettingsResponseHourUtcMin = 0;
+export const updateDigestSettingsResponseHourUtcMax = 23;
+
+export const UpdateDigestSettingsResponse = zod.object({
+  enabled: zod.boolean(),
+  hourUtc: zod
+    .number()
+    .min(updateDigestSettingsResponseHourUtcMin)
+    .max(updateDigestSettingsResponseHourUtcMax)
+    .describe("UTC hour after which the day's digest sends (weekdays)."),
+  email: zod
+    .string()
+    .nullish()
+    .describe("Override address; null = the Clerk account email."),
+  accountEmail: zod
+    .string()
+    .nullish()
+    .describe("The Clerk account email the digest falls back to (read-only)."),
+  emailConfigured: zod
+    .boolean()
+    .describe(
+      "Whether the server has an email transport (RESEND_API_KEY) configured.",
+    ),
+  lastDigestAt: zod.string().nullish(),
+});
+
+/**
  * Scans the watchlist and returns ranked short-put candidates.
 Results are cached to disk according to settings.cacheTtlMinutes
 so repeated calls within the TTL are instant.

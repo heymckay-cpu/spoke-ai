@@ -7,6 +7,7 @@ import { publishableKeyFromHost } from "@clerk/shared/keys";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { startAlertScheduler } from "./lib/alerts";
+import { startDigestScheduler } from "./lib/digest";
 import {
   CLERK_PROXY_PATH,
   clerkProxyMiddleware,
@@ -58,5 +59,13 @@ app.use("/api", router);
 // Runs every 15 minutes; emits at most one alert per condition per position.
 const ALERT_INTERVAL_MIN = Number(process.env["ALERT_INTERVAL_MIN"] ?? 15);
 startAlertScheduler(Number.isFinite(ALERT_INTERVAL_MIN) && ALERT_INTERVAL_MIN > 0 ? ALERT_INTERVAL_MIN : 15);
+
+// Daily email digest sweep. Best-effort while an instance is awake; on
+// Autoscale deployments pair it with an external cron hitting
+// POST /api/digests/run (see routes/digests.ts).
+const DIGEST_INTERVAL_MIN = Number(process.env["DIGEST_INTERVAL_MIN"] ?? 15);
+startDigestScheduler(
+  Number.isFinite(DIGEST_INTERVAL_MIN) && DIGEST_INTERVAL_MIN > 0 ? DIGEST_INTERVAL_MIN : 15,
+);
 
 export default app;
