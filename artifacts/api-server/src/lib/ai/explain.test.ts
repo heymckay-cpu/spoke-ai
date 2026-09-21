@@ -30,6 +30,7 @@ const baseCandidate: CandidateOut = {
   hv30: 0.28,
   earningsDate: null,
   earningsInWindow: false,
+  macroEvent: null,
 };
 
 describe("buildExplainerPrompt", () => {

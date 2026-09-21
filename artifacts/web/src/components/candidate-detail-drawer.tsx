@@ -42,6 +42,7 @@ import { SpokeSpinner } from "@/components/spoke-spinner";
 import { IvRankPill } from "@/components/iv-rank-pill";
 import { IvHistorySparkline } from "@/components/iv-history-sparkline";
 import { QuiverSignalsCard } from "@/components/quiver-signals-card";
+import { CorrelationWarning } from "@/components/correlation-warning";
 import { EarningsFlag } from "@/components/earnings-flag";
 import { AddPositionDialog } from "@/components/add-position-dialog";
 import { RollPositionDialog } from "@/components/roll-position-dialog";
@@ -733,6 +734,21 @@ export function CandidateDetailDrawer({
 
             {/* Quiver alternative-data signals (hidden when not configured). */}
             <QuiverSignalsCard ticker={candidate.ticker} />
+
+            {/* Hidden-correlation-trap warning vs. open positions. */}
+            <CorrelationWarning ticker={candidate.ticker} />
+
+            {/* Market-wide binary events inside the expiry window. */}
+            {candidate.macroEvent && (
+              <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                <CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  <span className="font-semibold">Macro event in window:</span>{" "}
+                  {candidate.macroEvent}. Market-wide moves around these dates
+                  can swamp single-name analysis — size accordingly.
+                </span>
+              </div>
+            )}
 
             {/* Risk callouts */}
             {(candidate.earningsInWindow || (candidate.ivRank != null && candidate.ivRank > 0.7)) && (

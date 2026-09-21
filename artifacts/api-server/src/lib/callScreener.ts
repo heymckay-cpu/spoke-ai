@@ -12,6 +12,7 @@ import {
   type OptionRow,
 } from "./market";
 import { logger } from "./logger";
+import { macroEventLabel } from "./macroCalendar";
 import type { ScreenerSettings } from "./screener";
 import { computeIvRank, computeIvPercentile, type IvBasis } from "./iv/rank";
 
@@ -41,6 +42,8 @@ export interface CallCandidateOut {
   hv30: number | null;
   earningsDate: string | null;
   earningsInWindow: boolean;
+  /** Market-wide binary events (FOMC/CPI) inside the expiry window, or null. */
+  macroEvent: string | null;
   aboveBasis: boolean;
 }
 
@@ -187,6 +190,7 @@ async function scanHolding(
       hv30,
       earningsDate: quote.earningsDate,
       earningsInWindow: isInDateWindow(quote.earningsDate, cfg.minDte, cfg.maxDte),
+      macroEvent: macroEventLabel(new Date().toISOString().slice(0, 10), snap.expiry),
       aboveBasis: strike > h.avgCost,
     };
     if (best === null || cand.annualizedPct > best.annualizedPct) {

@@ -26,6 +26,7 @@ function mk(ticker: string, annualized: number, earnings: boolean): CandidateOut
     hv30: 0.3,
     earningsDate: earnings ? "2026-01-10" : null,
     earningsInWindow: earnings,
+  macroEvent: null,
   };
 }
 

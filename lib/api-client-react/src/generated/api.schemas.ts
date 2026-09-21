@@ -288,6 +288,11 @@ export interface Candidate {
   /** @nullable */
   earningsDate?: string | null;
   earningsInWindow: boolean;
+  /**
+   * Market-wide binary events (FOMC decision, CPI release) inside the expiry window, e.g. "FOMC decision 2026-10-28". Optional for backward compatibility with stored snapshots.
+   * @nullable
+   */
+  macroEvent?: string | null;
 }
 
 export interface ScanError {
@@ -365,6 +370,11 @@ export interface Quote {
   /** @nullable */
   earningsDate?: string | null;
   earningsInWindow: boolean;
+  /**
+   * Market-wide binary events (FOMC decision, CPI release) inside the expiry window, e.g. "FOMC decision 2026-10-28". Optional for backward compatibility with stored snapshots.
+   * @nullable
+   */
+  macroEvent?: string | null;
   /** @nullable */
   name?: string | null;
   /** @nullable */
@@ -1018,6 +1028,11 @@ export interface CallCandidate {
   /** @nullable */
   earningsDate?: string | null;
   earningsInWindow: boolean;
+  /**
+   * Market-wide binary events (FOMC decision, CPI release) inside the expiry window, e.g. "FOMC decision 2026-10-28". Optional for backward compatibility with stored snapshots.
+   * @nullable
+   */
+  macroEvent?: string | null;
   /** True when strike > avgCost (assignment would still realize a gain on the shares) */
   aboveBasis: boolean;
 }
@@ -1249,6 +1264,38 @@ export type JournalListStats = {
 export interface JournalList {
   entries: JournalEntry[];
   stats: JournalListStats;
+}
+
+export interface CorrelationPair {
+  a: string;
+  b: string;
+  /** Pearson correlation of daily log returns, -1..1 */
+  rho: number;
+  /** Overlapping trading days used */
+  samples: number;
+}
+
+export interface CandidateCorrelation {
+  ticker: string;
+  against: CorrelationPair[];
+  /** @nullable */
+  maxRho?: number | null;
+  /** @nullable */
+  maxRhoTicker?: string | null;
+}
+
+export interface PortfolioCorrelation {
+  tickers: string[];
+  windowDays: number;
+  /** Pairs at/above the 0.7 trap threshold, sorted by |rho| desc. */
+  traps: CorrelationPair[];
+  pairs: CorrelationPair[];
+  /**
+   * Diversification-adjusted position count (N_eff). 5 positions at rho 0.9 is ~1.6 real positions.
+   * @nullable
+   */
+  effectivePositions?: number | null;
+  candidate?: CandidateCorrelation | null;
 }
 
 export type QuiverCongressTradeTransaction =
@@ -1729,6 +1776,10 @@ export const ListJournalDecision = {
   taken: "taken",
   passed: "passed",
 } as const;
+
+export type GetPortfolioCorrelationParams = {
+  candidate?: string;
+};
 
 export type ListQaConversationsParams = {
   /**

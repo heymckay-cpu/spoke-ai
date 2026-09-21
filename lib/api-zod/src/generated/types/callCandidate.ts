@@ -43,6 +43,11 @@ export interface CallCandidate {
   /** @nullable */
   earningsDate?: string | null;
   earningsInWindow: boolean;
+  /**
+   * Market-wide binary events (FOMC decision, CPI release) inside the expiry window, e.g. "FOMC decision 2026-10-28". Optional for backward compatibility with stored snapshots.
+   * @nullable
+   */
+  macroEvent?: string | null;
   /** True when strike > avgCost (assignment would still realize a gain on the shares) */
   aboveBasis: boolean;
 }

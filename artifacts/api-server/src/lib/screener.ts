@@ -9,6 +9,7 @@ import {
   type OptionRow,
 } from "./market";
 import { logger } from "./logger";
+import { macroEventLabel } from "./macroCalendar";
 import { computeIvRank, computeIvPercentile, type IvBasis } from "./iv/rank";
 
 export type EarningsFilterMode = "hide" | "only" | "include";
@@ -57,6 +58,8 @@ export interface CandidateOut {
   hv30: number | null;
   earningsDate: string | null;
   earningsInWindow: boolean;
+  /** Market-wide binary events (FOMC/CPI) inside the expiry window, or null. */
+  macroEvent: string | null;
 }
 
 export interface ScanError {
@@ -227,6 +230,7 @@ async function scanTicker(
       hv30,
       earningsDate: quote.earningsDate,
       earningsInWindow: isInDateWindow(quote.earningsDate, cfg.minDte, cfg.maxDte),
+      macroEvent: macroEventLabel(new Date().toISOString().slice(0, 10), snap.expiry),
     };
     if (best === null || cand.annualizedPct > best.annualizedPct) {
       best = cand;

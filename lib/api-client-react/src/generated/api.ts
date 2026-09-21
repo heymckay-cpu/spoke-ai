@@ -35,6 +35,7 @@ import type {
   DigestSettingsInput,
   ExplainCandidate404,
   ExplainCandidateInput,
+  GetPortfolioCorrelationParams,
   GetPositionAdvisor404,
   GetQaConversation404,
   GetRollQuote404,
@@ -58,6 +59,7 @@ import type {
   MobileTokenExchangeSuccess,
   Notification,
   NotificationsList,
+  PortfolioCorrelation,
   Position,
   PositionAdvisor,
   PositionInput,
@@ -3665,6 +3667,117 @@ export const useDeleteJournalEntry = <
 > => {
   return useMutation(getDeleteJournalEntryMutationOptions(options));
 };
+
+/**
+ * Rolling return correlations (90 trading days, from daily closes)
+between the tickers of the user's open positions, weighted by
+collateral. Flags "hidden correlation traps" — pairs at or above
+0.7 — and reports the diversification-adjusted effective position
+count. Pass `candidate` to also get that ticker's correlation
+against each open position (used by the candidate drawer warning).
+This is a risk overlay, not a pricing signal.
+
+ * @summary Correlation risk overlay for the user's open wheel positions
+ */
+export const getGetPortfolioCorrelationUrl = (
+  params?: GetPortfolioCorrelationParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/portfolio/correlation?${stringifiedParams}`
+    : `/api/portfolio/correlation`;
+};
+
+export const getPortfolioCorrelation = async (
+  params?: GetPortfolioCorrelationParams,
+  options?: RequestInit,
+): Promise<PortfolioCorrelation> => {
+  return customFetch<PortfolioCorrelation>(
+    getGetPortfolioCorrelationUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetPortfolioCorrelationQueryKey = (
+  params?: GetPortfolioCorrelationParams,
+) => {
+  return [`/api/portfolio/correlation`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetPortfolioCorrelationQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPortfolioCorrelation>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetPortfolioCorrelationParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPortfolioCorrelation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetPortfolioCorrelationQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPortfolioCorrelation>>
+  > = ({ signal }) =>
+    getPortfolioCorrelation(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPortfolioCorrelation>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPortfolioCorrelationQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPortfolioCorrelation>>
+>;
+export type GetPortfolioCorrelationQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Correlation risk overlay for the user's open wheel positions
+ */
+
+export function useGetPortfolioCorrelation<
+  TData = Awaited<ReturnType<typeof getPortfolioCorrelation>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetPortfolioCorrelationParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPortfolioCorrelation>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPortfolioCorrelationQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary List recent position alerts (assignment risk / near-expiry)

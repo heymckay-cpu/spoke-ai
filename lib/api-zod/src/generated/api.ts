@@ -537,6 +537,12 @@ export const RunScanResponse = zod.object({
       hv30: zod.number().nullish(),
       earningsDate: zod.string().nullish(),
       earningsInWindow: zod.boolean(),
+      macroEvent: zod
+        .string()
+        .nullish()
+        .describe(
+          'Market-wide binary events (FOMC decision, CPI release) inside the expiry window, e.g. \"FOMC decision 2026-10-28\". Optional for backward compatibility with stored snapshots.',
+        ),
     }),
   ),
   errors: zod.array(
@@ -607,6 +613,12 @@ export const GetLatestScanResponse = zod.object({
       hv30: zod.number().nullish(),
       earningsDate: zod.string().nullish(),
       earningsInWindow: zod.boolean(),
+      macroEvent: zod
+        .string()
+        .nullish()
+        .describe(
+          'Market-wide binary events (FOMC decision, CPI release) inside the expiry window, e.g. \"FOMC decision 2026-10-28\". Optional for backward compatibility with stored snapshots.',
+        ),
     }),
   ),
   errors: zod.array(
@@ -692,6 +704,12 @@ export const GetScanSummaryResponse = zod.object({
         hv30: zod.number().nullish(),
         earningsDate: zod.string().nullish(),
         earningsInWindow: zod.boolean(),
+        macroEvent: zod
+          .string()
+          .nullish()
+          .describe(
+            'Market-wide binary events (FOMC decision, CPI release) inside the expiry window, e.g. \"FOMC decision 2026-10-28\". Optional for backward compatibility with stored snapshots.',
+          ),
       }),
     )
     .describe("Top 5 candidates by annualized yield"),
@@ -805,6 +823,12 @@ export const RunCallScanResponse = zod.object({
       hv30: zod.number().nullish(),
       earningsDate: zod.string().nullish(),
       earningsInWindow: zod.boolean(),
+      macroEvent: zod
+        .string()
+        .nullish()
+        .describe(
+          'Market-wide binary events (FOMC decision, CPI release) inside the expiry window, e.g. \"FOMC decision 2026-10-28\". Optional for backward compatibility with stored snapshots.',
+        ),
       aboveBasis: zod
         .boolean()
         .describe(
@@ -971,6 +995,12 @@ export const GetQuoteResponse = zod.object({
   asOf: zod.string(),
   earningsDate: zod.string().nullish(),
   earningsInWindow: zod.boolean(),
+  macroEvent: zod
+    .string()
+    .nullish()
+    .describe(
+      'Market-wide binary events (FOMC decision, CPI release) inside the expiry window, e.g. \"FOMC decision 2026-10-28\". Optional for backward compatibility with stored snapshots.',
+    ),
   name: zod.string().nullish(),
   currency: zod.string().nullish(),
   dayChange: zod.number().nullish(),
@@ -2540,6 +2570,74 @@ export const DeleteJournalEntryParams = zod.object({
 
 export const DeleteJournalEntryResponse = zod.object({
   ok: zod.boolean(),
+});
+
+/**
+ * Rolling return correlations (90 trading days, from daily closes)
+between the tickers of the user's open positions, weighted by
+collateral. Flags "hidden correlation traps" — pairs at or above
+0.7 — and reports the diversification-adjusted effective position
+count. Pass `candidate` to also get that ticker's correlation
+against each open position (used by the candidate drawer warning).
+This is a risk overlay, not a pricing signal.
+
+ * @summary Correlation risk overlay for the user's open wheel positions
+ */
+export const GetPortfolioCorrelationQueryParams = zod.object({
+  candidate: zod.coerce.string().optional(),
+});
+
+export const GetPortfolioCorrelationResponse = zod.object({
+  tickers: zod.array(zod.string()),
+  windowDays: zod.number(),
+  traps: zod
+    .array(
+      zod.object({
+        a: zod.string(),
+        b: zod.string(),
+        rho: zod
+          .number()
+          .describe("Pearson correlation of daily log returns, -1..1"),
+        samples: zod.number().describe("Overlapping trading days used"),
+      }),
+    )
+    .describe("Pairs at\/above the 0.7 trap threshold, sorted by |rho| desc."),
+  pairs: zod.array(
+    zod.object({
+      a: zod.string(),
+      b: zod.string(),
+      rho: zod
+        .number()
+        .describe("Pearson correlation of daily log returns, -1..1"),
+      samples: zod.number().describe("Overlapping trading days used"),
+    }),
+  ),
+  effectivePositions: zod
+    .number()
+    .nullish()
+    .describe(
+      "Diversification-adjusted position count (N_eff). 5 positions at rho 0.9 is ~1.6 real positions.",
+    ),
+  candidate: zod
+    .union([
+      zod.object({
+        ticker: zod.string(),
+        against: zod.array(
+          zod.object({
+            a: zod.string(),
+            b: zod.string(),
+            rho: zod
+              .number()
+              .describe("Pearson correlation of daily log returns, -1..1"),
+            samples: zod.number().describe("Overlapping trading days used"),
+          }),
+        ),
+        maxRho: zod.number().nullish(),
+        maxRhoTicker: zod.string().nullish(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
 });
 
 /**

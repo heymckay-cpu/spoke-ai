@@ -347,6 +347,46 @@ export async function getOptionChain(
   }
 }
 
+/**
+ * Daily close series for a ticker (ascending by date), for correlation and
+ * realized-vol math. Cached like every other market call.
+ */
+export async function getDailyCloseSeries(
+  ticker: string,
+  days = 400,
+): Promise<Array<{ date: string; close: number }>> {
+  const key = `closes_${ticker}_${days}`;
+  const cached = getCached<Array<{ date: string; close: number }>>(key);
+  if (cached) return cached;
+  try {
+    const today = new Date();
+    const start = new Date(today);
+    start.setDate(start.getDate() - days);
+    const resultRaw = await provider.chart(ticker, {
+      period1: start,
+      period2: today,
+      interval: "1d",
+    });
+    const result = resultRaw as {
+      quotes?: Array<{ close?: number | null; date?: Date | string | null }>;
+    };
+    const series: Array<{ date: string; close: number }> = [];
+    for (const q of result.quotes ?? []) {
+      if (typeof q.close !== "number" || !Number.isFinite(q.close)) continue;
+      const d = q.date instanceof Date ? q.date : q.date ? new Date(q.date) : null;
+      if (!d || Number.isNaN(d.getTime())) continue;
+      series.push({ date: d.toISOString().slice(0, 10), close: q.close });
+    }
+    series.sort((a, b) => a.date.localeCompare(b.date));
+    // Daily closes move once a day — cache for 6h.
+    setCached(key, series, 6 * 60 * 60 * 1000);
+    return series;
+  } catch (err) {
+    logger.warn({ err, ticker }, "failed to fetch daily closes");
+    return [];
+  }
+}
+
 export async function getIvHistoryProxy(
   ticker: string,
 ): Promise<{ current: number; min: number; max: number } | null> {

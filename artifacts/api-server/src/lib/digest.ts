@@ -20,6 +20,7 @@ import { getQuiverSignals } from "./quiver/signals";
 import { isQuiverConfigured } from "./quiver/client";
 import { isEmailConfigured, sendEmail } from "./email";
 import { getNotificationEmail } from "./userEmail";
+import { buildActionItems, type ActionItem } from "./digestActions";
 import { logger } from "./logger";
 
 export interface DigestSweepResult {
@@ -69,8 +70,12 @@ export function buildDigestHtml(args: {
   tickersScanned: number;
   appUrl: string;
   dateLabel: string;
+  actionItems?: ActionItem[];
+  effectiveLine?: string | null;
 }): { subject: string; html: string; text: string } {
   const { candidates, tickersScanned, appUrl, dateLabel } = args;
+  const actionItems = args.actionItems ?? [];
+  const effectiveLine = args.effectiveLine ?? null;
   const top = candidates.slice(0, DIGEST_CANDIDATE_COUNT);
 
   const subject =
@@ -89,7 +94,7 @@ export function buildDigestHtml(args: {
         <td style="padding:8px 10px;text-align:right;font-weight:600;">${pct(c.annualizedPct)}</td>
         <td style="padding:8px 10px;text-align:right;">${c.ivRank != null ? Math.round(c.ivRank * 100) : "—"}</td>
         <td style="padding:8px 10px;text-align:right;">${c.quiverScore != null ? Math.round(c.quiverScore) : "—"}</td>
-        <td style="padding:8px 10px;text-align:center;">${c.earningsInWindow ? "⚠️" : ""}</td>
+        <td style="padding:8px 10px;text-align:center;">${c.earningsInWindow ? "⚠️" : ""}${c.macroEvent ? "🏛" : ""}</td>
       </tr>`,
     )
     .join("");
@@ -113,11 +118,29 @@ export function buildDigestHtml(args: {
           <th style="padding:8px 10px;">Ann %</th>
           <th style="padding:8px 10px;">IV Rk</th>
           <th style="padding:8px 10px;">Quiver</th>
-          <th style="padding:8px 10px;">Earn</th>
+          <th style="padding:8px 10px;">Risk</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>`
+        : ""
+    }
+    ${
+      actionItems.length > 0 || effectiveLine
+        ? `<h3 style="margin:20px 0 6px;">Your positions — what needs attention</h3>
+    ${effectiveLine ? `<p style="margin:0 0 8px;color:#555;font-size:13px;">${esc(effectiveLine)}</p>` : ""}
+    ${
+      actionItems.length > 0
+        ? `<ul style="margin:0 0 8px;padding-left:18px;font-size:14px;line-height:1.6;">
+      ${actionItems
+        .map(
+          (item) =>
+            `<li style="margin:4px 0;">${item.severity === "action" ? "🔴" : item.severity === "watch" ? "🟡" : "ℹ️"} ${esc(item.text)}</li>`,
+        )
+        .join("")}
+    </ul>`
+        : `<p style="margin:0 0 8px;color:#555;font-size:13px;">Nothing needs a decision today — open positions are healthy.</p>`
+    }`
         : ""
     }
     <p style="margin:16px 0;">
@@ -126,13 +149,19 @@ export function buildDigestHtml(args: {
       </a>
     </p>
     <p style="color:#888;font-size:12px;line-height:1.5;">
-      Quiver scores are an activity tilt from congressional/insider/contract
-      data (50 = neutral) — disclosures lag the trades, sometimes by weeks.
+      Risk flags: ⚠️ earnings before expiry, 🏛 FOMC/CPI inside the window —
+      premium is rich for a reason on both. Quiver scores are an activity
+      tilt from congressional/insider/contract data (50 = neutral) —
+      disclosures lag the trades, sometimes by weeks.
       Nothing here is investment advice; log takes and passes in your journal
       so the forward test stays honest.
     </p>
   </div>`;
 
+  const actionText =
+    actionItems.length > 0
+      ? "\n\nNeeds attention:\n" + actionItems.map((i) => `- ${i.text}`).join("\n")
+      : "";
   const text =
     top.length > 0
       ? top
@@ -143,7 +172,7 @@ export function buildDigestHtml(args: {
           .join("\n")
       : "No candidates matched your filters today.";
 
-  return { subject, html, text };
+  return { subject, html, text: text + actionText };
 }
 
 /** Run the user's screener exactly like POST /scan does, warming their cache. */
@@ -193,6 +222,16 @@ async function sendDigestForUser(userId: string, now: Date): Promise<boolean> {
   }
   const scan = await runScanForUser(userId);
   const candidates = await enrichWithQuiver(scan.candidates);
+  // Best-effort: the action section should never sink the whole digest.
+  let actionItems: ActionItem[] = [];
+  let effectiveLine: string | null = null;
+  try {
+    const actions = await buildActionItems(userId);
+    actionItems = actions.items;
+    effectiveLine = actions.effectiveLine;
+  } catch (err) {
+    logger.warn({ err, userId }, "digest: action items failed");
+  }
   const appUrl = process.env.APP_URL ?? "https://spoke-ai.replit.app/dashboard";
   const dateLabel = now.toISOString().slice(0, 10);
   const { subject, html, text } = buildDigestHtml({
@@ -200,6 +239,8 @@ async function sendDigestForUser(userId: string, now: Date): Promise<boolean> {
     tickersScanned: scan.tickersScanned,
     appUrl,
     dateLabel,
+    actionItems,
+    effectiveLine,
   });
   return sendEmail({ to, subject, html, text });
 }

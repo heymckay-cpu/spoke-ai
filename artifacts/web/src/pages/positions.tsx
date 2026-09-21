@@ -50,6 +50,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { PerformancePanel } from "@/components/performance-panel";
+import { CorrelationSummary } from "@/components/correlation-summary";
 import { StalenessDot } from "@/components/staleness-dot";
 import { useToast } from "@/hooks/use-toast";
 import { fmtCompactMoney, fmtDate, fmtMoney, fmtInt } from "@/lib/format";
@@ -422,6 +423,8 @@ export function PositionsPage() {
         </div>
 
         <PerformancePanel />
+
+        <CorrelationSummary />
 
         <Card className="border-card-border">
           <CardContent className="flex flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between">

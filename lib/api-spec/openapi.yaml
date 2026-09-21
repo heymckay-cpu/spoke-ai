@@ -32,6 +32,8 @@ tags:
     description: Quiver Quantitative alternative-data signals
   - name: journal
     description: Decision journal — taken vs. passed recommendations
+  - name: portfolio
+    description: Portfolio-level risk analytics (correlation overlay)
   - name: Auth
     description: Browser and mobile authentication endpoints.
 paths:
@@ -936,6 +938,32 @@ paths:
         "404":
           description: Entry not found
 
+  /portfolio/correlation:
+    get:
+      operationId: getPortfolioCorrelation
+      tags: [portfolio]
+      summary: Correlation risk overlay for the user's open wheel positions
+      description: |
+        Rolling return correlations (90 trading days, from daily closes)
+        between the tickers of the user's open positions, weighted by
+        collateral. Flags "hidden correlation traps" — pairs at or above
+        0.7 — and reports the diversification-adjusted effective position
+        count. Pass `candidate` to also get that ticker's correlation
+        against each open position (used by the candidate drawer warning).
+        This is a risk overlay, not a pricing signal.
+      parameters:
+        - in: query
+          name: candidate
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Correlation report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortfolioCorrelation"
+
   /notifications:
     get:
       operationId: listNotifications
@@ -1463,6 +1491,7 @@ components:
         hv30: { type: ["number", "null"] }
         earningsDate: { type: ["string", "null"] }
         earningsInWindow: { type: boolean }
+        macroEvent: { type: ["string", "null"], description: "Market-wide binary events (FOMC decision, CPI release) inside the expiry window, e.g. \"FOMC decision 2026-10-28\". Optional for backward compatibility with stored snapshots." }
 
     ScanError:
       type: object
@@ -1570,6 +1599,7 @@ components:
         asOf: { type: string }
         earningsDate: { type: ["string", "null"] }
         earningsInWindow: { type: boolean }
+        macroEvent: { type: ["string", "null"], description: "Market-wide binary events (FOMC decision, CPI release) inside the expiry window, e.g. \"FOMC decision 2026-10-28\". Optional for backward compatibility with stored snapshots." }
         name: { type: ["string", "null"] }
         currency: { type: ["string", "null"] }
         dayChange: { type: ["number", "null"] }
@@ -2214,6 +2244,7 @@ components:
         hv30: { type: ["number", "null"] }
         earningsDate: { type: ["string", "null"] }
         earningsInWindow: { type: boolean }
+        macroEvent: { type: ["string", "null"], description: "Market-wide binary events (FOMC decision, CPI release) inside the expiry window, e.g. \"FOMC decision 2026-10-28\". Optional for backward compatibility with stored snapshots." }
         aboveBasis: { type: boolean, description: "True when strike > avgCost (assignment would still realize a gain on the shares)" }
 
     ExplainCandidateInput:
@@ -2364,6 +2395,52 @@ components:
           properties:
             taken: { type: integer }
             passed: { type: integer }
+
+    CorrelationPair:
+      type: object
+      required: [a, b, rho, samples]
+      properties:
+        a: { type: string }
+        b: { type: string }
+        rho: { type: number, description: "Pearson correlation of daily log returns, -1..1" }
+        samples: { type: integer, description: "Overlapping trading days used" }
+
+    CandidateCorrelation:
+      type: object
+      required: [ticker, against]
+      properties:
+        ticker: { type: string }
+        against:
+          type: array
+          items:
+            $ref: "#/components/schemas/CorrelationPair"
+        maxRho: { type: ["number", "null"] }
+        maxRhoTicker: { type: ["string", "null"] }
+
+    PortfolioCorrelation:
+      type: object
+      required: [tickers, windowDays, traps, pairs]
+      properties:
+        tickers:
+          type: array
+          items: { type: string }
+        windowDays: { type: integer }
+        traps:
+          type: array
+          description: "Pairs at/above the 0.7 trap threshold, sorted by |rho| desc."
+          items:
+            $ref: "#/components/schemas/CorrelationPair"
+        pairs:
+          type: array
+          items:
+            $ref: "#/components/schemas/CorrelationPair"
+        effectivePositions:
+          type: ["number", "null"]
+          description: "Diversification-adjusted position count (N_eff). 5 positions at rho 0.9 is ~1.6 real positions."
+        candidate:
+          oneOf:
+            - $ref: "#/components/schemas/CandidateCorrelation"
+            - type: "null"
 
     QuiverCongressTrade:
       type: object
